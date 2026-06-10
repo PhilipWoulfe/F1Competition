@@ -1,0 +1,124 @@
+name: Rollback VM Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to deploy to the VM (for example sha-abcdef1 or stable)
+        required: true
+        type: string
+
+jobs:
+  rollback-prod-vm:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    env:
+      VM_TAILSCALE_HOST: ${{ vars.VM_TAILSCALE_HOST }}
+      VM_DEPLOY_USER: ${{ vars.VM_DEPLOY_USER }}
+      VM_DEPLOY_PATH: ${{ vars.VM_DEPLOY_PATH != '' && vars.VM_DEPLOY_PATH || '/opt/f1competition' }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+      ROLLBACK_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Connect runner to tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Validate production environment configuration
+        env:
+          TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          TAILSCALE_OAUTH_SECRET: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_ENV_FILE: ${{ secrets.VM_ENV_FILE }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          VM_TAILSCALE_HOST: ${{ vars.VM_TAILSCALE_HOST }}
+          VM_DEPLOY_USER: ${{ vars.VM_DEPLOY_USER }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+        run: |
+          set -euo pipefail
+          [[ -n "${TAILSCALE_OAUTH_CLIENT_ID:-}" ]] || { echo "Missing production secret: TAILSCALE_OAUTH_CLIENT_ID"; exit 1; }
+          [[ -n "${TAILSCALE_OAUTH_SECRET:-}" ]] || { echo "Missing production secret: TAILSCALE_OAUTH_SECRET"; exit 1; }
+          [[ -n "${VM_SSH_PRIVATE_KEY:-}" ]] || { echo "Missing production secret: VM_SSH_PRIVATE_KEY"; exit 1; }
+          [[ -n "${VM_ENV_FILE:-}" ]] || { echo "Missing production secret: VM_ENV_FILE"; exit 1; }
+          [[ -n "${GHCR_READ_TOKEN:-}" ]] || { echo "Missing production secret: GHCR_READ_TOKEN"; exit 1; }
+          [[ -n "${VM_TAILSCALE_HOST:-}" ]] || { echo "Missing production var: VM_TAILSCALE_HOST"; exit 1; }
+          [[ -n "${VM_DEPLOY_USER:-}" ]] || { echo "Missing production var: VM_DEPLOY_USER"; exit 1; }
+          [[ -n "${GHCR_USERNAME:-}" ]] || { echo "Missing production var: GHCR_USERNAME"; exit 1; }
+
+      - name: Configure SSH access
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' '${{ secrets.VM_SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VM_TAILSCALE_HOST" >> ~/.ssh/known_hosts
+
+      - name: Prepare rollback env file
+        run: |
+          set -euo pipefail
+          printf '%s' '${{ secrets.VM_ENV_FILE }}' > deploy.env
+          if grep -q '^TAG=' deploy.env; then
+            sed -i "s/^TAG=.*/TAG=$ROLLBACK_TAG/" deploy.env
+          else
+            echo "TAG=$ROLLBACK_TAG" >> deploy.env
+          fi
+
+      - name: Ensure remote deploy directory exists
+        run: |
+          set -euo pipefail
+          ssh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST" "mkdir -p '$VM_DEPLOY_PATH/scripts'"
+
+      - name: Upload compose and deploy scripts
+        run: |
+          set -euo pipefail
+          scp docker-compose.yml "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST:$VM_DEPLOY_PATH/docker-compose.yml"
+          scp scripts/deploy-preflight.sh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST:$VM_DEPLOY_PATH/scripts/deploy-preflight.sh"
+          scp scripts/deploy-smoke-check.sh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST:$VM_DEPLOY_PATH/scripts/deploy-smoke-check.sh"
+          scp deploy.env "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST:$VM_DEPLOY_PATH/.env"
+
+      - name: Log remote host into GHCR
+        run: |
+          set -euo pipefail
+          printf '%s' '${{ secrets.GHCR_READ_TOKEN }}' | ssh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST" "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
+
+      - name: Roll back VM deployment
+        run: |
+          set -euo pipefail
+          ssh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST" "cd '$VM_DEPLOY_PATH' && chmod +x scripts/*.sh && ./scripts/deploy-preflight.sh .env && docker compose --env-file .env pull && docker compose --env-file .env up -d && ./scripts/deploy-smoke-check.sh .env"
+
+      - name: Capture remote rollback state
+        run: |
+          set -euo pipefail
+          ssh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST" "cd '$VM_DEPLOY_PATH' && docker compose --env-file .env ps" > rollback-compose-ps.txt
+          ssh "$VM_DEPLOY_USER@$VM_TAILSCALE_HOST" "cd '$VM_DEPLOY_PATH' && docker compose --env-file .env ps --format json" > rollback-compose-ps.json
+
+      - name: Write rollback summary
+        run: |
+          {
+            echo '## VM Rollback';
+            echo '';
+            echo '- Environment: production';
+            echo '- Target host: '"$VM_TAILSCALE_HOST";
+            echo '- Deploy path: '"$VM_DEPLOY_PATH";
+            echo '- Image tag: '"$ROLLBACK_TAG";
+            echo '';
+            echo '### Remote docker compose ps';
+            echo '```text';
+            cat rollback-compose-ps.txt;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload rollback state artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prod-vm-rollback-state
+          path: |
+            rollback-compose-ps.txt
+            rollback-compose-ps.json

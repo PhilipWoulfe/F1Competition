@@ -49,7 +49,7 @@ services:
       - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=${POSTGRES_DB:-f1competition};Username=${POSTGRES_USER:-f1};Password=${POSTGRES_PASSWORD:-f1}
       - Database__AutoMigrate=${DB_AUTO_MIGRATE:-true}
       - CloudflareAccess__Audience=${CLOUDFLARE_AUDIENCE:-CloudflareAccessAudienceNotSet}
-      - CloudflareAccess__Issuer=https://f1-team.cloudflareaccess.com
+      - CloudflareAccess__Issuer=${CLOUDFLARE_ISSUER:-https://f1-team.cloudflareaccess.com}
       - CloudflareAccess__AdminGroupClaimType=${ADMIN_GROUP_CLAIM_TYPE:-groups}
       - CloudflareAccess__AdminGroups=${ADMIN_GROUPS:-F1 Admins}
       - CloudflareAccess__AdminEmails=${ADMIN_EMAILS:-}
@@ -92,22 +92,6 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN} # Store that token in your .env file
-
-  # watchtower shouldn't be deployed to PROD as it will auto-pull whatever tag the running test containers follow
-  watchtower:
-    profiles: ["cloud"]  # It won't start unless you specifically ask for it
-    image: nickfedor/watchtower:latest
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json
-    environment:
-      # Tell watchtower explicitly to use the newer API version
-      - DOCKER_API_VERSION=1.44
-      - WATCHTOWER_POLL_INTERVAL=30
-      - WATCHTOWER_CLEANUP=true
-      - DOCKER_CONFIG=/
-    restart: unless-stopped
 
 volumes:
   postgres-data:

@@ -8,7 +8,7 @@
 
 ![Deployment](https://img.shields.io/badge/Deployment-Staged-blue)
 
-![Proxmox](https://img.shields.io/badge/Host-Proxmox_LXC-orange)
+![Runtime](https://img.shields.io/badge/Runtime-LXC_now%20%E2%86%92%20VM_target-orange)
 
 ## Overview
 
@@ -27,12 +27,18 @@ The solution is built using **.NET 8** and follows **Clean Architecture** princi
 
 ## 🏗️ Infrastructure & CI/CD
 
-The platform is hosted on a local **Proxmox Virtualization Environment** using Debian 12 LXC containers.
+Current runtime is a local **Proxmox Virtualization Environment** using Debian 12 LXC containers. The active migration target is a dedicated VM so Docker is isolated from the Proxmox host.
+
+Deployment runbook:
+- See [DEPLOYMENT.md](DEPLOYMENT.md) for the living VM setup, secrets, deploy, and rollback instructions.
+- See [scripts/github-sync-environment.sh](scripts/github-sync-environment.sh) to batch-apply GitHub Environment vars/secrets via CLI.
+- See [scripts/generate-github-env-files.sh](scripts/generate-github-env-files.sh) to generate test/production GitHub env files from current LXC `.env`.
+- See [scripts/bootstrap-vm.sh](scripts/bootstrap-vm.sh) to automate first-time VM bootstrap.
 
 ### **The Pipeline**
 1. **Continuous Integration**: GitHub Actions builds the .NET solution, executes unit tests, and enforces a code coverage gate (80% target).
 2. **Registry**: Successful builds on `main` are packaged into Docker images and pushed to **GitHub Container Registry (GHCR)**.
-3. **Automated Staging (`f1-test`)**: The test environment runs **Watchtower**, which automatically pulls and restarts the containers whenever the moving `:test` image aliases are updated.
+3. **Automated Staging (`f1-test`)**: GitHub Actions deploys the moving `:test` aliases to the test host using the same preflight and smoke-check flow as production.
 4. **Production Gate (`f1-prod`)**: Deployment to production requires **Manual Approval** via GitHub Environments, ensuring a stable "human-in-the-loop" verification before live updates.
 
 ### **Image Tag Strategy**
@@ -46,16 +52,22 @@ Rollback process:
 
 | Environment | Host IP (Internal) | Port | Deployment Logic |
 | :--- | :--- | :--- | :--- |
-| **Test** | `192.168.0.50` | `5000` | Automated (Watchtower) |
+| **Test** | `192.168.0.50` | `5000` | Automated (CI deploy workflow) |
 | **Production** | `192.168.0.51` | `5000` | Manual (Gatekeeper) |
 
 ### **Public Access (Cloudflare Tunnel)**
 The solution uses **Cloudflare Tunnels** to securely expose the services without opening ports on the router.
 - **Profile**: `cloud` (Enabled via `COMPOSE_PROFILES=cloud` or `--profile cloud`)
 - **Token**: Managed via `TUNNEL_TOKEN` in `.env`.
+- **Profiles by environment**: Test and production should both use `COMPOSE_PROFILES=cloud`.
 - **Domains**:
   - Test: `https://f1-test.philipwoulfe.com`
   - API: `https://f1-api-test.philipwoulfe.com`
+
+### **Network Model (Migration Target)**
+- **Cloudflare** handles public ingress: DNS, TLS, tunnel, and edge access policy.
+- **Tailscale** handles private operator and deployment access to the VM.
+- Public SSH should remain disabled on the VM; CI deploys should use the private Tailscale path.
 
 ---
 
@@ -113,6 +125,7 @@ Required API values in `.env`:
 
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: used to build `ConnectionStrings__Postgres` for `f1-api`.
 - `CLOUDFLARE_AUDIENCE`: mapped to `CloudflareAccess__Audience` for `f1-api`.
+- `CLOUDFLARE_ISSUER`: mapped to `CloudflareAccess__Issuer` for `f1-api`.
 
 For non-Docker local API runs (`dotnet run`), configure `ConnectionStrings:Postgres` via environment variable or user-secrets instead of committing credentials in appsettings files:
 
@@ -158,10 +171,13 @@ Optional development toggle in `.env`:
 
 Notes:
 
-- `CloudflareAccess__Issuer` is currently set in `docker-compose.yml`.
+- `CLOUDFLARE_ISSUER` is mapped in `docker-compose.yml` to `CloudflareAccess__Issuer` for `f1-api`.
 - `API_BASE_URL` is set to `/api/` directly in `docker-compose.yml` for `f1-web` and is not read from `.env`.
 - `/api/users/debug/me` returns sanitized post-auth claims, groups, and role resolution data only when `DEV_ENABLE_DEBUG_ENDPOINTS=true` and the API is running in `Development` or `Test`.
 - `TAG` applies to API, Web, and Data Sync worker images. Use `TAG=test` for the test host, `TAG=stable` for production, and `TAG=sha-<shortsha>` for rollback or pinning a specific build.
+- Run `./scripts/deploy-preflight.sh` before VM-targeted compose deployment to validate required env keys, writable log path, and minimum free disk.
+- Run `./scripts/deploy-smoke-check.sh` after deployment to validate API health, web reachability, and expected worker state.
+- Container health checks are available on API `GET /health` and web root `/` for deploy validation.
 
 #### B. Data Sync Worker (`src/F1.DataSyncWorker/appsettings*.json`)
 The worker reads `ConnectionStrings:Postgres` and the `DataSyncWorker` section. Default config includes the three baseline competitions for this epic:

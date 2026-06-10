@@ -16,9 +16,10 @@ COPY --from=build /app/publish/wwwroot .
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 # Install jq for runtime configuration injection
-RUN apk add --no-cache jq
+RUN apk add --no-cache jq curl
 
 # Inject environment variables into appsettings.json at runtime
 CMD ["/bin/sh", "-c", "jq --arg url \"$API_BASE_URL\" --arg env \"$BLAZOR_ENVIRONMENT\" '.ApiBaseUrl = $url | .Environment = $env' appsettings.json > tmp.json && mv tmp.json appsettings.json && envsubst '$BLAZOR_ENVIRONMENT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
 
 EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl --fail http://127.0.0.1/ || exit 1

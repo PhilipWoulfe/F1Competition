@@ -131,6 +131,8 @@ app.UseMiddleware<CloudflareAccessMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
 app.MapControllers(); // This line is crucial for mapping your controllers
 
 app.MapGet("/races/results", (IRaceService raceService) =>

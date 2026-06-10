@@ -46,6 +46,12 @@ namespace F1.Api.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            if (context.Request.Path.Equals("/health", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
+
             var devSettings = _configuration.GetSection("DevSettings");
             if (_hostEnvironment.IsDevelopment() && devSettings.Exists() && devSettings.GetValue<bool>("SimulateCloudflare"))
             {
