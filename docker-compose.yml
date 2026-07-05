@@ -96,17 +96,16 @@ services:
   # watchtower shouldn't be deployed to PROD as it will auto-pull whatever tag the running test containers follow
   watchtower:
     profiles: ["cloud"]  # It won't start unless you specifically ask for it
-    image: nickfedor/watchtower:latest
+    image: containrrr/watchtower:latest
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json
+      - /root/.docker/config.json:/config/config.json:ro
     environment:
-      # Tell watchtower explicitly to use the newer API version
+      - DOCKER_CONFIG=/config
       - DOCKER_API_VERSION=1.44
       - WATCHTOWER_POLL_INTERVAL=30
       - WATCHTOWER_CLEANUP=true
-      - DOCKER_CONFIG=/
     restart: unless-stopped
 
 volumes:
