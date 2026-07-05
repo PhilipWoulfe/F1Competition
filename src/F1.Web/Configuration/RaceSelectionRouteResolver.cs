@@ -47,7 +47,7 @@ public static class RaceSelectionRouteResolver
             return true;
         }
 
-        errorMessage ??= "Race context is missing. Open this page using /selection/{raceId} or /selection/{competition}/{season}/round/{round}.";
+        errorMessage ??= "Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.";
         return false;
     }
 

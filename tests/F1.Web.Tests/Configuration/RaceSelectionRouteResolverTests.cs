@@ -56,7 +56,7 @@ public class RaceSelectionRouteResolverTests
 
         Assert.False(success);
         Assert.Null(context);
-        Assert.Equal("Race context is missing. Open this page using /selection/{raceId} or /selection/{competition}/{season}/round/{round}.", errorMessage);
+        Assert.Equal("Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.", errorMessage);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class RaceSelectionRouteResolverTests
 
         Assert.False(success);
         Assert.Null(context);
-        Assert.Equal("Race context is missing. Open this page using /selection/{raceId} or /selection/{competition}/{season}/round/{round}.", errorMessage);
+        Assert.Equal("Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.", errorMessage);
     }
 
     [Fact]
