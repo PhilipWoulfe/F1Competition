@@ -18,10 +18,6 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
     public StagedImportRow Classify(int rowNumber, string rawLine)
     {
         var columns = ParseCsvLine(rawLine);
-        if (columns.Count == 0)
-        {
-            return new StagedImportRow(rowNumber, SectionBlank, rawLine);
-        }
 
         var label = columns[0].Trim();
         var values = columns.Skip(1).Select(x => x.Trim()).ToArray();
