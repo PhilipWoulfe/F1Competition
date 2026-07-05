@@ -48,7 +48,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             .GroupBy(x => new PickDiffKey(x.RaceCode, x.PickType, x.Subject), PickDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
-                x => x.Any(y => y.LegacyPoints is null) ? null : x.Sum(y => y.LegacyPoints.Value),
+                x => x.Any(y => y.LegacyPoints is null) ? (int?)null : x.Sum(y => y.LegacyPoints ?? 0),
                 PickDiffKeyComparer.Instance);
 
         var calculatedByKey = calculated
