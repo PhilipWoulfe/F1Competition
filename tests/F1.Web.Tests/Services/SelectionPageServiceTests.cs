@@ -9,7 +9,7 @@ namespace F1.Web.Tests.Services;
 public class SelectionPageServiceTests
 {
     [Fact]
-    public async Task LoadAsync_WhenExistingAndSnapshotExist_AppliesSnapshotOrderAndSelectionType()
+    public async Task LoadAsync_WhenExistingAndSnapshotExists_AppliesSnapshotOrderAndSelectionType()
     {
         var driversApi = new Mock<IDriversApiService>();
         var selectionApi = new Mock<ISelectionApiService>();
