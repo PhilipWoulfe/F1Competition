@@ -211,7 +211,7 @@ jobs:
         if: github.event_name != 'pull_request' && (steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch')
         uses: docker/build-push-action@v7
         with:
-          context: src/F1.Web
+          context: .
           file: src/F1.Web/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
           cache-from: type=gha,scope=f1-web-release

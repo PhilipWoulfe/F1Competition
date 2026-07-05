@@ -71,7 +71,7 @@ jobs:
         if: github.event.inputs.service == 'all' || github.event.inputs.service == 'web'
         uses: docker/build-push-action@v7
         with:
-          context: src/F1.Web
+          context: .
           file: src/F1.Web/Dockerfile
           push: true
           cache-from: type=gha,scope=f1-web-debug
