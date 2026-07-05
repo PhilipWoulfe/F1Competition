@@ -16,7 +16,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     {
         ["MAX"] = "VER",
         ["HULK"] = "HUL",
-        ["BEAR MAN"] = "BEAR",
+        ["BEAR MAN"] = "BEA",
+        ["BEAR"] = "BEA",
+        ["BORT"] = "BOR",
+        ["LEEC"] = "LEC",
         ["NONE"] = null,
         ["NOT"] = null
     };
