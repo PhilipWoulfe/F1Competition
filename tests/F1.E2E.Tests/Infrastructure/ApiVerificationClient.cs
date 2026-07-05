@@ -25,7 +25,7 @@ internal class ApiVerificationClient : IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string raceId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string? raceId, CancellationToken cancellationToken)
     {
         var targetRaceId = string.IsNullOrWhiteSpace(raceId) ? _raceId : raceId;
         if (string.IsNullOrWhiteSpace(targetRaceId))

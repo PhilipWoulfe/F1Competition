@@ -347,16 +347,22 @@ jobs:
           max_attempts=60
           stable_required=3
           stable_count=0
+          context_response=""
+          api_config=""
 
           for attempt in $(seq 1 "$max_attempts"); do
             web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json?ts=$(date +%s)" 2>/dev/null || true)"
+            context_response=""
             resolved_race_id="$RACE_ID"
             if [ -z "$resolved_race_id" ]; then
               context_response="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/races/context/$COMPETITION_SLUG/$SEASON/round/$ROUND" 2>/dev/null || true)"
               resolved_race_id="$(printf '%s' "$context_response" | sed -n 's/.*"raceId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
             fi
 
-            api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$resolved_race_id/config" 2>/dev/null || true)"
+            api_config=""
+            if [ -n "$resolved_race_id" ]; then
+              api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$resolved_race_id/config" 2>/dev/null || true)"
+            fi
             actual_web_sha="$(printf '%s' "$web_version" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
             web_ok=false
@@ -377,6 +383,9 @@ jobs:
 
             echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok web_check_required=$WEB_CHECK_REQUIRED stable_count=$stable_count"
             echo "resolved_race_id=${resolved_race_id:-<none>} context=$COMPETITION_SLUG/$SEASON/round/$ROUND"
+            if [ -z "$resolved_race_id" ]; then
+              echo "Race context lookup did not resolve a race id. context_response=${context_response:-<empty>}"
+            fi
             echo "expected_sha_full=$EXPECTED_SHA_FULL expected_sha_short=$EXPECTED_SHA_SHORT actual_web_sha=${actual_web_sha:-<unparsed>}"
             echo "web_version=$web_version"
 
@@ -395,6 +404,7 @@ jobs:
           done
 
           echo "Timed out waiting for deployment. expected_full=$EXPECTED_SHA_FULL expected_short=$EXPECTED_SHA_SHORT"
+          echo "Last context response: ${context_response:-<empty>}"
           echo "Last web version response: $web_version"
           echo "Last API config response: $api_config"
           exit 1

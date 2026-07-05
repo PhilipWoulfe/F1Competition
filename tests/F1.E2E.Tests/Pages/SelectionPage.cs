@@ -75,6 +75,17 @@ internal class SelectionPage
             throw new InvalidOperationException($"At least {slotCount} unique driver IDs are required.");
         }
 
+        var chosenDriverIds = driverIds
+            .Take(slotCount)
+            .Where(static driverId => !string.IsNullOrWhiteSpace(driverId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (chosenDriverIds < slotCount)
+        {
+            throw new InvalidOperationException($"At least {slotCount} unique driver IDs are required.");
+        }
+
         for (var i = 0; i < slotCount; i++)
         {
             var dropdown = new SelectElement(_driver.FindElement(By.Id($"driver-select-{i + 1}")));
