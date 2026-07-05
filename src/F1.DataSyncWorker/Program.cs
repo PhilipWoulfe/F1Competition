@@ -13,6 +13,12 @@ builder.Services
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
 
+builder.Services
+	.AddOptions<MigrationImportOptions>()
+	.Bind(builder.Configuration.GetSection(MigrationImportOptions.SectionName))
+	.ValidateDataAnnotations()
+	.ValidateOnStart();
+
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres");
 if (string.IsNullOrWhiteSpace(postgresConnectionString))
 {
@@ -30,6 +36,8 @@ builder.Services
 
 builder.Services.AddSingleton<IJolpicaClient, JolpicaClient>();
 builder.Services.AddSingleton<IDataSyncOrchestrator, DataSyncOrchestrator>();
+builder.Services.AddSingleton<IMigrationImportRunService, MigrationImportRunService>();
+builder.Services.AddSingleton<IMigrationImportOrchestrator, MigrationImportOrchestrator>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

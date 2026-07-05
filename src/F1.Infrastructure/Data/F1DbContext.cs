@@ -17,6 +17,8 @@ public class F1DbContext : DbContext
     public DbSet<Selection> Selections => Set<Selection>();
     public DbSet<SelectionPositionEntity> SelectionPositions => Set<SelectionPositionEntity>();
     public DbSet<RaceMetadataEntity> RaceMetadata => Set<RaceMetadataEntity>();
+    public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
+    public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,6 +106,33 @@ public class F1DbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.RaceId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MigrationImportRunEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRuns");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceFilePath).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.SourceFileChecksum).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ErrorMessage).HasMaxLength(4000);
+            entity.HasIndex(x => x.SourceFileChecksum);
+            entity.HasIndex(x => x.StartedAtUtc);
+        });
+
+        modelBuilder.Entity<MigrationImportRawRowEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRawRows");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SectionType).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.RawPayload).HasColumnType("text").IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber }).IsUnique();
         });
     }
 }

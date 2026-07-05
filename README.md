@@ -200,6 +200,22 @@ When running the worker directly (outside Docker Compose), set `DataSyncWorker__
 
 For Docker Compose runtime, `f1-data-sync-worker` runs automatically and reads values from `.env`.
 
+Migration import mode (Story #239 / Phil 2025 one-time load):
+
+- Set `MigrationImport__Enabled=true` to switch worker execution from Jolpica sync mode to migration import mode.
+- Set `MigrationImport__SourceFilePath` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
+- Set `MigrationImport__DryRun=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
+
+Example one-shot dry-run:
+
+```bash
+export ConnectionStrings__Postgres='Host=localhost;Port=5432;Database=f1competition;Username=<user>;Password=<password>'
+export MigrationImport__Enabled=true
+export MigrationImport__SourceFilePath='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
+export MigrationImport__DryRun=true
+dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj
+```
+
 #### C. Azure Function (`local.settings.json`) - Legacy Path
 This file configures the legacy Cosmos ingestion service and is no longer the canonical baseline seed path. It remains for migration fallback only.
 
