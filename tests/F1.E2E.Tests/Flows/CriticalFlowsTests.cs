@@ -43,30 +43,38 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldPersistServerSide), output);
         using var driver = WebDriverFactory.Create(options);
         var wait = WebDriverFactory.CreateWait(driver, options.Timeout);
-        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, options.RaceId, trace.Log);
         using var api = new ApiVerificationClient(options);
         var testPassed = false;
+        var targetRaceId = string.Empty;
 
         try
         {
-            trace.Log("Setting mock date before selection submit.");
-            await api.SetMockDate("2025-12-07T23:00:00Z", CancellationToken.None);
+            targetRaceId = await ResolveTargetRaceIdAsync(api, options, trace.Log);
+            var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+            var beforeFinalDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(-30);
+            trace.Log($"Setting mock date before selection submit: {beforeFinalDeadline:O}");
+            await api.SetMockDate(beforeFinalDeadline.ToString("O"), CancellationToken.None);
+
+            var selectionPath = options.BuildSelectionRoutePath();
+            var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, selectionPath, trace.Log);
 
             selectionPage.Navigate();
             selectionPage.WaitUntilReady();
+            var slotCount = selectionPage.GetSelectionSlotCount();
 
             var selectableDrivers = selectionPage.GetSelectableDriverIds();
-            Assert.True(selectableDrivers.Count >= 5, "Selection page must expose at least 5 selectable drivers.");
-            trace.Log($"Selectable drivers available: {selectableDrivers.Count}");
+            Assert.True(slotCount > 0, "Selection page must expose at least one selectable slot.");
+            Assert.True(selectableDrivers.Count >= slotCount, $"Selection page must expose at least {slotCount} selectable drivers.");
+            trace.Log($"Selectable drivers available: {selectableDrivers.Count}; slots: {slotCount}");
 
-            var selected = selectableDrivers.Take(5).ToList();
-            trace.Log($"Submitting top five: {string.Join(",", selected)}");
-            selectionPage.SelectTopFive(selected);
+            var selected = selectableDrivers.Take(slotCount).ToList();
+            trace.Log($"Submitting selected drivers: {string.Join(",", selected)}");
+            selectionPage.SelectDrivers(selected);
             selectionPage.ClickSubmit();
             selectionPage.WaitForSaveConfirmation();
 
             trace.Log("Waiting for API persistence verification.");
-            await api.WaitForSelectionPersistenceAsync(options.RaceId, selected[0], options.Timeout, CancellationToken.None);
+            await api.WaitForSelectionPersistenceAsync(targetRaceId, selected[0], options.Timeout, CancellationToken.None);
             testPassed = true;
         }
         finally
@@ -125,8 +133,9 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             adminPage.WaitForSaveConfirmation();
 
             using var api = new ApiVerificationClient(options);
+            var targetRaceId = await ResolveTargetRaceIdAsync(api, options, trace.Log);
             trace.Log("Waiting for metadata update via API verification.");
-            var metadata = await api.WaitForMetadataAsync(options.RaceId, h2hQuestion, options.Timeout, CancellationToken.None);
+            var metadata = await api.WaitForMetadataAsync(targetRaceId, h2hQuestion, options.Timeout, CancellationToken.None);
 
             Assert.Equal(h2hQuestion, metadata.H2HQuestion);
             Assert.Equal(bonusQuestion, metadata.BonusQuestion);
@@ -146,9 +155,10 @@ public class CriticalFlowsTests(ITestOutputHelper output)
     {
         var options = E2eOptions.FromEnvironment();
 
-        // Set mock date header to after the final deadline
-        var afterDeadline = "2025-12-08T12:01:00Z";
         using var api = new ApiVerificationClient(options);
+        var targetRaceId = await ResolveTargetRaceIdAsync(api, options, _ => { });
+        var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+        var afterDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(1).ToString("O");
         api.SetMockDateHeader(afterDeadline);
 
         var submission = new
@@ -164,7 +174,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             }
         };
 
-        var response = await api.PutSelectionAsync(options.RaceId, submission);
+        var response = await api.PutSelectionAsync(targetRaceId, submission);
         Assert.True(
             response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
             response.StatusCode == System.Net.HttpStatusCode.BadRequest ||
@@ -177,18 +187,22 @@ public class CriticalFlowsTests(ITestOutputHelper output)
     {
         var options = E2eOptions.FromEnvironment();
 
-        var afterDeadline = "2025-12-08T12:01:00Z";
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldShowError_AfterDeadline_Ui), output);
         using var driver = WebDriverFactory.Create(options);
         var wait = WebDriverFactory.CreateWait(driver, options.Timeout);
-        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, options.RaceId, trace.Log);
         using var api = new ApiVerificationClient(options);
         var testPassed = false;
 
         try
         {
-            trace.Log("Setting mock date after final deadline.");
-            await api.SetMockDate(afterDeadline, CancellationToken.None);
+            var targetRaceId = await ResolveTargetRaceIdAsync(api, options, trace.Log);
+            var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+            var afterDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(1);
+            trace.Log($"Setting mock date after final deadline: {afterDeadline:O}");
+            await api.SetMockDate(afterDeadline.ToString("O"), CancellationToken.None);
+
+            var selectionPath = options.BuildSelectionRoutePath();
+            var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, selectionPath, trace.Log);
 
             selectionPage.Navigate();
             selectionPage.WaitUntilReady();
@@ -226,5 +240,19 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             if (!testPassed) E2eArtifacts.CaptureOnFailure(driver, nameof(SubmitSelection_ShouldShowError_AfterDeadline_Ui), output);
             DebugHold.WaitIfEnabled("SubmitSelection_ShouldShowError_AfterDeadline_Ui teardown");
         }
+    }
+
+    private static async Task<string> ResolveTargetRaceIdAsync(ApiVerificationClient api, E2eOptions options, Action<string> trace)
+    {
+        if (!string.IsNullOrWhiteSpace(options.RaceId))
+        {
+            trace($"Using explicit E2E_RACE_ID={options.RaceId}.");
+            return options.RaceId;
+        }
+
+        trace($"Resolving race id from context {options.CompetitionSlug}/{options.Season}/round/{options.Round}.");
+        var resolved = await api.ResolveRaceIdByRoundAsync(options.CompetitionSlug, options.Season, options.Round, CancellationToken.None);
+        trace($"Resolved race id: {resolved}");
+        return resolved;
     }
 }

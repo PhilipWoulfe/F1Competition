@@ -275,7 +275,10 @@ Optional E2E tuning:
 
 - `E2E_TIMEOUT_SECONDS`: defaults to 20 locally and 30 in CI.
 - `E2E_HEADLESS`: defaults to true.
-- `E2E_RACE_ID`: defaults to `2025-24-yas_marina`.
+- `E2E_COMPETITION_SLUG`: defaults to `main-2026`.
+- `E2E_SEASON`: defaults to `2026`.
+- `E2E_ROUND`: defaults to `1`.
+- `E2E_RACE_ID`: optional explicit race ID override. When unset, E2E resolves race ID via `/races/context/{competitionSlug}/{season}/round/{round}`.
 - `E2E_STEP_TRACE_PATH`: optional override for always-on Selenium step logs. Defaults to `TestResults/e2e/step-traces`.
 
 Test-only service-token fallback controls (use only when Cloudflare service-token JWTs omit email claims):
