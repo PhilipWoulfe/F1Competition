@@ -363,7 +363,7 @@ jobs:
               api_ok=true
             fi
 
-            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok stable_count=$stable_count"
+            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok web_check_required=$WEB_CHECK_REQUIRED stable_count=$stable_count"
             echo "expected_sha_full=$EXPECTED_SHA_FULL expected_sha_short=$EXPECTED_SHA_SHORT actual_web_sha=${actual_web_sha:-<unparsed>}"
             echo "web_version=$web_version"
 
