@@ -10,17 +10,20 @@ public class SelectionService : ISelectionService
     private readonly IDriverRepository _driverRepository;
     private readonly IRaceRepository _raceRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly ISelectionRuleProvider _selectionRuleProvider;
 
     public SelectionService(
         ISelectionRepository selectionRepository,
         IDriverRepository driverRepository,
         IRaceRepository raceRepository,
-        IDateTimeProvider dateTimeProvider)
+        IDateTimeProvider dateTimeProvider,
+        ISelectionRuleProvider selectionRuleProvider)
     {
         _selectionRepository = selectionRepository;
         _driverRepository = driverRepository;
         _raceRepository = raceRepository;
         _dateTimeProvider = dateTimeProvider;
+        _selectionRuleProvider = selectionRuleProvider;
     }
 
     public async Task<Selection?> GetSelectionAsync(string raceId, string userId)
@@ -34,7 +37,7 @@ public class SelectionService : ISelectionService
 
         var nowUtc = _dateTimeProvider.UtcNow;
         var race = await _raceRepository.GetRaceAsync(selection.RaceId);
-        selection.IsLocked = race is null || IsPreQualyLocked(selection, race, nowUtc) || nowUtc > race.FinalDeadlineUtc;
+        selection.IsLocked = race is null || IsLocked(selection, race, nowUtc);
         return selection;
     }
 
@@ -50,16 +53,23 @@ public class SelectionService : ISelectionService
         }
 
         var nowUtc = _dateTimeProvider.UtcNow;
+        var rules = _selectionRuleProvider.GetRules(race, nowUtc);
         var existingSelection = await _selectionRepository.GetSelectionAsync(raceId, userId);
 
-        if (existingSelection is not null && IsPreQualyLocked(existingSelection, race, nowUtc))
+        if (!rules.Supports(submission.BetType))
         {
-            throw new SelectionForbiddenException($"Pre-Qualy locked selections cannot be edited after {race.PreQualyDeadlineUtc:u}.");
+            throw new SelectionValidationException($"{rules.GetLabel(submission.BetType)} is not available for this competition.");
         }
 
-        if (submission.BetType == BetType.PreQualy && nowUtc > race.PreQualyDeadlineUtc)
+        if (existingSelection is not null && IsLocked(existingSelection, race, nowUtc))
         {
-            throw new SelectionValidationException($"Pre-Qualy strategy is no longer available after {race.PreQualyDeadlineUtc:u}.");
+            var lockedLabel = rules.EarlyLockBetType is null ? "Selections" : $"{rules.GetLabel(rules.EarlyLockBetType.Value)} selections";
+            throw new SelectionForbiddenException($"{lockedLabel} cannot be edited after {race.PreQualyDeadlineUtc:u}.");
+        }
+
+        if (!rules.IsAvailable(submission.BetType))
+        {
+            throw new SelectionValidationException($"{rules.GetLabel(submission.BetType)} strategy is no longer available after {race.PreQualyDeadlineUtc:u}.");
         }
 
         if (nowUtc > race.FinalDeadlineUtc)
@@ -124,11 +134,25 @@ public class SelectionService : ISelectionService
         var race = await _raceRepository.GetRaceAsync(raceId);
         if (race is not null)
         {
+            var rules = _selectionRuleProvider.GetRules(race, _dateTimeProvider.UtcNow);
             return new RaceConfigDto
             {
                 RaceId = race.Id,
                 PreQualyDeadlineUtc = race.PreQualyDeadlineUtc,
-                FinalDeadlineUtc = race.FinalDeadlineUtc
+                FinalDeadlineUtc = race.FinalDeadlineUtc,
+                EarlyLockBetType = rules.EarlyLockBetType,
+                EarlyLockLabel = rules.EarlyLockLabel,
+                FinalSubmissionLabel = rules.FinalSubmissionLabel,
+                LockMessage = rules.LockMessage,
+                LockedSelectionMessage = rules.LockedSelectionMessage,
+                BetOptions = rules.BetOptions
+                    .Select(option => new BetOptionDto
+                    {
+                        BetType = option.BetType,
+                        Label = option.Label,
+                        IsAvailable = option.IsAvailable
+                    })
+                    .ToList()
             };
         }
 
@@ -179,8 +203,10 @@ public class SelectionService : ISelectionService
         }
     }
 
-    private static bool IsPreQualyLocked(Selection selection, Race race, DateTime nowUtc)
+    private bool IsLocked(Selection selection, Race race, DateTime nowUtc)
     {
-        return selection.BetType == BetType.PreQualy && nowUtc > race.PreQualyDeadlineUtc;
+        var rules = _selectionRuleProvider.GetRules(race, nowUtc);
+        return nowUtc > race.FinalDeadlineUtc
+            || (rules.LocksAtEarlyDeadline(selection.BetType) && nowUtc > race.PreQualyDeadlineUtc);
     }
 }

@@ -13,6 +13,7 @@ namespace F1.Api.Tests.Controllers;
 public class SelectionsControllerTests
 {
     private const string RaceId = "2026-01-albert_park";
+    private static readonly ISelectionRuleProvider SelectionRuleProvider = new SelectionRuleProvider();
 
     [Fact]
     public async Task GetCurrent_ShouldReturnUnauthorized_WhenUserCannotBeResolved()
@@ -259,7 +260,7 @@ public class SelectionsControllerTests
                 FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)
             });
 
-        return new SelectionService(mockRepo.Object, mockDriverRepo.Object, mockRaceRepo.Object, mockDateTimeProvider.Object);
+        return new SelectionService(mockRepo.Object, mockDriverRepo.Object, mockRaceRepo.Object, mockDateTimeProvider.Object, SelectionRuleProvider);
     }
 
     private static SelectionsController CreateController(Mock<ISelectionService> serviceMock)

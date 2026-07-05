@@ -66,6 +66,7 @@ public class SelectionPageServiceTests
         Assert.Equal("leclerc", result.State.SelectedDriverIds[1]);
         Assert.Equal(BetType.PreQualy, result.State.SelectedBetType);
         Assert.False(result.State.IsReadOnly);
+        Assert.Contains(result.RaceConfig.BetOptions, option => option.BetType == BetType.PreQualy && option.IsAvailable);
     }
 
     [Fact]
@@ -166,7 +167,13 @@ public class SelectionPageServiceTests
         {
             RaceId = "2025-24-yas_marina",
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
-            FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
+            FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
+            BetOptions =
+            [
+                new BetOption { BetType = BetType.Regular, Label = "Regular", IsAvailable = true },
+                new BetOption { BetType = BetType.PreQualy, Label = "Pre-Qualy", IsAvailable = true },
+                new BetOption { BetType = BetType.AllOrNothing, Label = "All-or-Nothing", IsAvailable = true }
+            ]
         };
     }
 }

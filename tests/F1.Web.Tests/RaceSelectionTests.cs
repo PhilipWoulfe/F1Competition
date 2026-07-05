@@ -14,7 +14,7 @@ public class RaceSelectionTests : BunitContext
 {
     public RaceSelectionTests()
     {
-        Services.AddSingleton<ITimeProvider, DefaultTimeProvider>();
+        Services.AddSingleton<ITimeProvider>(new FrozenTimeProvider(new DateTime(2025, 12, 6, 9, 0, 0, DateTimeKind.Utc)));
         Services.AddSingleton<IMockDateService, TestMockDateService>();
         Services.AddSingleton<ISelectionPageService, SelectionPageService>();
         Services.AddSingleton<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
@@ -24,7 +24,14 @@ public class RaceSelectionTests : BunitContext
     {
         RaceId = "2025-24-yas_marina",
         PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 4, 30, 0, DateTimeKind.Utc),
-        FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc)
+        FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc),
+        LockMessage = "Locking for Pre-Qualy gives +50% points and prevents changes after 07 Dec 2025 04:30 UTC.",
+        BetOptions =
+        [
+            new BetOption { BetType = BetType.Regular, Label = "Regular", IsAvailable = true },
+            new BetOption { BetType = BetType.PreQualy, Label = "Pre-Qualy", IsAvailable = true },
+            new BetOption { BetType = BetType.AllOrNothing, Label = "All-or-Nothing", IsAvailable = true }
+        ]
     };
 
     private static readonly Driver[] DefaultDrivers =
@@ -193,7 +200,8 @@ public class RaceSelectionTests : BunitContext
         {
             RaceId = raceId,
             PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
-            FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc)
+            FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc),
+            BetOptions = DefaultRaceConfig.BetOptions
         });
         var savedSelection = new Selection
         {
@@ -330,7 +338,8 @@ public class RaceSelectionTests : BunitContext
         {
             RaceId = "2025-24-yas_marina",
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
-            FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
+            FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
+            BetOptions = DefaultRaceConfig.BetOptions
         };
 
         Services.AddSingleton<ITimeProvider>(new FrozenTimeProvider(new DateTime(2025, 12, 8, 12, 1, 0, DateTimeKind.Utc)));
@@ -374,7 +383,8 @@ public class RaceSelectionTests : BunitContext
             {
                 RaceId = resolved.RaceId,
                 PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
-                FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc)
+                FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc),
+                BetOptions = DefaultRaceConfig.BetOptions
             },
             resolvedContext: resolved);
 
@@ -425,6 +435,30 @@ public class RaceSelectionTests : BunitContext
         var cut = Render<RaceSelection>(parameters => parameters.Add(p => p.RaceId, "bad race id"));
 
         cut.WaitForAssertion(() => Assert.Contains("Race context is invalid.", cut.Markup));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldDisableUnavailableEarlyLockBet_ForNonYasRace()
+    {
+        RegisterDefaultMocks(config: new RaceConfig
+        {
+            RaceId = "2026-01-albert_park",
+            PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
+            FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc),
+            BetOptions =
+            [
+                new BetOption { BetType = BetType.Regular, Label = "Regular", IsAvailable = true },
+                new BetOption { BetType = BetType.PreQualy, Label = "Pre-Qualy", IsAvailable = false },
+                new BetOption { BetType = BetType.AllOrNothing, Label = "All-or-Nothing", IsAvailable = true }
+            ],
+            LockMessage = "Locking for Pre-Qualy gives +50% points and prevents changes after 15 Mar 2026 04:00 UTC."
+        });
+
+        var cut = RenderForRace("2026-01-albert_park");
+
+        cut.WaitForAssertion(() => Assert.Contains("15 Mar 2026 04:00 UTC", cut.Markup));
+        Assert.True(cut.Find("#strategy-prequaly").HasAttribute("disabled"));
+        Assert.False(cut.Find("#strategy-regular").HasAttribute("disabled"));
     }
 
     private static void ChangeSelect(IRenderedComponent<RaceSelection> cut, int index, string value)
