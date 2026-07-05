@@ -59,7 +59,23 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         try
         {
             var totalRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
-            var parsedRaceSelections = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
+            var parseResult = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
+            if (parseResult.UnresolvedTokenCount > 0)
+            {
+                if (_importOptions.UnresolvedTokenFailThreshold > 0 &&
+                    parseResult.UnresolvedTokenCount >= _importOptions.UnresolvedTokenFailThreshold)
+                {
+                    throw new InvalidOperationException(
+                        $"Migration import unresolved token threshold reached. UnresolvedTokenCount={parseResult.UnresolvedTokenCount}, Threshold={_importOptions.UnresolvedTokenFailThreshold}.");
+                }
+
+                _logger.LogWarning(
+                    "Migration import completed with unresolved tokens below fail threshold. RunId={RunId}, UnresolvedTokenCount={UnresolvedTokenCount}, FailThreshold={FailThreshold}",
+                    run.RunId,
+                    parseResult.UnresolvedTokenCount,
+                    _importOptions.UnresolvedTokenFailThreshold);
+            }
+
             var mappingResult = (SnapshotCount: 0, MappingCount: 0, WarningCount: 0);
             if (!run.IsDryRun)
             {
@@ -78,7 +94,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
-                parsedRaceSelections,
+                parseResult.SelectionCount,
                 mappingResult.SnapshotCount,
                 mappingResult.MappingCount,
                 mappingResult.WarningCount,

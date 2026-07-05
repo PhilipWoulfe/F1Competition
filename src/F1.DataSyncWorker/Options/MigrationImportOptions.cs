@@ -15,4 +15,7 @@ public sealed class MigrationImportOptions
     public string SourceFilePath { get; set; } = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
 
     public bool DryRun { get; set; } = true;
+
+    [Range(0, int.MaxValue)]
+    public int UnresolvedTokenFailThreshold { get; set; } = 0;
 }

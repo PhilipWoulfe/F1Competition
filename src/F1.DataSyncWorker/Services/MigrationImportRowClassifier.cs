@@ -14,6 +14,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
     private const string SectionRacePoints = "RacePoints";
     private const string SectionTotalsMeta = "TotalsMeta";
     private const string SectionUnclassified = "Unclassified";
+    private const string DnfNormalizationReason = "Mapped special label to DNF pick type.";
 
     public StagedImportRow Classify(int rowNumber, string rawLine)
     {
@@ -49,7 +50,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
         if (IsRaceRowLabel(label, out var normalizedAsDnf))
         {
             var section = LooksNumericRow(values) ? SectionRacePoints : SectionRacePick;
-            var reason = normalizedAsDnf ? "Mapped BAH-HUMBUG label to DNF pick type." : null;
+            var reason = normalizedAsDnf ? DnfNormalizationReason : null;
             return new StagedImportRow(rowNumber, section, rawLine, reason);
         }
 
@@ -95,6 +96,12 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
         }
 
         if (label.Equals("BAH-HUMBUG", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedAsDnf = true;
+            return true;
+        }
+
+        if (label.StartsWith("BAK-", StringComparison.OrdinalIgnoreCase))
         {
             normalizedAsDnf = true;
             return true;

@@ -164,6 +164,7 @@ These `DATA_SYNC_*` values are consumed by `docker-compose.yml` and mapped to `D
 - `MIGRATION_IMPORT_SEASON`: mapped to `MigrationImport__Season`; default is `2025`.
 - `MIGRATION_IMPORT_SOURCE_FILE_PATH`: mapped to `MigrationImport__SourceFilePath`; default is `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`.
 - `MIGRATION_IMPORT_DRY_RUN`: mapped to `MigrationImport__DryRun`; set `true` for validation runs.
+- `MIGRATION_IMPORT_UNRESOLVED_TOKEN_FAIL_THRESHOLD`: mapped to `MigrationImport__UnresolvedTokenFailThreshold`; `0` disables fail-fast and values greater than `0` fail the run when unresolved token count is greater than or equal to the threshold.
 
 Optional API values in `.env`:
 
@@ -210,6 +211,7 @@ Migration import mode (Story #239 / Phil 2025 one-time load):
 - Set `MigrationImport__Season=2025` for the source season being imported.
 - Set `MigrationImport__SourceFilePath` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
 - Set `MigrationImport__DryRun=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
+- Set `MigrationImport__UnresolvedTokenFailThreshold` to control fail-fast behavior for unresolved tokens (`0` keeps complete-with-warnings mode).
 
 When using Docker Compose, keep using `.env` `MIGRATION_IMPORT_*` variables because compose maps those to `MigrationImport__*` for the worker container.
 
@@ -221,6 +223,7 @@ export MigrationImport__Enabled=true
 export MigrationImport__Season=2025
 export MigrationImport__SourceFilePath='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
 export MigrationImport__DryRun=true
+export MigrationImport__UnresolvedTokenFailThreshold=0
 dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj
 ```
 

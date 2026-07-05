@@ -1,6 +1,8 @@
+using F1.DataSyncWorker.Models;
+
 namespace F1.DataSyncWorker.Services;
 
 public interface IMigrationRaceSelectionParser
 {
-    Task<int> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken);
+    Task<MigrationRaceSelectionParseResult> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken);
 }

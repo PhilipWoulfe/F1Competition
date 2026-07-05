@@ -138,7 +138,114 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal("Header", stagedRows[0].SectionType);
             Assert.Equal("RacePick", stagedRows[1].SectionType);
             Assert.Equal("RacePick", stagedRows[2].SectionType);
-            Assert.Equal("Mapped BAH-HUMBUG label to DNF pick type.", stagedRows[2].ClassificationReason);
+            Assert.Equal("Mapped special label to DNF pick type.", stagedRows[2].ClassificationReason);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenUnresolvedTokensReachThreshold_FailsRun()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync("Question,Philip\nAUS-1,MAXX\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    UnresolvedTokenFailThreshold = 1
+                }));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunOnceAsync(CancellationToken.None));
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Failed", run.Status);
+            Assert.NotNull(run.ErrorMessage);
+
+            var unresolved = await verificationContext.MigrationImportUnresolvedTokens
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == run.Id)
+                .ToListAsync();
+            Assert.Single(unresolved);
+            Assert.Equal("MAXX", unresolved[0].RawToken);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenUnresolvedTokensBelowThreshold_CompletesWithWarnings()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync("Question,Philip\nAUS-1,MAXX,VER\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    UnresolvedTokenFailThreshold = 2
+                }));
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+
+            var unresolved = await verificationContext.MigrationImportUnresolvedTokens
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == run.Id)
+                .ToListAsync();
+            Assert.Single(unresolved);
+            Assert.Equal("MAXX", unresolved[0].RawToken);
         }
         finally
         {

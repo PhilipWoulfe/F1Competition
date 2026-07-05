@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,15 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private const string SectionTypeRacePick = "RacePick";
     private const string SectionTypeHeader = "Header";
     private const string ActualSubject = "ACTUAL";
+    private static readonly Dictionary<string, string?> TokenAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["MAX"] = "VER",
+        ["HULK"] = "HUL",
+        ["BEAR MAN"] = "BEAR",
+        ["NONE"] = null,
+        ["NOT"] = null
+    };
+
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
 
     public MigrationRaceSelectionParser(IDbContextFactory<F1DbContext> dbContextFactory)
@@ -18,7 +28,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         _dbContextFactory = dbContextFactory;
     }
 
-    public async Task<int> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken)
+    public async Task<MigrationRaceSelectionParseResult> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -33,12 +43,14 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         if (participants.Count == 0)
         {
-            return 0;
+            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
         }
 
         var raceRows = stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePick, StringComparison.Ordinal));
         var selections = new List<MigrationImportRaceSelectionEntity>();
+        var unresolvedTokens = new List<MigrationImportUnresolvedTokenEntity>();
         string? currentRaceCode = null;
+        var createdAtUtc = DateTime.UtcNow;
 
         foreach (var row in raceRows)
         {
@@ -58,6 +70,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             for (var index = 0; index < participants.Count; index++)
             {
                 var rawValue = index < participantValues.Length ? participantValues[index] : string.Empty;
+                var normalization = NormalizeSelection(rawValue);
                 selections.Add(new MigrationImportRaceSelectionEntity
                 {
                     ImportRunId = runId,
@@ -66,12 +79,27 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     PickType = pickType,
                     Subject = participants[index],
                     RawValue = string.IsNullOrWhiteSpace(rawValue) ? null : rawValue.Trim(),
-                    NormalizedValue = NormalizeSelection(rawValue),
+                    NormalizedValue = normalization.NormalizedValue,
                     IsActualOutcome = false
                 });
+
+                if (normalization.IsUnresolved)
+                {
+                    unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                    {
+                        ImportRunId = runId,
+                        RowNumber = row.RowNumber,
+                        RaceCode = raceCode,
+                        PickType = pickType,
+                        Subject = participants[index],
+                        RawToken = normalization.RawToken ?? string.Empty,
+                        CreatedAtUtc = createdAtUtc
+                    });
+                }
             }
 
             var actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            var actualNormalization = NormalizeSelection(actualRaw);
             selections.Add(new MigrationImportRaceSelectionEntity
             {
                 ImportRunId = runId,
@@ -80,24 +108,46 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 PickType = pickType,
                 Subject = ActualSubject,
                 RawValue = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
-                NormalizedValue = NormalizeSelection(actualRaw),
+                NormalizedValue = actualNormalization.NormalizedValue,
                 IsActualOutcome = true
             });
+
+            if (actualNormalization.IsUnresolved)
+            {
+                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = raceCode,
+                    PickType = pickType,
+                    Subject = ActualSubject,
+                    RawToken = actualNormalization.RawToken ?? string.Empty,
+                    CreatedAtUtc = createdAtUtc
+                });
+            }
         }
 
         if (selections.Count == 0)
         {
-            return 0;
+            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
         }
 
         dbContext.MigrationImportRaceSelections.RemoveRange(
             dbContext.MigrationImportRaceSelections.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportUnresolvedTokens.RemoveRange(
+            dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId));
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await dbContext.MigrationImportRaceSelections.AddRangeAsync(selections, cancellationToken);
+        if (unresolvedTokens.Count > 0)
+        {
+            await dbContext.MigrationImportUnresolvedTokens.AddRangeAsync(unresolvedTokens, cancellationToken);
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return selections.Count;
+        return new MigrationRaceSelectionParseResult(
+            SelectionCount: selections.Count,
+            UnresolvedTokenCount: unresolvedTokens.Count);
     }
 
     private static List<string> ResolveParticipants(string? headerPayload)
@@ -191,21 +241,37 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return true;
     }
 
-    private static string? NormalizeSelection(string? rawValue)
+    private static NormalizationResult NormalizeSelection(string? rawValue)
     {
         if (string.IsNullOrWhiteSpace(rawValue))
         {
-            return null;
+            return new NormalizationResult(NormalizedValue: null, IsUnresolved: false, RawToken: null);
         }
 
         var normalized = rawValue.Trim();
-        if (normalized.Equals("NONE", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Equals("NOT", StringComparison.OrdinalIgnoreCase))
+        var lookupToken = NormalizeTokenLookup(rawValue);
+
+        if (lookupToken.Length == 0)
         {
-            return null;
+            return new NormalizationResult(NormalizedValue: null, IsUnresolved: false, RawToken: null);
         }
 
-        return normalized;
+        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
+        {
+            return new NormalizationResult(NormalizedValue: mappedToken, IsUnresolved: false, RawToken: null);
+        }
+
+        if (CanonicalTokenRegex().IsMatch(lookupToken))
+        {
+            return new NormalizationResult(NormalizedValue: lookupToken, IsUnresolved: false, RawToken: null);
+        }
+
+        return new NormalizationResult(NormalizedValue: normalized, IsUnresolved: true, RawToken: normalized);
+    }
+
+    private static string NormalizeTokenLookup(string rawValue)
+    {
+        return MultiWhitespaceRegex().Replace(rawValue.Trim().ToUpperInvariant(), " ");
     }
 
     private static List<string> ParseCsvLine(string line)
@@ -250,4 +316,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
     [GeneratedRegex("^([A-Za-z]{3})-.+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex GenericRacePrefixRegex();
+
+    [GeneratedRegex("^[A-Z]{3}$", RegexOptions.Compiled)]
+    private static partial Regex CanonicalTokenRegex();
+
+    [GeneratedRegex("\\s+", RegexOptions.Compiled)]
+    private static partial Regex MultiWhitespaceRegex();
+
+    private readonly record struct NormalizationResult(string? NormalizedValue, bool IsUnresolved, string? RawToken);
 }

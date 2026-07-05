@@ -20,6 +20,7 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
     public DbSet<MigrationImportRaceSelectionEntity> MigrationImportRaceSelections => Set<MigrationImportRaceSelectionEntity>();
+    public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
 
@@ -155,6 +156,23 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportUnresolvedTokenEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportUnresolvedTokens");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RawToken).HasMaxLength(512).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber, x.RaceCode, x.PickType, x.Subject, x.RawToken }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportJolpicaRaceSnapshotEntity>(entity =>
