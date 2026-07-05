@@ -28,7 +28,7 @@ void ConfigureApi(IServiceProvider sp, HttpClient client)
     if (!string.IsNullOrWhiteSpace(apiBaseUrl) && Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var configuredAbsoluteUri))
     {
         // If API traffic goes to a dedicated API host, do not carry a web-side /api prefix.
-        if (!string.Equals(configuredAbsoluteUri.Host, navBaseUri.Host, StringComparison.OrdinalIgnoreCase)
+        if (!string.Equals(configuredAbsoluteUri.Authority, navBaseUri.Authority, StringComparison.OrdinalIgnoreCase)
             && (string.Equals(configuredAbsoluteUri.AbsolutePath, "/api", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(configuredAbsoluteUri.AbsolutePath, "/api/", StringComparison.OrdinalIgnoreCase)))
         {
