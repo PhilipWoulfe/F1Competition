@@ -31,6 +31,36 @@ jobs:
             const pollIntervalMs = 15000;
             const maxAttempts = 4;
 
+            function isSubstantiveCopilotBody(body) {
+              if (typeof body !== 'string') {
+                return false;
+              }
+
+              const normalizedBody = body.trim();
+              if (!normalizedBody) {
+                return false;
+              }
+
+              const ignoredBodies = [
+                "Copilot wasn't able to review any files in this pull request."
+              ];
+
+              return !ignoredBodies.includes(normalizedBody);
+            }
+
+            const reviewEvent = context.payload.review;
+            const isCopilotReviewEvent =
+              reviewEvent &&
+              copilotLogins.has(reviewEvent.user?.login) &&
+              isSubstantiveCopilotBody(reviewEvent.body);
+
+            if (context.eventName === 'pull_request_review' && isCopilotReviewEvent) {
+              core.info(
+                `Copilot review gate passed from review event ${reviewEvent.id} on commit ${reviewEvent.commit_id}.`
+              );
+              return;
+            }
+
             async function findMatchingCopilotFeedback() {
               const reviews = await github.paginate(github.rest.pulls.listReviews, {
                 owner,
@@ -41,8 +71,11 @@ jobs:
 
               const matchingReview = reviews.find((review) => {
                 const login = review.user?.login;
-                const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
-                return copilotLogins.has(login) && hasBody && review.commit_id === currentHeadSha;
+                return (
+                  copilotLogins.has(login) &&
+                  isSubstantiveCopilotBody(review.body) &&
+                  review.commit_id === currentHeadSha
+                );
               });
 
               if (matchingReview) {
@@ -58,8 +91,11 @@ jobs:
 
               const matchingInlineComment = reviewComments.find((comment) => {
                 const login = comment.user?.login;
-                const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
-                return copilotLogins.has(login) && hasBody && comment.commit_id === currentHeadSha;
+                return (
+                  copilotLogins.has(login) &&
+                  isSubstantiveCopilotBody(comment.body) &&
+                  comment.commit_id === currentHeadSha
+                );
               });
 
               if (matchingInlineComment) {
