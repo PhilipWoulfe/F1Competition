@@ -1,5 +1,7 @@
 using F1.DataSyncWorker.Options;
 using F1.DataSyncWorker.Services;
+using F1.DataSyncWorker.Clients;
+using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -100,6 +102,11 @@ public sealed class MigrationImportRunServiceTests
                 runService,
                 new MigrationImportRowClassifier(),
                 new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new StubJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -170,6 +177,24 @@ public sealed class MigrationImportRunServiceTests
         public ValueTask<F1DbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
             return ValueTask.FromResult(CreateDbContext());
+        }
+    }
+
+    private sealed class StubJolpicaClient : IJolpicaClient
+    {
+        public Task<IReadOnlyList<JolpicaDriverDto>> GetDriversAsync(int season, int retryCount, int retryDelayMs, CancellationToken cancellationToken)
+        {
+            return Task.FromResult<IReadOnlyList<JolpicaDriverDto>>([]);
+        }
+
+        public Task<IReadOnlyList<JolpicaRaceDto>> GetRacesAsync(int season, int retryCount, int retryDelayMs, CancellationToken cancellationToken)
+        {
+            IReadOnlyList<JolpicaRaceDto> races =
+            [
+                new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z" },
+                new() { Season = "2025", Round = "2", RaceName = "Chinese Grand Prix", Date = "2025-03-23", Time = "07:00:00Z" }
+            ];
+            return Task.FromResult(races);
         }
     }
 }

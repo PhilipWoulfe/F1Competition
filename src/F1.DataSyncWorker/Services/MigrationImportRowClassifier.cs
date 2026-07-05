@@ -94,13 +94,6 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
             return true;
         }
 
-        var genericRaceLabelMatch = GenericRaceLabelRegex().Match(label);
-        if (genericRaceLabelMatch.Success)
-        {
-            normalizedAsDnf = true;
-            return true;
-        }
-
         if (label.Equals("BAH-HUMBUG", StringComparison.OrdinalIgnoreCase))
         {
             normalizedAsDnf = true;
