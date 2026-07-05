@@ -217,40 +217,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          EXPECTED_SHA="${GITHUB_SHA}"
+          EXPECTED_SHA_FULL="${GITHUB_SHA}"
+          EXPECTED_SHA_SHORT="${GITHUB_SHA::7}"
           BASE_URL="${E2E_BASE_URL%/}"
           API_URL="${E2E_API_BASE_URL%/}"
           RACE_ID="${E2E_RACE_ID:-2025-24-yas_marina}"
 
-          if [ -z "$BASE_URL" ]; then
-            echo "E2E_BASE_URL is required"
+          [ -n "$BASE_URL" ] || { echo "E2E_BASE_URL is required"; exit 1; }
+          [ -n "$API_URL" ] || API_URL="$BASE_URL/api"
+          [ -n "${E2E_CF_CLIENT_ID:-}" ] && [ -n "${E2E_CF_CLIENT_SECRET:-}" ] || {
+            echo "E2E_CF_CLIENT_ID and E2E_CF_CLIENT_SECRET are required."
             exit 1
-          fi
+          }
 
-          if [ -z "$API_URL" ]; then
-            API_URL="$BASE_URL/api"
-          fi
-
-          if [ -z "${E2E_CF_CLIENT_ID:-}" ] || [ -z "${E2E_CF_CLIENT_SECRET:-}" ]; then
-            echo "E2E_CF_CLIENT_ID and E2E_CF_CLIENT_SECRET are required to access the API behind Cloudflare Access."
-            exit 1
-          fi
-          headers=()
-          headers+=( -H "CF-Access-Client-Id: ${E2E_CF_CLIENT_ID}" )
-          headers+=( -H "CF-Access-Client-Secret: ${E2E_CF_CLIENT_SECRET}" )
+          headers=(
+            -H "CF-Access-Client-Id: ${E2E_CF_CLIENT_ID}"
+            -H "CF-Access-Client-Secret: ${E2E_CF_CLIENT_SECRET}"
+            -H "Cache-Control: no-cache"
+            -H "Pragma: no-cache"
+          )
 
           max_attempts=60
           stable_required=3
           stable_count=0
 
           for attempt in $(seq 1 "$max_attempts"); do
-            web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json" 2>/dev/null || true)"
+            web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json?ts=$(date +%s)" 2>/dev/null || true)"
             api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$RACE_ID/config" 2>/dev/null || true)"
 
             web_ok=false
             api_ok=false
 
-            if echo "$web_version" | grep -q "$EXPECTED_SHA"; then
+            if echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
               web_ok=true
             fi
 
@@ -258,13 +256,14 @@ jobs:
               api_ok=true
             fi
 
+            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok stable_count=$stable_count"
+            echo "web_version=$web_version"
+
             if $web_ok && $api_ok; then
               stable_count=$((stable_count + 1))
             else
               stable_count=0
             fi
-
-            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok stable_count=$stable_count"
 
             if [ "$stable_count" -ge "$stable_required" ]; then
               echo "Deployment is stable on expected SHA and race config."
@@ -274,7 +273,7 @@ jobs:
             sleep 10
           done
 
-          echo "Timed out waiting for deployment to become stable on SHA ${EXPECTED_SHA}."
+          echo "Timed out waiting for deployment. expected_full=$EXPECTED_SHA_FULL expected_short=$EXPECTED_SHA_SHORT"
           echo "Last web version response: $web_version"
           echo "Last API config response: $api_config"
           exit 1
