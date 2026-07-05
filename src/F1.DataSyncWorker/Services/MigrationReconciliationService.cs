@@ -197,11 +197,6 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
 
     private static string ResolveReasonCode(string pickType, int? imported, int? calculated, int delta)
     {
-        if (delta == 0)
-        {
-            return "POINTS_MATCH";
-        }
-
         if (!imported.HasValue)
         {
             return "LEGACY_POINTS_MISSING";
@@ -210,6 +205,11 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         if (!calculated.HasValue)
         {
             return "CALCULATED_POINTS_MISSING";
+        }
+
+        if (delta == 0)
+        {
+            return "POINTS_MATCH";
         }
 
         if (string.Equals(pickType, "DNF", StringComparison.OrdinalIgnoreCase))
