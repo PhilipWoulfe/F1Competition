@@ -23,10 +23,31 @@ void ConfigureApi(IServiceProvider sp, HttpClient client)
     var config = sp.GetRequiredService<IConfiguration>();
     var nav = sp.GetRequiredService<NavigationManager>();
     var apiBaseUrl = config["F1Api:BaseUrl"];
+    var navBaseUri = new Uri(nav.BaseUri);
 
-    if (!string.IsNullOrWhiteSpace(apiBaseUrl) && Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var absoluteUri))
+    if (!string.IsNullOrWhiteSpace(apiBaseUrl) && Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var configuredAbsoluteUri))
     {
-        client.BaseAddress = absoluteUri;
+        // If API traffic goes to a dedicated API host, do not carry a web-side /api prefix.
+        if (!string.Equals(configuredAbsoluteUri.Authority, navBaseUri.Authority, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(configuredAbsoluteUri.AbsolutePath, "/api", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(configuredAbsoluteUri.AbsolutePath, "/api/", StringComparison.OrdinalIgnoreCase)))
+        {
+            var normalized = new UriBuilder(configuredAbsoluteUri)
+            {
+                Path = "/",
+                Query = string.Empty,
+                Fragment = string.Empty
+            }.Uri;
+
+            client.BaseAddress = normalized;
+#if DEBUG
+            Console.WriteLine($"[Config] Normalized API address host from '{configuredAbsoluteUri.Host}:{configuredAbsoluteUri.Port}' to '{normalized.Host}:{normalized.Port}'.");
+#endif
+        }
+        else
+        {
+            client.BaseAddress = configuredAbsoluteUri;
+        }
     }
     else
     {
