@@ -4,6 +4,8 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
 
 permissions:
   contents: read
@@ -12,10 +14,11 @@ permissions:
 jobs:
   require-initial-copilot-review:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - name: Enforce Copilot review on initial PR head
+      - name: Wait for Copilot review on current PR head
         uses: actions/github-script@v9
         with:
           script: |
@@ -23,38 +26,68 @@ jobs:
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
             const prNumber = pr.number;
+            const currentHeadSha = pr.head.sha;
             const copilotLogins = new Set(['github-copilot[bot]']);
+            const pollIntervalMs = 15000;
+            const maxAttempts = 4;
 
-            const commits = await github.paginate(github.rest.pulls.listCommits, {
-              owner,
-              repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
+            async function findMatchingCopilotFeedback() {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
 
-            const initialSha = commits.length > 0 ? commits[0].sha : pr.head.sha;
+              const matchingReview = reviews.find((review) => {
+                const login = review.user?.login;
+                const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
+                return copilotLogins.has(login) && hasBody && review.commit_id === currentHeadSha;
+              });
 
-            const reviews = await github.paginate(github.rest.pulls.listReviews, {
-              owner,
-              repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
+              if (matchingReview) {
+                return { type: 'review', id: matchingReview.id };
+              }
 
-            const matchingCopilotReview = reviews.find((review) => {
-              const login = review.user?.login;
-              const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody && review.commit_id === initialSha;
-            });
+              const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
 
-            if (!matchingCopilotReview) {
-              core.setFailed(
-                `Missing Copilot review comment for initial PR SHA ${initialSha}. ` +
-                `This gate only accepts Copilot feedback on the initial PR revision.`
-              );
-              return;
+              const matchingInlineComment = reviewComments.find((comment) => {
+                const login = comment.user?.login;
+                const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
+                return copilotLogins.has(login) && hasBody && comment.commit_id === currentHeadSha;
+              });
+
+              if (matchingInlineComment) {
+                return { type: 'inline-comment', id: matchingInlineComment.id };
+              }
+
+              return null;
             }
 
-            core.info(
-              `Copilot review gate passed with review ${matchingCopilotReview.id} on initial SHA ${initialSha}.`
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const match = await findMatchingCopilotFeedback();
+              if (match) {
+                core.info(
+                  `Copilot review gate passed with ${match.type} ${match.id} on head SHA ${currentHeadSha}.`
+                );
+                return;
+              }
+
+              core.info(
+                `Waiting for Copilot review on head SHA ${currentHeadSha}. Attempt ${attempt}/${maxAttempts}.`
+              );
+
+              if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+              }
+            }
+
+            core.setFailed(
+              `Timed out waiting for Copilot to review current PR head ${currentHeadSha}. ` +
+              'Merge remains blocked until Copilot completes its review. Re-run this check after Copilot finishes.'
             );
