@@ -30,6 +30,10 @@ services:
       - DataSyncWorker__DeadlineMinutesBeforeStart=${DATA_SYNC_DEADLINE_MINUTES_BEFORE_START:-30}
       - DataSyncWorker__JolpicaBaseUrl=${DATA_SYNC_JOLPICA_BASE_URL:-https://api.jolpi.ca/ergast/f1/}
       - DataSyncWorker__ContinueOnError=${DATA_SYNC_CONTINUE_ON_ERROR:-false}
+      - MigrationImport__Enabled=${MIGRATION_IMPORT_ENABLED:-false}
+      - MigrationImport__Season=${MIGRATION_IMPORT_SEASON:-2025}
+      - MigrationImport__SourceFilePath=${MIGRATION_IMPORT_SOURCE_FILE_PATH:-data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv}
+      - MigrationImport__DryRun=${MIGRATION_IMPORT_DRY_RUN:-true}
     build:
       context: .
       dockerfile: ./src/F1.DataSyncWorker/Dockerfile

@@ -13,6 +13,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationImportRunService _runService;
     private readonly IMigrationImportRowClassifier _rowClassifier;
     private readonly IMigrationRaceSelectionParser _raceSelectionParser;
+    private readonly IMigrationRaceRoundMapper _raceRoundMapper;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -23,6 +24,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IMigrationImportRunService runService,
         IMigrationImportRowClassifier rowClassifier,
         IMigrationRaceSelectionParser raceSelectionParser,
+        IMigrationRaceRoundMapper raceRoundMapper,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions)
@@ -31,6 +33,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _runService = runService;
         _rowClassifier = rowClassifier;
         _raceSelectionParser = raceSelectionParser;
+        _raceRoundMapper = raceRoundMapper;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -57,13 +60,28 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         {
             var totalRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
             var parsedRaceSelections = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
+            var mappingResult = (SnapshotCount: 0, MappingCount: 0, WarningCount: 0);
+            if (!run.IsDryRun)
+            {
+                mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Migration import run in dry-run mode; skipping race-round mapping and Jolpica fetch. RunId={RunId}",
+                    run.RunId);
+            }
+
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
-                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, Checksum={Checksum}",
+                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
                 parsedRaceSelections,
+                mappingResult.SnapshotCount,
+                mappingResult.MappingCount,
+                mappingResult.WarningCount,
                 run.SourceFileChecksum);
         }
         catch (Exception ex)
