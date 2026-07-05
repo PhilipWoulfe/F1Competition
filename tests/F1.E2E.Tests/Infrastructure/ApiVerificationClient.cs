@@ -22,9 +22,14 @@ internal class ApiVerificationClient : IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string raceId, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync("selections/current", cancellationToken);
+        var response = await _httpClient.GetAsync($"selections/{raceId}/current", cancellationToken);
+if (response.StatusCode == HttpStatusCode.NotFound)
+{
+    throw new HttpRequestException($"Current selections endpoint not found for race '{raceId}'.", null, HttpStatusCode.NotFound);
+}
+
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<List<CurrentSelectionRow>>(cancellationToken: cancellationToken);
@@ -43,14 +48,14 @@ internal class ApiVerificationClient : IDisposable
         return await response.Content.ReadFromJsonAsync<RaceMetadataRow>(cancellationToken: cancellationToken);
     }
 
-    public async Task WaitForSelectionPersistenceAsync(string expectedDriverId, TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task WaitForSelectionPersistenceAsync(string raceId, string expectedDriverId, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             try
             {
-                var rows = await GetCurrentSelectionsAsync(cancellationToken);
+                var rows = await GetCurrentSelectionsAsync(raceId, cancellationToken);
                 if (rows.Any(row => string.Equals(row.DriverId, expectedDriverId, StringComparison.OrdinalIgnoreCase)))
                 {
                     return;
@@ -97,9 +102,9 @@ internal class ApiVerificationClient : IDisposable
         _httpClient.DefaultRequestHeaders.Add("X-Mock-Date", isoDate);
     }
 
-    public async Task<HttpResponseMessage> PostSelectionAsync(string raceId, object submission)
+    public async Task<HttpResponseMessage> PutSelectionAsync(string raceId, object submission)
     {
-        var response = await _httpClient.PostAsJsonAsync($"selections/{raceId}/mine", submission);
+        var response = await _httpClient.PutAsJsonAsync($"selections/{raceId}/mine", submission);
         return response;
     }
 

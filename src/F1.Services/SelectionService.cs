@@ -34,7 +34,7 @@ public class SelectionService : ISelectionService
 
         var nowUtc = _dateTimeProvider.UtcNow;
         var race = await _raceRepository.GetRaceAsync(selection.RaceId);
-        selection.IsLocked = race is not null && (IsPreQualyLocked(selection, race, nowUtc) || nowUtc > race.FinalDeadlineUtc);
+        selection.IsLocked = race is null || IsPreQualyLocked(selection, race, nowUtc) || nowUtc > race.FinalDeadlineUtc;
         return selection;
     }
 
@@ -54,17 +54,17 @@ public class SelectionService : ISelectionService
 
         if (existingSelection is not null && IsPreQualyLocked(existingSelection, race, nowUtc))
         {
-            throw new SelectionForbiddenException("Pre-Qualy locked selections cannot be edited after the race-specific pre-qualy deadline.");
+            throw new SelectionForbiddenException($"Pre-Qualy locked selections cannot be edited after {race.PreQualyDeadlineUtc:u}.");
         }
 
         if (submission.BetType == BetType.PreQualy && nowUtc > race.PreQualyDeadlineUtc)
         {
-            throw new SelectionValidationException("Pre-Qualy strategy is no longer available after the race-specific pre-qualy deadline.");
+            throw new SelectionValidationException($"Pre-Qualy strategy is no longer available after {race.PreQualyDeadlineUtc:u}.");
         }
 
         if (nowUtc > race.FinalDeadlineUtc)
         {
-            throw new SelectionForbiddenException("Selections are locked after the race-specific final deadline.");
+            throw new SelectionForbiddenException($"Selections are locked after {race.FinalDeadlineUtc:u}.");
         }
 
         var selection = existingSelection ?? new Selection();
@@ -119,9 +119,9 @@ public class SelectionService : ISelectionService
         return rows;
     }
 
-    public RaceConfigDto? GetRaceConfig(string raceId)
+    public async Task<RaceConfigDto?> GetRaceConfigAsync(string raceId)
     {
-        var race = _raceRepository.GetRaceAsync(raceId).GetAwaiter().GetResult();
+        var race = await _raceRepository.GetRaceAsync(raceId);
         if (race is not null)
         {
             return new RaceConfigDto

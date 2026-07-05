@@ -7,8 +7,5 @@
     "azureFunctions.projectSubpath": "src/PopulateF1Database",
     "coverage-gutters.coverageFileNames": [
         "coverage.cobertura.xml"
-    ],
-    "chat.tools.terminal.autoApprove": {
-        "dotnet test": true
-    }
+    ]
 }
