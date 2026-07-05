@@ -1,6 +1,6 @@
 namespace F1.DataSyncWorker.Models;
 
-public sealed record StagedImportRow(int RowNumber, string SectionType, string RawPayload);
+public sealed record StagedImportRow(int RowNumber, string SectionType, string RawPayload, string? ClassificationReason = null);
 
 public sealed record MigrationImportRunContext(
     Guid RunId,
