@@ -1,6 +1,21 @@
 @F1.Api_HostAddress = http://localhost:5099
 
-GET {{F1.Api_HostAddress}}/weatherforecast/
+GET {{F1.Api_HostAddress}}/races/context/main-2026/round/1
+Accept: application/json
+
+###
+
+GET {{F1.Api_HostAddress}}/races/context/main-2026/slug/australian-grand-prix
+Accept: application/json
+
+###
+
+GET {{F1.Api_HostAddress}}/selections/main-2026-1-australian-grand-prix/config
+Accept: application/json
+
+###
+
+GET {{F1.Api_HostAddress}}/races/main-2026-1-australian-grand-prix/metadata
 Accept: application/json
 
 ###
