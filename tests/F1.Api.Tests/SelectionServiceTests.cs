@@ -15,6 +15,7 @@ public class SelectionServiceTests
     private readonly Mock<IDriverRepository> _driverRepositoryMock = new();
     private readonly Mock<IRaceRepository> _raceRepositoryMock = new();
     private readonly Mock<IDateTimeProvider> _dateTimeProviderMock = new();
+    private readonly ISelectionRuleProvider _selectionRuleProvider = new SelectionRuleProvider();
 
     [Fact]
     public async Task UpsertSelectionAsync_ShouldReject_WhenMoreThanFiveSelectionsSubmitted()
@@ -140,6 +141,48 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public async Task UpsertSelectionAsync_ShouldReportFinalDeadline_WhenExistingSelectionIsEditedAfterFinalDeadline()
+    {
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 6, 1, 0, DateTimeKind.Utc));
+
+        _selectionRepositoryMock
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .ReturnsAsync(new Selection
+            {
+                Id = Guid.NewGuid(),
+                RaceId = AlbertParkRaceId,
+                UserId = "user@example.com",
+                BetType = BetType.Regular,
+                OrderedSelections = new List<SelectionPosition>
+                {
+                    new SelectionPosition { Position = 1, DriverId = "norris" },
+                    new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                    new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                    new SelectionPosition { Position = 4, DriverId = "piastri" },
+                    new SelectionPosition { Position = 5, DriverId = "verstappen" }
+                }
+            });
+
+        var submission = new SelectionSubmissionDto
+        {
+            BetType = BetType.Regular,
+            OrderedSelections = new List<SelectionPosition>
+            {
+                new SelectionPosition { Position = 1, DriverId = "norris" },
+                new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                new SelectionPosition { Position = 4, DriverId = "piastri" },
+                new SelectionPosition { Position = 5, DriverId = "verstappen" }
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<SelectionForbiddenException>(() =>
+            service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission));
+
+        Assert.Equal("Selections are locked after 2026-03-15 06:00:00Z.", ex.Message);
+    }
+
+    [Fact]
     public async Task GetRaceConfigAsync_ShouldReturnConfig_ForAnyKnownRaceId()
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
@@ -150,6 +193,9 @@ public class SelectionServiceTests
         Assert.Equal(AlbertParkRaceId, config.RaceId);
         Assert.Equal(new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc), config.PreQualyDeadlineUtc);
         Assert.Equal(new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc), config.FinalDeadlineUtc);
+        Assert.Equal(BetType.PreQualy, config.EarlyLockBetType);
+        Assert.Equal("Pre-Qualy lock", config.EarlyLockLabel);
+        Assert.Contains(config.BetOptions, option => option.BetType == BetType.AllOrNothing && option.IsAvailable);
     }
 
     [Fact]
@@ -406,6 +452,19 @@ public class SelectionServiceTests
         Assert.Equal("norris", result.OrderedSelections[0].DriverId);
     }
 
+    [Fact]
+    public async Task GetRaceConfigAsync_ShouldMarkEarlyLockBetUnavailable_AfterDeadline_ForNonYasRace()
+    {
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 4, 1, 0, DateTimeKind.Utc));
+
+        var config = await service.GetRaceConfigAsync(AlbertParkRaceId);
+
+        Assert.NotNull(config);
+        var preQualyOption = Assert.Single(config.BetOptions, option => option.BetType == BetType.PreQualy);
+        Assert.False(preQualyOption.IsAvailable);
+        Assert.Contains("15 Mar 2026 04:00 UTC", config.LockMessage, StringComparison.Ordinal);
+    }
+
     private SelectionService CreateServiceAt(DateTime utcNow)
     {
         _dateTimeProviderMock.Setup(clock => clock.UtcNow).Returns(utcNow);
@@ -417,7 +476,8 @@ public class SelectionServiceTests
             _selectionRepositoryMock.Object,
             _driverRepositoryMock.Object,
             _raceRepositoryMock.Object,
-            _dateTimeProviderMock.Object);
+            _dateTimeProviderMock.Object,
+            _selectionRuleProvider);
     }
 
     private static Race? CreateRace(string raceId)

@@ -4,18 +4,14 @@
 
 <h4 class="mt-4">Bet Strategy</h4>
 <InputRadioGroup Value="@Value" ValueChanged="@ValueChanged" ValueExpression="@ValueExpression">
-    <div class="form-check">
-        <InputRadio id="strategy-regular" class="form-check-input" Value="BetType.Regular" disabled="@IsReadOnly" />
-        <label class="form-check-label" for="strategy-regular">Regular</label>
-    </div>
-    <div class="form-check">
-        <InputRadio id="strategy-prequaly" class="form-check-input" Value="BetType.PreQualy" disabled="@IsReadOnly" />
-        <label class="form-check-label" for="strategy-prequaly">Pre-Qualy</label>
-    </div>
-    <div class="form-check mb-3">
-        <InputRadio id="strategy-allornothing" class="form-check-input" Value="BetType.AllOrNothing" disabled="@IsReadOnly" />
-        <label class="form-check-label" for="strategy-allornothing">All-or-Nothing</label>
-    </div>
+    @for (var index = 0; index < Options.Count; index++)
+    {
+        var option = Options[index];
+        <div class="form-check mb-@(index == Options.Count - 1 ? "3" : "0")">
+            <InputRadio id="@GetOptionId(option.BetType)" class="form-check-input" Value="option.BetType" disabled="@(IsReadOnly || !option.IsAvailable)" />
+            <label class="form-check-label" for="@GetOptionId(option.BetType)">@option.Label</label>
+        </div>
+    }
 </InputRadioGroup>
 
 @code {
@@ -23,6 +19,7 @@
     [Parameter] public EventCallback<BetType> ValueChanged { get; set; }
     [Parameter, EditorRequired] public Expression<Func<BetType>> ValueExpression { get; set; } = default!;
     [Parameter] public bool IsReadOnly { get; set; }
+    [Parameter] public IReadOnlyList<BetOption> Options { get; set; } = [];
 
     protected override void OnParametersSet()
     {
@@ -30,5 +27,15 @@
         {
             throw new InvalidOperationException("BetStrategySelector requires a non-null ValueExpression. Use @bind-Value or provide ValueExpression explicitly.");
         }
+
+        if (Options.Count == 0)
+        {
+            throw new InvalidOperationException("BetStrategySelector requires at least one configured bet option.");
+        }
+    }
+
+    private static string GetOptionId(BetType betType)
+    {
+        return $"strategy-{betType.ToString().ToLowerInvariant()}";
     }
 }

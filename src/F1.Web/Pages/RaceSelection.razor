@@ -40,13 +40,14 @@ else
             Value="@formModel.SelectedBetType"
             ValueChanged="OnBetTypeChanged"
             ValueExpression="@(() => formModel.SelectedBetType)"
+            Options="@raceConfig.BetOptions"
             IsReadOnly="@isReadOnly" />
 
         <button id="submit-selection" class="btn btn-primary" type="submit" disabled="@isReadOnly">Save Selection</button>
 
         @if (isReadOnly)
         {
-            <p class="text-muted mt-2">This pre-qualy selection is locked.</p>
+            <p class="text-muted mt-2">@GetReadOnlyMessage()</p>
         }
     </EditForm>
 }
@@ -232,15 +233,13 @@ else
             return raceMetadata.LockMessage;
         }
 
-        if (raceConfig is null)
-        {
-            return "Locking for Pre-Qualy gives +50% points and prevents changes after the configured lock deadline.";
-        }
+        return raceConfig?.LockMessage
+            ?? "Locking for Pre-Qualy gives +50% points and prevents changes after the configured lock deadline.";
+    }
 
-        var lockTimeText = raceConfig.PreQualyDeadlineUtc
-            .ToString("dd MMM yyyy HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
-
-        return $"Locking for Pre-Qualy gives +50% points and prevents changes after {lockTimeText}.";
+    private string GetReadOnlyMessage()
+    {
+        return raceConfig?.LockedSelectionMessage ?? "This pre-qualy selection is locked.";
     }
 
     private void StartCountdownTimerIfNeeded()
