@@ -8,12 +8,14 @@ using System.Net;
 
 namespace F1.Web.Tests.Pages;
 
-public class YasMarinaSelectionTests : BunitContext
+public class RaceSelectionTests : BunitContext
 {
-    public YasMarinaSelectionTests()
+    public RaceSelectionTests()
     {
         Services.AddSingleton<ITimeProvider, DefaultTimeProvider>();
         Services.AddSingleton<IMockDateService, TestMockDateService>();
+        Services.AddSingleton<ISelectionPageService, SelectionPageService>();
+        Services.AddSingleton<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
     }
 
     private static readonly RaceConfig DefaultRaceConfig = new()
@@ -69,11 +71,11 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldRenderWarningAndCountdown_WhenLoadedWithNoExistingSelection()
+    public void RaceSelection_ShouldRenderWarningAndCountdown_WhenLoadedWithNoExistingSelection()
     {
         RegisterDefaultMocks();
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
 
         cut.WaitForAssertion(() => Assert.Contains("Locking for Pre-Qualy gives +50% points", cut.Markup));
         Assert.Contains("Countdown:", cut.Markup);
@@ -81,7 +83,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldRenderPublishedRaceQuestions_WhenMetadataExists()
+    public void RaceSelection_ShouldRenderPublishedRaceQuestions_WhenMetadataExists()
     {
         RegisterDefaultMocks(metadata: new RaceQuestionMetadata
         {
@@ -92,7 +94,7 @@ public class YasMarinaSelectionTests : BunitContext
             UpdatedAtUtc = DateTime.UtcNow
         });
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
 
         cut.WaitForAssertion(() => Assert.Contains("Race Questions", cut.Markup));
         Assert.Contains("Who finishes higher: Leclerc or Norris?", cut.Markup);
@@ -100,7 +102,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldRenderLockedState_WhenExistingSelectionIsLocked()
+    public void RaceSelection_ShouldRenderLockedState_WhenExistingSelectionIsLocked()
     {
         RegisterDefaultMocks(
             mySelection: new Selection
@@ -135,7 +137,7 @@ public class YasMarinaSelectionTests : BunitContext
                 },
             ]);
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
 
         cut.WaitForAssertion(() => Assert.Contains("This pre-qualy selection is locked.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
@@ -146,7 +148,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldSaveSelection_WhenSubmitSucceeds()
+    public void RaceSelection_ShouldSaveSelection_WhenSubmitSucceeds()
     {
         var (_, selectionMock, _) = RegisterDefaultMocks();
         var savedSelection = new Selection
@@ -170,7 +172,7 @@ public class YasMarinaSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(savedSelection);
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         ChangeSelect(cut, 0, "norris");
@@ -196,7 +198,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldShowApiErrorMessage_WhenSaveFails()
+    public void RaceSelection_ShouldShowApiErrorMessage_WhenSaveFails()
     {
         var (_, selectionMock, _) = RegisterDefaultMocks();
 
@@ -204,7 +206,7 @@ public class YasMarinaSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiServiceException(new ApiError(HttpStatusCode.BadRequest, "Exactly 5 unique drivers must be selected.")));
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         cut.Find("button[type='submit']").Click();
@@ -215,7 +217,7 @@ public class YasMarinaSelectionTests : BunitContext
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized)]
     [InlineData(HttpStatusCode.Forbidden)]
-    public void YasMarinaSelection_ShouldShowFriendlyAuthorizationMessage_WhenSaveIsUnauthorized(HttpStatusCode statusCode)
+    public void RaceSelection_ShouldShowFriendlyAuthorizationMessage_WhenSaveIsUnauthorized(HttpStatusCode statusCode)
     {
         var (_, selectionMock, _) = RegisterDefaultMocks();
 
@@ -223,7 +225,7 @@ public class YasMarinaSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiServiceException(new ApiError(statusCode, $"Saving race selection failed with status code {(int)statusCode}.")));
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         cut.Find("button[type='submit']").Click();
@@ -232,11 +234,11 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public async Task YasMarinaSelection_DisposeAsync_ShouldBeIdempotent()
+    public async Task RaceSelection_DisposeAsync_ShouldBeIdempotent()
     {
         RegisterDefaultMocks();
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
         cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
 
         var component = (IAsyncDisposable)cut.Instance;
@@ -246,7 +248,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldPopulateControls_FromCurrentSelectionsSnapshot()
+    public void RaceSelection_ShouldPopulateControls_FromCurrentSelectionsSnapshot()
     {
         RegisterDefaultMocks(
             drivers:
@@ -270,7 +272,7 @@ public class YasMarinaSelectionTests : BunitContext
                 },
             ]);
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
 
         cut.WaitForAssertion(() => Assert.Equal("norris", cut.FindAll("select")[0].GetAttribute("value")));
         Assert.Equal("leclerc", cut.FindAll("select")[1].GetAttribute("value"));
@@ -278,7 +280,7 @@ public class YasMarinaSelectionTests : BunitContext
     }
 
     [Fact]
-    public void YasMarinaSelection_ShouldRenderLockedState_WhenPastFinalDeadline()
+    public void RaceSelection_ShouldRenderLockedState_WhenPastFinalDeadline()
     {
         var pastDeadlineConfig = new RaceConfig
         {
@@ -290,14 +292,14 @@ public class YasMarinaSelectionTests : BunitContext
         Services.AddSingleton<ITimeProvider>(new FrozenTimeProvider(new DateTime(2025, 12, 8, 12, 1, 0, DateTimeKind.Utc)));
         RegisterDefaultMocks(config: pastDeadlineConfig);
 
-        var cut = Render<YasMarinaSelection>();
+        var cut = Render<RaceSelection>();
 
         cut.WaitForAssertion(() => Assert.Contains("All deadlines have passed.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
         Assert.True(cut.FindAll("select").All(s => s.HasAttribute("disabled")));
     }
 
-    private static void ChangeSelect(IRenderedComponent<YasMarinaSelection> cut, int index, string value)
+    private static void ChangeSelect(IRenderedComponent<RaceSelection> cut, int index, string value)
     {
         cut.FindAll("select")[index].Change(value);
     }

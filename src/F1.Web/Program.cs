@@ -15,6 +15,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddTransient<DevMockAuthHandler>();
 
 const string ClientName = "F1Api";
+const string HostClientName = AppInfoService.HostClientName;
 
 // Define the API configuration logic once to be used by multiple registrations
 void ConfigureApi(IServiceProvider sp, HttpClient client)
@@ -39,17 +40,26 @@ void ConfigureApi(IServiceProvider sp, HttpClient client)
 builder.Services.AddHttpClient(ClientName, ConfigureApi)
     .AddHttpMessageHandler<DevMockAuthHandler>();
 
+builder.Services.AddHttpClient(HostClientName, (sp, client) =>
+{
+    var nav = sp.GetRequiredService<NavigationManager>();
+    client.BaseAddress = new Uri(nav.BaseUri);
+});
+
 // 2. Register the default HttpClient for Razor components (e.g. @inject HttpClient)
 // This also allows UserSession to simply ask for 'HttpClient' in its constructor
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient(ClientName));
 
 // 3. Register UserSession as SCOPED
 builder.Services.AddScoped<IUserSession, UserSession>();
+builder.Services.AddScoped<IAppInfoService, AppInfoService>();
 
 // 4. Register typed API services.
 builder.Services.AddScoped<IDriversApiService, DriversApiService>();
 builder.Services.AddScoped<IRaceMetadataApiService, RaceMetadataApiService>();
 builder.Services.AddScoped<ISelectionApiService, SelectionApiService>();
+builder.Services.AddScoped<ISelectionPageService, SelectionPageService>();
+builder.Services.AddScoped<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
 
 // --- Auth Services ---
 builder.Services.AddAuthorizationCore();

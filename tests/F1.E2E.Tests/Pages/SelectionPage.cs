@@ -9,20 +9,22 @@ internal class SelectionPage
     private readonly IWebDriver _driver;
     private readonly WebDriverWait _wait;
     private readonly string _baseUrl;
+    private readonly string _raceId;
     private readonly Action<string> _trace;
 
-    public SelectionPage(IWebDriver driver, WebDriverWait wait, string baseUrl, Action<string>? trace = null)
+    public SelectionPage(IWebDriver driver, WebDriverWait wait, string baseUrl, string raceId, Action<string>? trace = null)
     {
         _driver = driver;
         _wait = wait;
         _baseUrl = baseUrl.TrimEnd('/');
+        _raceId = raceId;
         _trace = trace ?? (_ => { });
     }
 
     public void Navigate()
     {
-        _trace($"Navigate -> {_baseUrl}/yas-marina-selection");
-        _driver.Navigate().GoToUrl(_baseUrl + "/yas-marina-selection");
+        _trace($"Navigate -> {_baseUrl}/selection/{_raceId}");
+        _driver.Navigate().GoToUrl($"{_baseUrl}/selection/{_raceId}");
         _trace($"Navigation complete. Current URL: {_driver.Url}");
     }
 

@@ -51,7 +51,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldPersistServerSide), output);
         using var driver = WebDriverFactory.Create(options);
         var wait = WebDriverFactory.CreateWait(driver, options.Timeout);
-        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, trace.Log);
+        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, options.RaceId, trace.Log);
         using var api = new ApiVerificationClient(options);
         var testPassed = false;
 
@@ -176,7 +176,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             }
         };
 
-        var response = await api.PostSelectionAsync("2025-24-yas_marina", submission);
+        var response = await api.PostSelectionAsync(options.RaceId, submission);
         Assert.True(
             response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
             response.StatusCode == System.Net.HttpStatusCode.BadRequest ||
@@ -197,7 +197,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldShowError_AfterDeadline_Ui), output);
         using var driver = WebDriverFactory.Create(options);
         var wait = WebDriverFactory.CreateWait(driver, options.Timeout);
-        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, trace.Log);
+        var selectionPage = new SelectionPage(driver, wait, options.BaseUrl, options.RaceId, trace.Log);
         using var api = new ApiVerificationClient(options);
         var testPassed = false;
 
