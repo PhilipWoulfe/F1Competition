@@ -351,7 +351,10 @@ jobs:
             api_ok=false
 
             if [ "$WEB_CHECK_REQUIRED" != "true" ]; then
-              web_ok=true
+              # Even when not pinning to a specific SHA, ensure the web endpoint is reachable.
+              if [ -n "$web_version" ]; then
+                web_ok=true
+              fi
             elif echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
               web_ok=true
             fi
