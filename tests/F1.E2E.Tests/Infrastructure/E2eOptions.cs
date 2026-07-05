@@ -103,7 +103,22 @@ internal class E2eOptions
         }
 
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rawLine in File.ReadLines(envPath))
+
+        IEnumerable<string> rawLines;
+        try
+        {
+            rawLines = File.ReadLines(envPath);
+        }
+        catch (IOException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        foreach (var rawLine in rawLines)
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#'))
