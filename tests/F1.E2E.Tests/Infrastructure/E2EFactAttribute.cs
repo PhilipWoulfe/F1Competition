@@ -5,9 +5,11 @@ namespace F1.E2E.Tests.Infrastructure;
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 internal sealed class E2EFactAttribute : FactAttribute
 {
+    private static readonly Lazy<bool> IsEnabled = new(() => E2eOptions.FromEnvironment().Enabled);
+
     public E2EFactAttribute()
     {
-        if (E2eOptions.FromEnvironment().Enabled)
+        if (IsEnabled.Value)
         {
             return;
         }
