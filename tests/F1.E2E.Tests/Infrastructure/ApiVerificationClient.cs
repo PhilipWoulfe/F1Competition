@@ -25,6 +25,11 @@ internal class ApiVerificationClient : IDisposable
     public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string raceId, CancellationToken cancellationToken)
     {
         var response = await _httpClient.GetAsync($"selections/{raceId}/current", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new HttpRequestException("Current selections endpoint not found.", null, HttpStatusCode.NotFound);
+        }
+
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<List<CurrentSelectionRow>>(cancellationToken: cancellationToken);
@@ -99,7 +104,7 @@ internal class ApiVerificationClient : IDisposable
 
     public async Task<HttpResponseMessage> PostSelectionAsync(string raceId, object submission)
     {
-        var response = await _httpClient.PostAsJsonAsync($"selections/{raceId}/mine", submission);
+        var response = await _httpClient.PutAsJsonAsync($"selections/{raceId}/mine", submission);
         return response;
     }
 
@@ -127,7 +132,7 @@ internal class ApiVerificationClient : IDisposable
 
     private static bool IsTransientStatus(HttpStatusCode? statusCode)
     {
-        return statusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+        return statusCode is HttpStatusCode.NotFound or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
     }
 }
 
