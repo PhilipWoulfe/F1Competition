@@ -8,3 +8,7 @@ public sealed record MigrationImportRunContext(
     string SourceFileChecksum,
     bool IsDryRun,
     bool PersistDomainEntities);
+
+public sealed record MigrationRaceSelectionParseResult(
+    int SelectionCount,
+    int UnresolvedTokenCount);
