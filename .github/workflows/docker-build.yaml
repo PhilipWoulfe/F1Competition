@@ -345,6 +345,7 @@ jobs:
           for attempt in $(seq 1 "$max_attempts"); do
             web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json?ts=$(date +%s)" 2>/dev/null || true)"
             api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$RACE_ID/config" 2>/dev/null || true)"
+            actual_web_sha="$(printf '%s' "$web_version" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
             web_ok=false
             api_ok=false
@@ -360,6 +361,7 @@ jobs:
             fi
 
             echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok stable_count=$stable_count"
+            echo "expected_sha_full=$EXPECTED_SHA_FULL expected_sha_short=$EXPECTED_SHA_SHORT actual_web_sha=${actual_web_sha:-<unparsed>}"
             echo "web_version=$web_version"
 
             if $web_ok && $api_ok; then
