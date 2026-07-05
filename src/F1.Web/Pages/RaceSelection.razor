@@ -139,8 +139,17 @@ else
 
     private async Task LoadDataAsync(string activeRaceId)
     {
+        // Prevent stale race data/submission when route switches and next load fails.
+        drivers = null;
+        raceConfig = null;
+        raceMetadata = null;
+        formModel.SelectedDriverIds.Clear();
+        formModel.SelectedBetType = BetType.Regular;
+        isReadOnly = false;
         errorMessage = null;
         successMessage = null;
+
+        await InvokeAsync(StateHasChanged);
 
         try
         {
