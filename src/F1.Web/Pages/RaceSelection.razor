@@ -14,7 +14,7 @@
 @inject F1.Web.Services.IMockDateService MockDateService
 @inject NavigationManager Navigation
 
-<h1>Race Selection</h1>
+<h1>@GetPageTitle()</h1>
 
 @if (!string.IsNullOrWhiteSpace(routeContextErrorMessage))
 {
@@ -30,7 +30,8 @@ else
         ErrorMessage="@errorMessage"
         SuccessMessage="@successMessage"
         RaceMetadata="@raceMetadata"
-        CountdownText="@GetCountdownText()" />
+        CountdownText="@GetCountdownText()"
+        LockingMessage="@GetLockingMessage()" />
 
     <EditForm Model="formModel" OnValidSubmit="SaveSelectionAsync">
         <DriverSelectionList Drivers="@drivers" SelectedDriverIds="@formModel.SelectedDriverIds" IsReadOnly="@isReadOnly" />
@@ -212,6 +213,34 @@ else
     private string GetCountdownText()
     {
         return CountdownFormatter.FormatCountdown(raceConfig, TimeProvider.UtcNow);
+    }
+
+    private string GetPageTitle()
+    {
+        if (!string.IsNullOrWhiteSpace(raceMetadata?.DisplayTitle))
+        {
+            return raceMetadata.DisplayTitle;
+        }
+
+        return "Race Selection";
+    }
+
+    private string GetLockingMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(raceMetadata?.LockMessage))
+        {
+            return raceMetadata.LockMessage;
+        }
+
+        if (raceConfig is null)
+        {
+            return "Locking for Pre-Qualy gives +50% points and prevents changes after the configured lock deadline.";
+        }
+
+        var lockTimeText = raceConfig.PreQualyDeadlineUtc
+            .ToString("dd MMM yyyy HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+        return $"Locking for Pre-Qualy gives +50% points and prevents changes after {lockTimeText}.";
     }
 
     private void StartCountdownTimerIfNeeded()

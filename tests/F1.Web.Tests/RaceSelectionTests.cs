@@ -89,9 +89,13 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace("2026-01-australia");
 
-        cut.WaitForAssertion(() => Assert.Contains("Locking for Pre-Qualy gives +50% points", cut.Markup));
-        Assert.Contains("Countdown:", cut.Markup);
-        Assert.Equal(string.Empty, cut.FindAll("select")[0].GetAttribute("value"));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Race Selection", cut.Markup);
+            Assert.Contains("07 Dec 2025 04:30 UTC", cut.Markup);
+            Assert.Contains("Countdown:", cut.Markup);
+            Assert.Equal(string.Empty, cut.FindAll("select")[0].GetAttribute("value"));
+        });
     }
 
     [Fact]
@@ -100,6 +104,7 @@ public class RaceSelectionTests : BunitContext
         RegisterDefaultMocks(metadata: new RaceQuestionMetadata
         {
             RaceId = "2025-24-yas_marina",
+            DisplayTitle = "Abu Dhabi Grand Prix Selection",
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
             BonusQuestion = "How many safety-car laps?",
             IsPublished = true,
@@ -108,9 +113,30 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
-        cut.WaitForAssertion(() => Assert.Contains("Race Questions", cut.Markup));
+        cut.WaitForAssertion(() => Assert.Contains("Abu Dhabi Grand Prix Selection", cut.Markup));
         Assert.Contains("Who finishes higher: Leclerc or Norris?", cut.Markup);
         Assert.Contains("How many safety-car laps?", cut.Markup);
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldFallbackToGenericTitle_WhenMetadataTitleIsMissing()
+    {
+        RegisterDefaultMocks(metadata: new RaceQuestionMetadata
+        {
+            RaceId = "2026-01-australia",
+            H2HQuestion = "Who finishes higher?",
+            BonusQuestion = "How many DNFs?",
+            IsPublished = true,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        var cut = RenderForRace("2026-01-australia");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("<h1>Race Selection</h1>", cut.Markup);
+            Assert.Contains("Race Questions", cut.Markup);
+        });
     }
 
     [Fact]
