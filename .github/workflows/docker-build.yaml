@@ -320,7 +320,7 @@ jobs:
           BASE_URL="${E2E_BASE_URL%/}"
           API_URL="${E2E_API_BASE_URL%/}"
           RACE_ID="${E2E_RACE_ID:-}"
-          COMPETITION_SLUG="${E2E_COMPETITION_SLUG:-main-2026}"
+          COMPETITION_SLUG="${E2E_COMPETITION_SLUG:-main}"
           SEASON="${E2E_SEASON:-2026}"
           ROUND="${E2E_ROUND:-1}"
           WEB_CHANGED="${WEB_CHANGED:-false}"
