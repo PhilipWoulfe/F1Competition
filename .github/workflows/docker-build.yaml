@@ -305,6 +305,7 @@ jobs:
         env:
           E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
           E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+          WEB_CHANGED: ${{ needs.build-and-push.outputs.web_changed }}
           E2E_CF_CLIENT_ID: ${{ secrets.E2E_CF_CLIENT_ID }}
           E2E_CF_CLIENT_SECRET: ${{ secrets.E2E_CF_CLIENT_SECRET }}
           E2E_RACE_ID: ${{ vars.E2E_RACE_ID }}
@@ -316,6 +317,12 @@ jobs:
           BASE_URL="${E2E_BASE_URL%/}"
           API_URL="${E2E_API_BASE_URL%/}"
           RACE_ID="${E2E_RACE_ID:-2025-24-yas_marina}"
+          WEB_CHANGED="${WEB_CHANGED:-false}"
+          WEB_CHECK_REQUIRED=false
+
+          if [ "$WEB_CHANGED" = "true" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            WEB_CHECK_REQUIRED=true
+          fi
 
           [ -n "$BASE_URL" ] || { echo "E2E_BASE_URL is required"; exit 1; }
           [ -n "$API_URL" ] || API_URL="$BASE_URL/api"
@@ -338,11 +345,17 @@ jobs:
           for attempt in $(seq 1 "$max_attempts"); do
             web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json?ts=$(date +%s)" 2>/dev/null || true)"
             api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$RACE_ID/config" 2>/dev/null || true)"
+            actual_web_sha="$(printf '%s' "$web_version" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
             web_ok=false
             api_ok=false
 
-            if echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
+            if [ "$WEB_CHECK_REQUIRED" != "true" ]; then
+              # Even when not pinning to a specific SHA, ensure the web endpoint is reachable.
+              if [ -n "$web_version" ]; then
+                web_ok=true
+              fi
+            elif echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
               web_ok=true
             fi
 
@@ -350,7 +363,8 @@ jobs:
               api_ok=true
             fi
 
-            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok stable_count=$stable_count"
+            echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok web_check_required=$WEB_CHECK_REQUIRED stable_count=$stable_count"
+            echo "expected_sha_full=$EXPECTED_SHA_FULL expected_sha_short=$EXPECTED_SHA_SHORT actual_web_sha=${actual_web_sha:-<unparsed>}"
             echo "web_version=$web_version"
 
             if $web_ok && $api_ok; then
