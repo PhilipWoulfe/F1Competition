@@ -4,21 +4,25 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
-  pull_request_review:
-    types: [submitted, edited, dismissed]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.editorconfig'
+      - 'Directory.Build.props'
+      - 'F1Competition.sln'
+      - '.github/workflows/copilot-review-gate.yml'
 
 permissions:
   contents: read
-  issues: read
   pull-requests: read
 
 jobs:
-  require-copilot-comment:
+  require-initial-copilot-review:
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - name: Enforce at least one Copilot comment
+      - name: Enforce Copilot review on initial PR head
         uses: actions/github-script@v9
         with:
           script: |
@@ -28,6 +32,15 @@ jobs:
             const prNumber = pr.number;
             const copilotLogins = new Set(['github-copilot[bot]']);
 
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+
+            const initialSha = commits.length > 0 ? commits[0].sha : pr.head.sha;
+
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner,
               repo,
@@ -35,43 +48,20 @@ jobs:
               per_page: 100
             });
 
-            const hasCopilotReviewSummary = reviews.some((review) => {
+            const matchingCopilotReview = reviews.find((review) => {
               const login = review.user?.login;
               const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody;
+              return copilotLogins.has(login) && hasBody && review.commit_id === initialSha;
             });
 
-            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
-              owner,
-              repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
-
-            const hasCopilotInlineComment = reviewComments.some((comment) => {
-              const login = comment.user?.login;
-              const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody;
-            });
-
-            const issueComments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
-
-            const hasCopilotIssueComment = issueComments.some((comment) => {
-              const login = comment.user?.login;
-              const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody;
-            });
-
-            if (!hasCopilotReviewSummary && !hasCopilotInlineComment && !hasCopilotIssueComment) {
+            if (!matchingCopilotReview) {
               core.setFailed(
-                'Missing Copilot PR feedback. At least one comment from github-copilot[bot] is required before merge.'
+                `Missing Copilot review comment for initial PR SHA ${initialSha}. ` +
+                `This gate only accepts Copilot feedback on the initial PR revision.`
               );
               return;
             }
 
-            core.info('Copilot review gate passed: found at least one Copilot comment on this PR.');
+            core.info(
+              `Copilot review gate passed with review ${matchingCopilotReview.id} on initial SHA ${initialSha}.`
+            );
