@@ -43,23 +43,17 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         }
 
         var calculatedScores = new List<MigrationImportCalculatedScoreEntity>();
-        var groupedByRaceAndPick = selections.GroupBy(x => new { x.RaceCode, x.PickType });
+        var groupedByRace = selections.GroupBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var group in groupedByRaceAndPick)
+        foreach (var raceGroup in groupedByRace)
         {
-            var participants = group
-                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (participants.Count == 0)
-            {
-                continue;
-            }
-
-            var actualByPickType = selections
-                .Where(x => x.IsActualOutcome && string.Equals(x.RaceCode, group.Key.RaceCode, StringComparison.OrdinalIgnoreCase))
+            var actualByPickType = raceGroup
+                .Where(x => x.IsActualOutcome)
                 .GroupBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(x => x.Key, x => x.OrderBy(y => y.RowNumber).Select(y => y.NormalizedValue).FirstOrDefault(), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.OrderBy(y => y.RowNumber).Select(y => y.NormalizedValue).FirstOrDefault(),
+                    StringComparer.OrdinalIgnoreCase);
 
             var actualTop3 = actualByPickType
                 .Where(x => PodiumPickTypes.Contains(x.Key) && !string.IsNullOrWhiteSpace(x.Value))
@@ -68,6 +62,13 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
             var actualDnfTokens = ExtractDriverTokens(
                 actualByPickType.TryGetValue("DNF", out var dnfActualRaw) ? dnfActualRaw : null);
+
+            var participants = raceGroup
+                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.RowNumber)
+                .ThenBy(x => x.PickType)
+                .ThenBy(x => x.Subject)
+                .ToList();
 
             foreach (var participant in participants)
             {
