@@ -3,6 +3,16 @@ name: Code Quality
 on:
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Directory.Build.props'
+      - 'F1Competition.sln'
+      - '.github/workflows/code-quality.yml'
+
+concurrency:
+  group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -18,6 +28,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            F1Competition.sln
 
       - name: Restore dependencies
         run: |
@@ -48,6 +63,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            F1Competition.sln
 
       - name: Restore dependencies
         run: |
