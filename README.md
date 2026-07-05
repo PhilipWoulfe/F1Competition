@@ -78,7 +78,8 @@ The solution uses **Cloudflare Tunnels** to securely expose the services without
 - **Persistence**: API runtime persistence via **Postgres**.
 - **Containerized**: Full Docker support for reproducible environments across Proxmox LXCs.
 - **Race-scoped selection endpoints**: selection config, mine, and current snapshot routes require `raceId` in the path, and selection deadlines are read from the race record.
-- **Race-scoped web selection route**: the canonical UI route is `/selection/{raceId}`. A temporary compatibility route `/yas-marina-selection` is still available and is marked for removal in PR F cleanup.
+- **Additive race-context resolver endpoints**: `/races/context/{competitionSlug}/{season}/round/{round}` and `/races/context/{competitionSlug}/{season}/slug/{raceSlug}` resolve generic route context to canonical `raceId` during migration.
+- **Race-scoped web selection routes**: canonical route remains `/selection/{raceId}` with additive generic routes `/selection/{competition}/{season}/round/{round}` and `/selection/{competition}/{season}/{raceSlug}`. Temporary compatibility route `/yas-marina-selection` remains flagged for removal in PR F cleanup.
 
 ---
 

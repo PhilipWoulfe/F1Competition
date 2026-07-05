@@ -46,6 +46,7 @@ builder.Services.AddControllers(); // Add this line to register controller servi
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IRaceService, RaceService>();
 builder.Services.AddScoped<IRaceMetadataService, RaceMetadataService>();
+builder.Services.AddScoped<IRaceContextResolver, RaceContextResolver>();
 builder.Services.AddScoped<ISelectionService, SelectionService>();
 if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test"))
 {

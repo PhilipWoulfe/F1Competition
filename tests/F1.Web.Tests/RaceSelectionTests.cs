@@ -36,13 +36,14 @@ public class RaceSelectionTests : BunitContext
         new Driver { DriverId = "verstappen", FullName = "Max Verstappen" },
     ];
 
-    private (Mock<IDriversApiService> drivers, Mock<ISelectionApiService> selection, Mock<IRaceMetadataApiService> metadata)
+    private (Mock<IDriversApiService> drivers, Mock<ISelectionApiService> selection, Mock<IRaceMetadataApiService> metadata, Mock<IRaceContextApiService> raceContext)
         RegisterDefaultMocks(
             Driver[]? drivers = null,
             RaceConfig? config = null,
             RaceQuestionMetadata? metadata = null,
             Selection? mySelection = null,
-            CurrentSelectionItem[]? current = null)
+            CurrentSelectionItem[]? current = null,
+            RaceContextResolution? resolvedContext = null)
     {
         var driversMock = new Mock<IDriversApiService>();
         driversMock
@@ -65,11 +66,20 @@ public class RaceSelectionTests : BunitContext
             .Setup(s => s.GetPublishedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(metadata);
 
+        var raceContextMock = new Mock<IRaceContextApiService>();
+        raceContextMock
+            .Setup(s => s.ResolveByRoundAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(resolvedContext);
+        raceContextMock
+            .Setup(s => s.ResolveBySlugAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(resolvedContext);
+
         Services.AddSingleton<IDriversApiService>(driversMock.Object);
         Services.AddSingleton<ISelectionApiService>(selectionMock.Object);
         Services.AddSingleton<IRaceMetadataApiService>(metadataMock.Object);
+        Services.AddSingleton<IRaceContextApiService>(raceContextMock.Object);
 
-        return (driversMock, selectionMock, metadataMock);
+        return (driversMock, selectionMock, metadataMock, raceContextMock);
     }
 
     [Fact]
@@ -153,7 +163,7 @@ public class RaceSelectionTests : BunitContext
     public void RaceSelection_ShouldSaveSelection_WhenSubmitSucceeds()
     {
         const string raceId = "2026-01-australia";
-        var (_, selectionMock, _) = RegisterDefaultMocks(config: new RaceConfig
+        var (_, selectionMock, _, _) = RegisterDefaultMocks(config: new RaceConfig
         {
             RaceId = raceId,
             PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
@@ -208,7 +218,7 @@ public class RaceSelectionTests : BunitContext
     [Fact]
     public void RaceSelection_ShouldShowApiErrorMessage_WhenSaveFails()
     {
-        var (_, selectionMock, _) = RegisterDefaultMocks();
+        var (_, selectionMock, _, _) = RegisterDefaultMocks();
 
         selectionMock
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
@@ -227,7 +237,7 @@ public class RaceSelectionTests : BunitContext
     [InlineData(HttpStatusCode.Forbidden)]
     public void RaceSelection_ShouldShowFriendlyAuthorizationMessage_WhenSaveIsUnauthorized(HttpStatusCode statusCode)
     {
-        var (_, selectionMock, _) = RegisterDefaultMocks();
+        var (_, selectionMock, _, _) = RegisterDefaultMocks();
 
         selectionMock
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
@@ -310,7 +320,7 @@ public class RaceSelectionTests : BunitContext
     [Fact]
     public void RaceSelection_ShouldUseCompatibilityRoute_WhenYasMarinaPathIsUsed()
     {
-        var (_, selectionMock, _) = RegisterDefaultMocks();
+        var (_, selectionMock, _, _) = RegisterDefaultMocks();
         NavigateTo(SelectionDefaults.CompatibilityRoutePath);
 
         var cut = Render<RaceSelection>();
@@ -319,6 +329,56 @@ public class RaceSelectionTests : BunitContext
         selectionMock.Verify(
             s => s.GetConfigAsync(SelectionDefaults.CompatibilityRaceId, It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldResolveRoundContext_ThenLoadRaceByCanonicalRaceId()
+    {
+        var resolved = new RaceContextResolution
+        {
+            RaceId = "main-2026-2-australian-grand-prix",
+            CompetitionSlug = "main",
+            Season = 2026,
+            Round = 2,
+            RaceSlug = "australian-grand-prix"
+        };
+
+        var (_, selectionMock, _, raceContextMock) = RegisterDefaultMocks(
+            config: new RaceConfig
+            {
+                RaceId = resolved.RaceId,
+                PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc)
+            },
+            resolvedContext: resolved);
+
+        NavigateTo("selection/main/2026/round/2");
+        var cut = Render<RaceSelection>(parameters => parameters
+            .Add(p => p.Competition, "main")
+            .Add(p => p.Season, 2026)
+            .Add(p => p.Round, 2));
+
+        cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
+        raceContextMock.Verify(
+            s => s.ResolveByRoundAsync("main", 2026, 2, It.IsAny<CancellationToken>()),
+            Times.Once);
+        selectionMock.Verify(
+            s => s.GetConfigAsync(resolved.RaceId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenRoundContextCannotBeResolved()
+    {
+        RegisterDefaultMocks(resolvedContext: null);
+
+        NavigateTo("selection/main/2026/round/999");
+        var cut = Render<RaceSelection>(parameters => parameters
+            .Add(p => p.Competition, "main")
+            .Add(p => p.Season, 2026)
+            .Add(p => p.Round, 999));
+
+        cut.WaitForAssertion(() => Assert.Contains("No race found for the requested competition, season, and race context.", cut.Markup));
     }
 
     [Fact]
