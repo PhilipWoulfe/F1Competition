@@ -13,7 +13,7 @@ internal class E2eOptions
 
     public static E2eOptions FromEnvironment()
     {
-        var localSettings = LoadLocalDotEnv();
+        var localSettings = new Lazy<Dictionary<string, string>>(LoadLocalDotEnv);
 
         string? GetSetting(string name)
         {
@@ -23,7 +23,7 @@ internal class E2eOptions
                 return envValue;
             }
 
-            return localSettings.TryGetValue(name, out var localValue) && !string.IsNullOrWhiteSpace(localValue)
+            return localSettings.Value.TryGetValue(name, out var localValue) && !string.IsNullOrWhiteSpace(localValue)
                 ? localValue
                 : null;
         }
