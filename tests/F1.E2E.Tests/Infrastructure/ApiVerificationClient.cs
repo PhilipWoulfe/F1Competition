@@ -25,10 +25,10 @@ internal class ApiVerificationClient : IDisposable
     public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string raceId, CancellationToken cancellationToken)
     {
         var response = await _httpClient.GetAsync($"selections/{raceId}/current", cancellationToken);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            throw new HttpRequestException("Current selections endpoint not found.", null, HttpStatusCode.NotFound);
-        }
+if (response.StatusCode == HttpStatusCode.NotFound)
+{
+    throw new HttpRequestException($"Current selections endpoint not found for race '{raceId}'.", null, HttpStatusCode.NotFound);
+}
 
         response.EnsureSuccessStatusCode();
 
