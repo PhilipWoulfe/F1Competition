@@ -39,6 +39,17 @@ public class SelectionCountdownFormatterTests
     }
 
     [Fact]
+    public void FormatCountdown_WhenAtPreQualyDeadline_KeepsEarlyLockLabel()
+    {
+        var config = CreateRaceConfig();
+        var now = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc);
+
+        var result = _formatter.FormatCountdown(config, now);
+
+        Assert.StartsWith("Pre-Qualy lock in 0d 0h 0m 0s", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FormatCountdown_WhenPastFinalDeadline_ReturnsPassedMessage()
     {
         var config = CreateRaceConfig();

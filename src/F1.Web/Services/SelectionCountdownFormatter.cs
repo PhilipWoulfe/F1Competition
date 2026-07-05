@@ -21,7 +21,7 @@ public sealed class SelectionCountdownFormatter : ISelectionCountdownFormatter
             return "All deadlines have passed.";
         }
 
-        var useEarlyLock = raceConfig.EarlyLockBetType is not null && nowUtc < raceConfig.PreQualyDeadlineUtc;
+        var useEarlyLock = raceConfig.EarlyLockBetType is not null && nowUtc <= raceConfig.PreQualyDeadlineUtc;
         var nextDeadline = useEarlyLock ? raceConfig.PreQualyDeadlineUtc : raceConfig.FinalDeadlineUtc;
         var label = useEarlyLock ? raceConfig.EarlyLockLabel : raceConfig.FinalSubmissionLabel;
 
