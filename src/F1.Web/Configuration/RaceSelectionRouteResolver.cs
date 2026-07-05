@@ -16,6 +16,7 @@ public static class RaceSelectionRouteResolver
     {
         context = null;
         errorMessage = null;
+        _ = relativePath;
 
         if (TryNormalizeRaceId(raceIdFromRoute, out var normalizedRaceId))
         {
@@ -42,17 +43,6 @@ public static class RaceSelectionRouteResolver
                 ContextKey = lookup.LookupType == RaceRouteLookupType.Round
                     ? $"ctx:{lookup.CompetitionSlug}:{lookup.Season}:round:{lookup.LookupValue}"
                     : $"ctx:{lookup.CompetitionSlug}:{lookup.Season}:slug:{lookup.LookupValue}"
-            };
-            return true;
-        }
-
-        if (IsCompatibilityRoute(relativePath))
-        {
-            // Temporary compatibility route. Remove in PR F cleanup.
-            context = new RaceSelectionContext
-            {
-                RaceId = SelectionDefaults.CompatibilityRaceId,
-                ContextKey = $"compat:{SelectionDefaults.CompatibilityRoutePath}"
             };
             return true;
         }
@@ -181,11 +171,5 @@ public static class RaceSelectionRouteResolver
 
         normalized = trimmed;
         return true;
-    }
-
-    private static bool IsCompatibilityRoute(string relativePath)
-    {
-        var pathOnly = relativePath.Split('?', '#')[0].Trim('/');
-        return string.Equals(pathOnly, SelectionDefaults.CompatibilityRoutePath, StringComparison.OrdinalIgnoreCase);
     }
 }
