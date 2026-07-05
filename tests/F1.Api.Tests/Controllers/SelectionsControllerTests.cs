@@ -12,6 +12,8 @@ namespace F1.Api.Tests.Controllers;
 
 public class SelectionsControllerTests
 {
+    private const string RaceId = "2026-01-albert_park";
+
     [Fact]
     public async Task GetCurrent_ShouldReturnUnauthorized_WhenUserCannotBeResolved()
     {
@@ -22,7 +24,7 @@ public class SelectionsControllerTests
             HttpContext = new DefaultHttpContext()
         };
 
-        var result = await controller.GetCurrent();
+        var result = await controller.GetCurrent(RaceId);
 
         Assert.IsType<UnauthorizedResult>(result);
     }
@@ -32,7 +34,7 @@ public class SelectionsControllerTests
     {
         var serviceMock = new Mock<ISelectionService>();
         serviceMock
-            .Setup(service => service.GetCurrentSelectionsAsync("user@example.com"))
+            .Setup(service => service.GetCurrentSelectionsAsync(RaceId, "user@example.com"))
             .ReturnsAsync([
                 new CurrentSelectionDto
                 {
@@ -57,7 +59,7 @@ public class SelectionsControllerTests
             HttpContext = httpContext
         };
 
-        var result = await controller.GetCurrent();
+        var result = await controller.GetCurrent(RaceId);
 
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsAssignableFrom<IReadOnlyList<CurrentSelectionDto>>(ok.Value);
@@ -84,8 +86,7 @@ public class SelectionsControllerTests
             HttpContext = httpContext
         };
 
-        // Upsert a mock selection for the same user as in the context
-        await controller.UpsertMine("2025-24-yas_marina", new SelectionSubmissionDto
+        await controller.UpsertMine(RaceId, new SelectionSubmissionDto
         {
             BetType = F1.Core.Models.BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -98,13 +99,38 @@ public class SelectionsControllerTests
             }
         });
 
-        var result = await controller.GetCurrent();
+        var result = await controller.GetCurrent(RaceId);
 
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsAssignableFrom<IReadOnlyList<CurrentSelectionDto>>(ok.Value);
         Assert.NotEmpty(payload);
         Assert.Equal(1, payload[0].Position);
         Assert.Equal("max_verstappen", payload[0].DriverId);
+    }
+
+    [Fact]
+    public async Task GetCurrent_ShouldPassRouteRaceIdToService()
+    {
+        var serviceMock = new Mock<ISelectionService>();
+        serviceMock
+            .Setup(service => service.GetCurrentSelectionsAsync(RaceId, "user@example.com"))
+            .ReturnsAsync(Array.Empty<CurrentSelectionDto>());
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.Email, "user@example.com")],
+            "TestAuth"));
+
+        var controller = CreateController(serviceMock);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = httpContext
+        };
+
+        var result = await controller.GetCurrent(RaceId);
+
+        Assert.IsType<OkObjectResult>(result);
+        serviceMock.Verify(service => service.GetCurrentSelectionsAsync(RaceId, "user@example.com"), Times.Once);
     }
 
     [Fact]
@@ -124,7 +150,7 @@ public class SelectionsControllerTests
             HttpContext = httpContext
         };
 
-        await controller.UpsertMine("2025-24-yas_marina", new SelectionSubmissionDto
+        await controller.UpsertMine(RaceId, new SelectionSubmissionDto
         {
             BetType = F1.Core.Models.BetType.PreQualy,
             OrderedSelections = new List<SelectionPosition>
@@ -137,7 +163,7 @@ public class SelectionsControllerTests
             }
         });
 
-        var result = await controller.GetMine("2025-24-yas_marina");
+        var result = await controller.GetMine(RaceId);
 
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<F1.Core.Models.Selection>(ok.Value);
@@ -210,7 +236,6 @@ public class SelectionsControllerTests
                 return selection;
             });
 
-        // Mock driver repository to return drivers used in the test selections
         mockDriverRepo.Setup(repo => repo.GetDriversAsync()).ReturnsAsync(new List<Driver>
         {
             new Driver { DriverId = "max_verstappen", FullName = "Max Verstappen" },
@@ -227,13 +252,17 @@ public class SelectionsControllerTests
 
         mockRaceRepo
             .Setup(repo => repo.GetRaceAsync(It.IsAny<string>()))
-            .ReturnsAsync((string raceId) => new Race { Id = raceId });
+            .ReturnsAsync((string raceId) => new Race
+            {
+                Id = raceId,
+                PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)
+            });
 
         return new SelectionService(mockRepo.Object, mockDriverRepo.Object, mockRaceRepo.Object, mockDateTimeProvider.Object);
     }
 
-    private static SelectionsController CreateController(
-        Mock<ISelectionService> serviceMock)
+    private static SelectionsController CreateController(Mock<ISelectionService> serviceMock)
     {
         var dateTimeProvider = new Mock<IDateTimeProvider>();
         dateTimeProvider.SetupGet(x => x.UtcNow).Returns(DateTime.UtcNow);

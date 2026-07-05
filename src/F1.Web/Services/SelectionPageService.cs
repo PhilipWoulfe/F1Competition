@@ -36,7 +36,7 @@ public sealed class SelectionPageService(
             state = CreateStateFromSelection(existing, selectionSize);
         }
 
-        var snapshot = await selectionApiService.GetCurrentAsync(cancellationToken);
+        var snapshot = await selectionApiService.GetCurrentAsync(raceId, cancellationToken);
         ApplySnapshot(snapshot, state);
 
         if (!state.IsReadOnly && nowUtc >= raceConfig.FinalDeadlineUtc)
@@ -70,7 +70,7 @@ public sealed class SelectionPageService(
         var saved = await selectionApiService.SaveMineAsync(raceId, submission, cancellationToken);
 
         var state = CreateStateFromSelection(saved, formModel.SelectedDriverIds.Count);
-        var snapshot = await selectionApiService.GetCurrentAsync(cancellationToken);
+        var snapshot = await selectionApiService.GetCurrentAsync(raceId, cancellationToken);
         ApplySnapshot(snapshot, state);
 
         return new SelectionPageSaveResult
