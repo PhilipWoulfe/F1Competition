@@ -29,6 +29,7 @@ public class RaceContextResolverTests
         Assert.Equal("main", result.CompetitionSlug);
         Assert.Equal(2, result.Round);
         Assert.Equal("australian-grand-prix", result.RaceSlug);
+    }
 
     [Fact]
     public async Task ResolveBySlugAsync_ShouldNormalizeInputs_ThenResolve()
