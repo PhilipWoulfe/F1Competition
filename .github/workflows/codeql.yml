@@ -1,6 +1,8 @@
 name: "CodeQL"
 
 on:
+  # Cost-optimized default: scheduled weekly scans; use manual dispatch for urgent checks.
+  workflow_dispatch:
   schedule:
     - cron: '30 1 * * 0' # Run weekly
 
