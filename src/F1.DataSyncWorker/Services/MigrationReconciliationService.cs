@@ -227,7 +227,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
 
     private static string BuildPickExplanation(PickDiffKey key, int? imported, int? calculated, int delta, string reasonCode)
     {
-        if (delta == 0)
+        if (string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal))
         {
             return $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0}.";
         }
