@@ -51,7 +51,9 @@ public sealed class Worker : BackgroundService
             {
                 _logger.LogError(ex, "Worker run failed.");
 
-                if (!_dataSyncOptions.ContinueOnError)
+                // Migration import mode is a one-shot operation and must fail fast
+                // so CI/ops can detect failures from the process exit code.
+                if (_migrationImportOptions.Enabled || !_dataSyncOptions.ContinueOnError)
                 {
                     throw;
                 }
