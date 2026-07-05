@@ -22,9 +22,9 @@ public class SelectionsController : ControllerBase
     }
 
     [HttpGet("{raceId}/config")]
-    public IActionResult GetConfig(string raceId)
+    public async Task<IActionResult> GetConfig(string raceId)
     {
-        var config = _selectionService.GetRaceConfig(raceId);
+        var config = await _selectionService.GetRaceConfigAsync(raceId);
         if (config is null)
         {
             return NotFound();

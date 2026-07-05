@@ -140,11 +140,11 @@ public class SelectionServiceTests
     }
 
     [Fact]
-    public void GetRaceConfig_ShouldReturnConfig_ForAnyKnownRaceId()
+    public async Task GetRaceConfigAsync_ShouldReturnConfig_ForAnyKnownRaceId()
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
-        var config = service.GetRaceConfig(AlbertParkRaceId);
+        var config = await service.GetRaceConfigAsync(AlbertParkRaceId);
 
         Assert.NotNull(config);
         Assert.Equal(AlbertParkRaceId, config.RaceId);
@@ -153,11 +153,11 @@ public class SelectionServiceTests
     }
 
     [Fact]
-    public void GetRaceConfig_ShouldReturnNull_ForUnknownRace()
+    public async Task GetRaceConfigAsync_ShouldReturnNull_ForUnknownRace()
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
-        var config = service.GetRaceConfig("unknown-race");
+        var config = await service.GetRaceConfigAsync("unknown-race");
 
         Assert.Null(config);
     }
@@ -222,6 +222,37 @@ public class SelectionServiceTests
 
         Assert.NotNull(result);
         Assert.False(result.IsLocked);
+    }
+
+    [Fact]
+    public async Task GetSelectionAsync_ShouldDefaultToLocked_WhenRaceCannotBeLoaded()
+    {
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 5, 30, 0, DateTimeKind.Utc));
+
+        var existing = new Selection
+        {
+            Id = Guid.NewGuid(),
+            RaceId = "unknown-race",
+            UserId = "user@example.com",
+            BetType = BetType.Regular,
+            OrderedSelections = new List<SelectionPosition>
+            {
+                new SelectionPosition { Position = 1, DriverId = "norris" },
+                new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                new SelectionPosition { Position = 4, DriverId = "piastri" },
+                new SelectionPosition { Position = 5, DriverId = "verstappen" }
+            }
+        };
+
+        _selectionRepositoryMock
+            .Setup(repo => repo.GetSelectionAsync("unknown-race", "user@example.com"))
+            .ReturnsAsync(existing);
+
+        var result = await service.GetSelectionAsync("unknown-race", "user@example.com");
+
+        Assert.NotNull(result);
+        Assert.True(result.IsLocked);
     }
 
     [Fact]

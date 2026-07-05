@@ -74,7 +74,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             selectionPage.WaitForSaveConfirmation();
 
             trace.Log("Waiting for API persistence verification.");
-            await api.WaitForSelectionPersistenceAsync(selected[0], options.Timeout, CancellationToken.None);
+            await api.WaitForSelectionPersistenceAsync(options.RaceId, selected[0], options.Timeout, CancellationToken.None);
             testPassed = true;
         }
         finally
@@ -176,7 +176,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             }
         };
 
-        var response = await api.PostSelectionAsync(options.RaceId, submission);
+        var response = await api.PutSelectionAsync(options.RaceId, submission);
         Assert.True(
             response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
             response.StatusCode == System.Net.HttpStatusCode.BadRequest ||
