@@ -305,6 +305,7 @@ jobs:
         env:
           E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
           E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+          WEB_CHANGED: ${{ needs.build-and-push.outputs.web_changed }}
           E2E_CF_CLIENT_ID: ${{ secrets.E2E_CF_CLIENT_ID }}
           E2E_CF_CLIENT_SECRET: ${{ secrets.E2E_CF_CLIENT_SECRET }}
           E2E_RACE_ID: ${{ vars.E2E_RACE_ID }}
@@ -316,6 +317,12 @@ jobs:
           BASE_URL="${E2E_BASE_URL%/}"
           API_URL="${E2E_API_BASE_URL%/}"
           RACE_ID="${E2E_RACE_ID:-2025-24-yas_marina}"
+          WEB_CHANGED="${WEB_CHANGED:-false}"
+          WEB_CHECK_REQUIRED=false
+
+          if [ "$WEB_CHANGED" = "true" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+            WEB_CHECK_REQUIRED=true
+          fi
 
           [ -n "$BASE_URL" ] || { echo "E2E_BASE_URL is required"; exit 1; }
           [ -n "$API_URL" ] || API_URL="$BASE_URL/api"
@@ -342,7 +349,9 @@ jobs:
             web_ok=false
             api_ok=false
 
-            if echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
+            if [ "$WEB_CHECK_REQUIRED" != "true" ]; then
+              web_ok=true
+            elif echo "$web_version" | grep -Eq "$EXPECTED_SHA_FULL|$EXPECTED_SHA_SHORT"; then
               web_ok=true
             fi
 
