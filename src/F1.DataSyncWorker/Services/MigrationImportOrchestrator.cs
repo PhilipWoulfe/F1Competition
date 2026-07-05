@@ -15,6 +15,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationRaceSelectionParser _raceSelectionParser;
     private readonly IMigrationRaceRoundMapper _raceRoundMapper;
     private readonly IMigrationScoreRecalculator _scoreRecalculator;
+    private readonly IMigrationLegacyScoreImporter _legacyScoreImporter;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -27,6 +28,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IMigrationRaceSelectionParser raceSelectionParser,
         IMigrationRaceRoundMapper raceRoundMapper,
         IMigrationScoreRecalculator scoreRecalculator,
+        IMigrationLegacyScoreImporter legacyScoreImporter,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions)
@@ -37,6 +39,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _raceSelectionParser = raceSelectionParser;
         _raceRoundMapper = raceRoundMapper;
         _scoreRecalculator = scoreRecalculator;
+        _legacyScoreImporter = legacyScoreImporter;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -92,11 +95,12 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             }
 
             var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
+            var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
 
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
-                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, Checksum={Checksum}",
+                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
                 parseResult.SelectionCount,
@@ -105,6 +109,9 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 mappingResult.WarningCount,
                 scoreResult.ScoredPickCount,
                 scoreResult.TotalPoints,
+                legacyResult.LegacyPickScoreCount,
+                legacyResult.ImportedTotalCount,
+                legacyResult.CalculatedTotalCount,
                 run.SourceFileChecksum);
         }
         catch (Exception ex)

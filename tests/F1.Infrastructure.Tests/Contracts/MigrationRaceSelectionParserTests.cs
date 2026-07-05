@@ -35,7 +35,7 @@ public sealed class MigrationRaceSelectionParserTests
         var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
 
         Assert.Equal(8, parseResult.SelectionCount);
-        Assert.Equal(1, parseResult.UnresolvedTokenCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
 
         var selections = await dbContext.MigrationImportRaceSelections
             .Where(x => x.ImportRunId == runId)
@@ -58,13 +58,9 @@ public sealed class MigrationRaceSelectionParserTests
 
         var dnfActual = selections.Single(x => x.RowNumber == 3 && x.Subject == "ACTUAL" && x.IsActualOutcome);
         Assert.Equal("SAI DOO", dnfActual.NormalizedValue);
-
-        var unresolved = await dbContext.MigrationImportUnresolvedTokens
+        Assert.Empty(await dbContext.MigrationImportUnresolvedTokens
             .Where(x => x.ImportRunId == runId)
-            .ToListAsync();
-        Assert.Single(unresolved);
-        Assert.Equal("SAI DOO", unresolved[0].RawToken);
-        Assert.Equal("ACTUAL", unresolved[0].Subject);
+            .ToListAsync());
     }
 
     [Fact]
@@ -229,6 +225,48 @@ public sealed class MigrationRaceSelectionParserTests
             Assert.Equal("1", token.PickType);
             Assert.Equal(2, token.RowNumber);
         });
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenDnfContainsMultiTokenActual_OnlyPersistsUnknownTokens()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Kevin,Veronica,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePick", RawPayload = "AUS-1,VER,NOR,PIA" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePick", RawPayload = "DNF,BORT,NOT,SAI DOO BOR LAW ALO HAD" });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(6, parseResult.SelectionCount);
+        Assert.Equal(1, parseResult.UnresolvedTokenCount);
+
+        var dnfActual = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "ACTUAL" && x.PickType == "DNF");
+        Assert.Equal("SAI DOO BOR LAW ALO HAD", dnfActual.NormalizedValue);
+
+        var unresolved = await dbContext.MigrationImportUnresolvedTokens
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+        Assert.Single(unresolved);
+        Assert.Equal("BORT", unresolved[0].RawToken);
+        Assert.Equal("Kevin", unresolved[0].Subject);
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()

@@ -21,6 +21,9 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
     public DbSet<MigrationImportRaceSelectionEntity> MigrationImportRaceSelections => Set<MigrationImportRaceSelectionEntity>();
     public DbSet<MigrationImportCalculatedScoreEntity> MigrationImportCalculatedScores => Set<MigrationImportCalculatedScoreEntity>();
+    public DbSet<MigrationImportLegacyPickScoreEntity> MigrationImportLegacyPickScores => Set<MigrationImportLegacyPickScoreEntity>();
+    public DbSet<MigrationImportImportedTotalEntity> MigrationImportImportedTotals => Set<MigrationImportImportedTotalEntity>();
+    public DbSet<MigrationImportCalculatedTotalEntity> MigrationImportCalculatedTotals => Set<MigrationImportCalculatedTotalEntity>();
     public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
@@ -176,6 +179,52 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportLegacyPickScoreEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportLegacyPickScores");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RawLegacyPoints).HasMaxLength(128);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportImportedTotalEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportImportedTotals");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RawTotal).HasMaxLength(128);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportCalculatedTotalEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportCalculatedTotals");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportUnresolvedTokenEntity>(entity =>

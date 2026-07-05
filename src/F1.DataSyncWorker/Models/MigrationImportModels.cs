@@ -16,3 +16,8 @@ public sealed record MigrationRaceSelectionParseResult(
 public sealed record MigrationScoreRecalculationResult(
     int ScoredPickCount,
     int TotalPoints);
+
+public sealed record MigrationLegacyScoreImportResult(
+    int LegacyPickScoreCount,
+    int ImportedTotalCount,
+    int CalculatedTotalCount);
