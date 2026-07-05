@@ -38,7 +38,7 @@ public sealed class MigrationImportRowClassifierTests
         var result = _classifier.Classify(43, "BAK-UP-BAK-UP-WHAT-YOU-GONNA-DO-NOW?,COL,LAW");
 
         Assert.Equal("RacePick", result.SectionType);
-        Assert.Equal("Mapped BAH-HUMBUG label to DNF pick type.", result.ClassificationReason);
+        Assert.Equal("Mapped non-standard DNF label to DNF pick type.", result.ClassificationReason);
     }
 
     [Fact]
