@@ -14,7 +14,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
     private const string SectionRacePoints = "RacePoints";
     private const string SectionTotalsMeta = "TotalsMeta";
     private const string SectionUnclassified = "Unclassified";
-    private const string DnfNormalizationReason = "Mapped special label to DNF pick type.";
+    private const string DnfNormalizationReason = "Mapped BAH-HUMBUG label to DNF pick type.";
 
     public StagedImportRow Classify(int rowNumber, string rawLine)
     {

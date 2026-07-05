@@ -33,6 +33,15 @@ public sealed class MigrationImportRowClassifierTests
     }
 
     [Fact]
+    public void Classify_WhenBakLabelPresent_MapsToRacePickWithReason()
+    {
+        var result = _classifier.Classify(43, "BAK-UP-BAK-UP-WHAT-YOU-GONNA-DO-NOW?,COL,LAW");
+
+        Assert.Equal("RacePick", result.SectionType);
+        Assert.Equal("Mapped BAH-HUMBUG label to DNF pick type.", result.ClassificationReason);
+    }
+
+    [Fact]
     public void Classify_WhenRowCannotBeClassified_ReturnsReason()
     {
         var result = _classifier.Classify(8, "@@@,###,%%%");
