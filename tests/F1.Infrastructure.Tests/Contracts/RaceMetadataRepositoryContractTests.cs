@@ -27,7 +27,7 @@ public abstract class RaceMetadataRepositoryContractTests
     [Fact]
     public async Task GetMetadataAsync_ReturnsMappedMetadata_WhenExists()
     {
-        var raceId = "2026-01-test";
+        var raceId = "main-2026-1-test-grand-prix";
         var metadata = new RaceQuestionMetadata
         {
             RaceId = raceId,
@@ -51,7 +51,7 @@ public abstract class RaceMetadataRepositoryContractTests
     [Fact]
     public async Task UpsertMetadataAsync_UpdatesExistingMetadata()
     {
-        var raceId = "2026-02-test";
+        var raceId = "main-2026-2-test-grand-prix";
         var original = new RaceQuestionMetadata
         {
             RaceId = raceId,

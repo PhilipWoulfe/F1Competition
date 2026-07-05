@@ -306,7 +306,7 @@ public sealed class DataSyncOrchestrator : IDataSyncOrchestrator
         }
 
         var raceSlug = ToSlug(dto.RaceName);
-        var competitionSlug = ToSlug(competitionKey);
+        var competitionSlug = BuildCompetitionSlug(competitionKey, season);
 
         mappedRace = new Race
         {
@@ -392,6 +392,20 @@ public sealed class DataSyncOrchestrator : IDataSyncOrchestrator
         }
 
         return builder.ToString().Trim('-');
+    }
+
+    private static string BuildCompetitionSlug(string competitionKey, int season)
+    {
+        var competitionSlug = ToSlug(competitionKey);
+        var seasonSuffix = $"-{season}";
+
+        if (!competitionSlug.EndsWith(seasonSuffix, StringComparison.Ordinal))
+        {
+            return competitionSlug;
+        }
+
+        var candidate = competitionSlug[..^seasonSuffix.Length].TrimEnd('-');
+        return string.IsNullOrWhiteSpace(candidate) ? competitionSlug : candidate;
     }
 
     private static string BuildRaceId(string competitionSlug, int season, int round, string raceSlug)

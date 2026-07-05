@@ -1,4 +1,5 @@
 using F1.Web.Models;
+using F1.Core.Identifiers;
 
 namespace F1.Web.Configuration;
 
@@ -18,7 +19,7 @@ public static class RaceSelectionRouteResolver
         errorMessage = null;
         _ = relativePath;
 
-        if (TryNormalizeRaceId(raceIdFromRoute, out var normalizedRaceId))
+        if (TryNormalizeCanonicalRaceId(raceIdFromRoute, out var normalizedRaceId))
         {
             context = new RaceSelectionContext
             {
@@ -30,7 +31,7 @@ public static class RaceSelectionRouteResolver
 
         if (!string.IsNullOrWhiteSpace(raceIdFromRoute))
         {
-            errorMessage = "Race context is invalid. Only letters, numbers, underscores, and hyphens are allowed.";
+            errorMessage = "Race token is invalid. Use canonical format: {competition}-{season}-{round}-{race-slug}.";
             return false;
         }
 
@@ -131,25 +132,9 @@ public static class RaceSelectionRouteResolver
         return false;
     }
 
-    private static bool TryNormalizeRaceId(string? raceId, out string normalizedRaceId)
+    private static bool TryNormalizeCanonicalRaceId(string? raceId, out string normalizedRaceId)
     {
-        normalizedRaceId = string.Empty;
-        if (string.IsNullOrWhiteSpace(raceId))
-        {
-            return false;
-        }
-
-        var trimmed = raceId.Trim();
-        foreach (var ch in trimmed)
-        {
-            if (!(char.IsLetterOrDigit(ch) || ch == '-' || ch == '_'))
-            {
-                return false;
-            }
-        }
-
-        normalizedRaceId = trimmed;
-        return true;
+        return CanonicalRaceId.TryNormalize(raceId, out normalizedRaceId);
     }
 
     private static bool TryNormalizeSlug(string? value, out string normalized)

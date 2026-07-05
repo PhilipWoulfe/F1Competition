@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using F1.Core.Models;
 using F1.DataSyncWorker.Clients;
 using F1.DataSyncWorker.Models;
@@ -38,7 +39,7 @@ public class DataSyncOrchestratorIdempotencyTests
             [
                 new CompetitionSeedDefinition
                 {
-                    Key = "main-2026",
+                    Key = "main",
                     Name = "Main 2026",
                     Year = 2026,
                     Description = "Main 2026 season competition"
@@ -49,7 +50,7 @@ public class DataSyncOrchestratorIdempotencyTests
                 new SeasonSeedDefinition
                 {
                     Season = 2026,
-                    CompetitionKeys = ["main-2026"]
+                    CompetitionKeys = ["main"]
                 }
             ]
         });
@@ -78,6 +79,7 @@ public class DataSyncOrchestratorIdempotencyTests
         Assert.Single(races);
 
         var race = races[0];
+        Assert.Equal("main-2026-1-bahrain-grand-prix", race.Id);
         Assert.Equal(2026, race.Season);
         Assert.Equal(1, race.Round);
         Assert.Equal("Bahrain Grand Prix", race.RaceName);
@@ -87,6 +89,90 @@ public class DataSyncOrchestratorIdempotencyTests
         Assert.Equal(race.StartTimeUtc.AddMinutes(-30), race.FinalDeadlineUtc);
 
         Assert.Equal(competitions[0].Id, race.CompetitionId);
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenInputsVaryByCaseAndSymbols_GeneratesStableCanonicalRaceIdAndRemainsIdempotent()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var options = Options.Create(new DataSyncOptions
+        {
+            AutoMigrate = false,
+            IntervalMinutes = 0,
+            DeadlineMinutesBeforeStart = 30,
+            HttpRetryCount = 0,
+            HttpRetryDelayMs = 250,
+            Competitions =
+            [
+                new CompetitionSeedDefinition
+                {
+                    Key = "Main___2026",
+                    Name = "Main 2026",
+                    Year = 2026,
+                    Description = "Main 2026 season competition"
+                }
+            ],
+            Seasons =
+            [
+                new SeasonSeedDefinition
+                {
+                    Season = 2026,
+                    CompetitionKeys = ["Main___2026"]
+                }
+            ]
+        });
+
+        var firstRunOrchestrator = new DataSyncOrchestrator(
+            NullLogger<DataSyncOrchestrator>.Instance,
+            new TestDbContextFactory(_fixture.ConnectionString),
+            new StubJolpicaClient(
+            [
+                new JolpicaRaceDto
+                {
+                    Season = "2026",
+                    Round = "1",
+                    RaceName = "Bahrain Grand Prix",
+                    Date = "2026-03-08",
+                    Time = "15:00:00Z",
+                    Circuit = new JolpicaCircuitDto { CircuitName = "Bahrain International Circuit" }
+                }
+            ]),
+            options);
+
+        await firstRunOrchestrator.RunOnceAsync(CancellationToken.None);
+
+        await using var firstVerificationContext = CreateContext();
+        var firstRace = await firstVerificationContext.Races.AsNoTracking().SingleAsync();
+
+        var secondRunOrchestrator = new DataSyncOrchestrator(
+            NullLogger<DataSyncOrchestrator>.Instance,
+            new TestDbContextFactory(_fixture.ConnectionString),
+            new StubJolpicaClient(
+            [
+                new JolpicaRaceDto
+                {
+                    Season = "2026",
+                    Round = "1",
+                    RaceName = "  BAHRAIN___grand---PRIX!!!  ",
+                    Date = "2026-03-08",
+                    Time = "15:00:00Z",
+                    Circuit = new JolpicaCircuitDto { CircuitName = "Bahrain International Circuit" }
+                }
+            ]),
+            options);
+
+        await secondRunOrchestrator.RunOnceAsync(CancellationToken.None);
+
+        await using var secondVerificationContext = CreateContext();
+        var races = await secondVerificationContext.Races.AsNoTracking().ToListAsync();
+
+        Assert.Single(races);
+        Assert.Equal("main-2026-1-bahrain-grand-prix", firstRace.Id);
+        Assert.Equal("main-2026-1-bahrain-grand-prix", races[0].Id);
+        Assert.Matches(new Regex("^(?:[a-z0-9]+(?:-[a-z0-9]+)*)-(?:\\d{4})-(?:[1-9]\\d*)-(?:[a-z0-9]+(?:-[a-z0-9]+)*)$"), races[0].Id);
     }
 
     [Fact]
@@ -194,7 +280,7 @@ public class DataSyncOrchestratorIdempotencyTests
             [
                 new CompetitionSeedDefinition
                 {
-                    Key = "main-2026",
+                    Key = "main",
                     Name = "Main 2026",
                     Year = 2026,
                     Description = "Main 2026 season competition"
@@ -205,7 +291,7 @@ public class DataSyncOrchestratorIdempotencyTests
                 new SeasonSeedDefinition
                 {
                     Season = 2026,
-                    CompetitionKeys = ["main-2026"]
+                    CompetitionKeys = ["main"]
                 }
             ]
         });

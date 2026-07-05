@@ -64,7 +64,7 @@ public class SelectionCountdownFormatterTests
     {
         return new RaceConfig
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = "main-2025-24-abu-dhabi-grand-prix",
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
             EarlyLockLabel = "Pre-Qualy lock",

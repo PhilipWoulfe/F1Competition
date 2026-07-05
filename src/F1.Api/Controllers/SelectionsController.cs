@@ -1,5 +1,6 @@
 using F1.Core.Dtos;
 using F1.Core.Interfaces;
+using F1.Api.Infrastructure;
 using F1.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -24,6 +25,11 @@ public class SelectionsController : ControllerBase
     [HttpGet("{raceId}/config")]
     public async Task<IActionResult> GetConfig(string raceId)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         var config = await _selectionService.GetRaceConfigAsync(raceId);
         if (config is null)
         {
@@ -36,6 +42,11 @@ public class SelectionsController : ControllerBase
     [HttpGet("{raceId}/mine")]
     public async Task<IActionResult> GetMine(string raceId)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -54,6 +65,11 @@ public class SelectionsController : ControllerBase
     [HttpGet("{raceId}/current")]
     public async Task<IActionResult> GetCurrent(string raceId)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -67,6 +83,11 @@ public class SelectionsController : ControllerBase
     [HttpPut("{raceId}/mine")]
     public async Task<IActionResult> UpsertMine(string raceId, [FromBody] SelectionSubmissionDto submission)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
         {

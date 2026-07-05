@@ -8,12 +8,23 @@ public class RaceSelectionRouteResolverTests
     [Fact]
     public void TryResolve_WhenRouteRaceIdProvided_ReturnsRouteContext()
     {
-        var success = RaceSelectionRouteResolver.TryResolve("2026-01-australia", null, null, null, null, "selection/2026-01-australia", out var context, out var errorMessage);
+        var success = RaceSelectionRouteResolver.TryResolve("main-2026-2-australian-grand-prix", null, null, null, null, "selection/main-2026-2-australian-grand-prix", out var context, out var errorMessage);
 
         Assert.True(success);
         Assert.NotNull(context);
-        Assert.Equal("2026-01-australia", context.RaceId);
+        Assert.Equal("main-2026-2-australian-grand-prix", context.RaceId);
         Assert.Null(context.Lookup);
+        Assert.Null(errorMessage);
+    }
+
+    [Fact]
+    public void TryResolve_WhenRouteRaceIdUsesUpperCase_NormalizesToCanonicalLowerCase()
+    {
+        var success = RaceSelectionRouteResolver.TryResolve("Main-2026-2-Australian-Grand-Prix", null, null, null, null, "selection/Main-2026-2-Australian-Grand-Prix", out var context, out var errorMessage);
+
+        Assert.True(success);
+        Assert.NotNull(context);
+        Assert.Equal("main-2026-2-australian-grand-prix", context.RaceId);
         Assert.Null(errorMessage);
     }
 
@@ -76,7 +87,17 @@ public class RaceSelectionRouteResolverTests
 
         Assert.False(success);
         Assert.Null(context);
-        Assert.Equal("Race context is invalid. Only letters, numbers, underscores, and hyphens are allowed.", errorMessage);
+        Assert.Equal("Race token is invalid. Use canonical format: {competition}-{season}-{round}-{race-slug}.", errorMessage);
+    }
+
+    [Fact]
+    public void TryResolve_WhenRaceIdIsNotCanonical_ReturnsInvalidContextError()
+    {
+        var success = RaceSelectionRouteResolver.TryResolve("main-2026-australian-grand-prix", null, null, null, null, "selection/main-2026-australian-grand-prix", out var context, out var errorMessage);
+
+        Assert.False(success);
+        Assert.Null(context);
+        Assert.Equal("Race token is invalid. Use canonical format: {competition}-{season}-{round}-{race-slug}.", errorMessage);
     }
 
     [Fact]

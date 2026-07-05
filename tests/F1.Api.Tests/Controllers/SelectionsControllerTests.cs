@@ -12,7 +12,9 @@ namespace F1.Api.Tests.Controllers;
 
 public class SelectionsControllerTests
 {
-    private const string RaceId = "2026-01-albert_park";
+    private const string RaceId = "main-2026-2-australian-grand-prix";
+    private const string UnknownCanonicalRaceId = "main-2026-99-no-such-race";
+    private const string NonCanonicalRaceId = "2026-01-albert_park";
     private static readonly ISelectionRuleProvider SelectionRuleProvider = new SelectionRuleProvider();
 
     [Fact]
@@ -177,8 +179,8 @@ public class SelectionsControllerTests
     {
         var serviceMock = new Mock<ISelectionService>();
         serviceMock
-            .Setup(service => service.UpsertSelectionAsync("no-such-race", "user@example.com", It.IsAny<SelectionSubmissionDto>()))
-            .ThrowsAsync(new SelectionRaceNotFoundException("Race 'no-such-race' not found."));
+            .Setup(service => service.UpsertSelectionAsync(UnknownCanonicalRaceId, "user@example.com", It.IsAny<SelectionSubmissionDto>()))
+            .ThrowsAsync(new SelectionRaceNotFoundException($"Race '{UnknownCanonicalRaceId}' not found."));
 
         var httpContext = new DefaultHttpContext();
         httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
@@ -191,7 +193,7 @@ public class SelectionsControllerTests
             HttpContext = httpContext
         };
 
-        var result = await controller.UpsertMine("no-such-race", new SelectionSubmissionDto
+        var result = await controller.UpsertMine(UnknownCanonicalRaceId, new SelectionSubmissionDto
         {
             BetType = F1.Core.Models.BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -206,6 +208,43 @@ public class SelectionsControllerTests
 
         var notFound = Assert.IsType<NotFoundObjectResult>(result);
         Assert.Equal(404, notFound.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(NonCanonicalRaceId)]
+    [InlineData("MAIN-2026-2-australian-grand-prix")]
+    public async Task Endpoints_ShouldReturnBadRequest_WhenRaceIdIsNonCanonical(string raceId)
+    {
+        var serviceMock = new Mock<ISelectionService>(MockBehavior.Strict);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.Email, "user@example.com")],
+            "TestAuth"));
+
+        var controller = CreateController(serviceMock);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = httpContext
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await controller.GetConfig(raceId));
+        Assert.IsType<BadRequestObjectResult>(await controller.GetMine(raceId));
+        Assert.IsType<BadRequestObjectResult>(await controller.GetCurrent(raceId));
+        Assert.IsType<BadRequestObjectResult>(await controller.UpsertMine(raceId, new SelectionSubmissionDto
+        {
+            BetType = F1.Core.Models.BetType.Regular,
+            OrderedSelections = new List<SelectionPosition>
+            {
+                new SelectionPosition { Position = 1, DriverId = "norris" },
+                new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                new SelectionPosition { Position = 4, DriverId = "piastri" },
+                new SelectionPosition { Position = 5, DriverId = "verstappen" }
+            }
+        }));
+
+        serviceMock.VerifyNoOtherCalls();
     }
 
     public ISelectionService BuildSelectionServiceWithMockCurrentSelections()
@@ -256,6 +295,7 @@ public class SelectionsControllerTests
             .ReturnsAsync((string raceId) => new Race
             {
                 Id = raceId,
+                Season = 2026,
                 PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
                 FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)
             });

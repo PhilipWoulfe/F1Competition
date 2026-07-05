@@ -13,4 +13,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\F1.Core\F1.Core.csproj" />
+  </ItemGroup>
+
 </Project>

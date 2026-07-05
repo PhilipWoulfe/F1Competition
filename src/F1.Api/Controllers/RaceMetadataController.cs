@@ -2,6 +2,7 @@ using F1.Core.Dtos;
 using F1.Core.Exceptions;
 using F1.Core.Interfaces;
 using F1.Core.Models;
+using F1.Api.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -22,6 +23,11 @@ public class RaceMetadataController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetMetadata(string raceId, [FromQuery] bool includeDraft = false)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         if (includeDraft && !User.IsInRole("Admin"))
         {
             return Forbid();
@@ -40,6 +46,11 @@ public class RaceMetadataController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> UpsertMetadata(string raceId, [FromBody] UpsertRaceQuestionMetadataDto request)
     {
+        if (!CanonicalRaceId.IsValid(raceId))
+        {
+            return BadRequest(CanonicalRaceId.BuildValidationErrorPayload());
+        }
+
         try
         {
             var metadata = await _raceMetadataService.UpsertMetadataAsync(

@@ -50,7 +50,14 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         try
         {
             targetRaceId = await ResolveTargetRaceIdAsync(api, options, trace.Log);
+            await AssertResolvedRaceAndRouteContextAsync(api, options, targetRaceId, trace.Log);
+
             var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+            Assert.True(
+                string.Equals(targetRaceId, raceConfig.RaceId, StringComparison.OrdinalIgnoreCase),
+                $"Resolved race id '{targetRaceId}' must match config race id '{raceConfig.RaceId}'.");
+            trace.Log($"Canonical race id confirmed via config: {raceConfig.RaceId}");
+
             var beforeFinalDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(-30);
             trace.Log($"Setting mock date before selection submit: {beforeFinalDeadline:O}");
             await api.SetMockDate(beforeFinalDeadline.ToString("O"), CancellationToken.None);
@@ -68,13 +75,13 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             trace.Log($"Selectable drivers available: {selectableDrivers.Count}; slots: {slotCount}");
 
             var selected = selectableDrivers.Take(slotCount).ToList();
-            trace.Log($"Submitting selected drivers: {string.Join(",", selected)}");
+            trace.Log($"Submitting payload summary: raceId={targetRaceId}; count={selected.Count}; ordered={FormatOrderedDriverSummary(selected)}");
             selectionPage.SelectDrivers(selected);
             selectionPage.ClickSubmit();
             selectionPage.WaitForSaveConfirmation();
 
             trace.Log("Waiting for API persistence verification.");
-            await api.WaitForSelectionPersistenceAsync(targetRaceId, selected[0], options.Timeout, CancellationToken.None);
+            await api.WaitForSelectionPersistenceAsync(targetRaceId, selected, options.Timeout, CancellationToken.None);
             testPassed = true;
         }
         finally
@@ -155,11 +162,20 @@ public class CriticalFlowsTests(ITestOutputHelper output)
     {
         var options = E2eOptions.FromEnvironment();
 
+        using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldBeForbidden_AfterDeadline_Api), output);
         using var api = new ApiVerificationClient(options);
         var targetRaceId = await ResolveTargetRaceIdAsync(api, options, _ => { });
+        await AssertResolvedRaceAndRouteContextAsync(api, options, targetRaceId, trace.Log);
+
         var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+        Assert.True(
+            string.Equals(targetRaceId, raceConfig.RaceId, StringComparison.OrdinalIgnoreCase),
+            $"Resolved race id '{targetRaceId}' must match config race id '{raceConfig.RaceId}'.");
+        trace.Log($"Canonical race id confirmed via config: {raceConfig.RaceId}");
+
         var afterDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(1).ToString("O");
         api.SetMockDateHeader(afterDeadline);
+        trace.Log($"Set mock date header after deadline: {afterDeadline}");
 
         var submission = new
         {
@@ -173,6 +189,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
                 new { position = 5, driverId = "verstappen" }
             }
         };
+        trace.Log($"Submitting payload summary: raceId={targetRaceId}; count=5; ordered=1:norris,2:leclerc,3:hamilton,4:piastri,5:verstappen");
 
         var response = await api.PutSelectionAsync(targetRaceId, submission);
         Assert.True(
@@ -196,7 +213,14 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         try
         {
             var targetRaceId = await ResolveTargetRaceIdAsync(api, options, trace.Log);
+            await AssertResolvedRaceAndRouteContextAsync(api, options, targetRaceId, trace.Log);
+
             var raceConfig = await api.GetRaceConfigAsync(targetRaceId, CancellationToken.None);
+            Assert.True(
+                string.Equals(targetRaceId, raceConfig.RaceId, StringComparison.OrdinalIgnoreCase),
+                $"Resolved race id '{targetRaceId}' must match config race id '{raceConfig.RaceId}'.");
+            trace.Log($"Canonical race id confirmed via config: {raceConfig.RaceId}");
+
             var afterDeadline = raceConfig.FinalDeadlineUtc.AddMinutes(1);
             trace.Log($"Setting mock date after final deadline: {afterDeadline:O}");
             await api.SetMockDate(afterDeadline.ToString("O"), CancellationToken.None);
@@ -254,5 +278,37 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         var resolved = await api.ResolveRaceIdByRoundAsync(options.CompetitionSlug, options.Season, options.Round, CancellationToken.None);
         trace($"Resolved race id: {resolved}");
         return resolved;
+    }
+
+    private static async Task AssertResolvedRaceAndRouteContextAsync(ApiVerificationClient api, E2eOptions options, string targetRaceId, Action<string> trace)
+    {
+        var selectionRoutePath = options.BuildSelectionRoutePath();
+        trace($"Selection route path: {selectionRoutePath}");
+
+        if (!string.IsNullOrWhiteSpace(options.RaceId))
+        {
+            Assert.True(
+                string.Equals(options.RaceId, targetRaceId, StringComparison.OrdinalIgnoreCase),
+                $"Resolved race id '{targetRaceId}' must match explicit E2E_RACE_ID '{options.RaceId}'.");
+            trace($"Route uses explicit race token: {options.RaceId}");
+            return;
+        }
+
+        var routeResolvedRaceId = await api.ResolveRaceIdByRoundAsync(
+            options.CompetitionSlug,
+            options.Season,
+            options.Round,
+            CancellationToken.None);
+
+        Assert.True(
+            string.Equals(routeResolvedRaceId, targetRaceId, StringComparison.OrdinalIgnoreCase),
+            $"Route context {options.CompetitionSlug}/{options.Season}/round/{options.Round} resolved to '{routeResolvedRaceId}', expected '{targetRaceId}'.");
+
+        trace($"Route context resolved race id: {routeResolvedRaceId}");
+    }
+
+    private static string FormatOrderedDriverSummary(IReadOnlyList<string> driverIds)
+    {
+        return string.Join(",", driverIds.Select((driverId, index) => $"{index + 1}:{driverId}"));
     }
 }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Globalization;
 using System.Net.Http;
+using System.Net.Sockets;
 
 namespace F1.E2E.Tests.Infrastructure;
 
@@ -66,20 +67,40 @@ internal class ApiVerificationClient : IDisposable
         return config;
     }
 
-    public async Task WaitForSelectionPersistenceAsync(string raceId, string expectedDriverId, TimeSpan timeout, CancellationToken cancellationToken)
+    public async Task WaitForSelectionPersistenceAsync(string raceId, IReadOnlyList<string> expectedDriverIdsInOrder, TimeSpan timeout, CancellationToken cancellationToken)
     {
+        if (expectedDriverIdsInOrder.Count == 0)
+        {
+            throw new ArgumentException("At least one expected driver id is required.", nameof(expectedDriverIdsInOrder));
+        }
+
+        if (expectedDriverIdsInOrder.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("Expected driver ids cannot contain null, empty, or whitespace values.", nameof(expectedDriverIdsInOrder));
+        }
+
         var deadline = DateTime.UtcNow + timeout;
+        IReadOnlyList<CurrentSelectionRow> lastObservedRows = [];
         while (DateTime.UtcNow < deadline)
         {
             try
             {
                 var rows = await GetCurrentSelectionsAsync(raceId, cancellationToken);
-                if (rows.Any(row => string.Equals(row.DriverId, expectedDriverId, StringComparison.OrdinalIgnoreCase)))
+                lastObservedRows = rows;
+
+                var orderedRows = rows.OrderBy(row => row.Position).ToList();
+                if (orderedRows.Count == expectedDriverIdsInOrder.Count)
                 {
-                    return;
+                    var matches = orderedRows
+                        .Select(row => row.DriverId)
+                        .SequenceEqual(expectedDriverIdsInOrder, StringComparer.OrdinalIgnoreCase);
+                    if (matches)
+                    {
+                        return;
+                    }
                 }
             }
-            catch (HttpRequestException ex) when (IsTransientStatus(ex.StatusCode))
+            catch (HttpRequestException ex) when (IsTransientTransportFailure(ex))
             {
                 // Transient proxy/API failures happen in CI; keep polling until timeout.
             }
@@ -87,7 +108,16 @@ internal class ApiVerificationClient : IDisposable
             await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
         }
 
-        throw new TimeoutException($"Selection with driverId '{expectedDriverId}' was not persisted within {timeout.TotalSeconds} seconds.");
+        var expectedSummary = string.Join(",", expectedDriverIdsInOrder.Select((driverId, index) => $"{index + 1}:{driverId}"));
+        var observedSummary = lastObservedRows.Count == 0
+            ? "<none>"
+            : string.Join(",", lastObservedRows
+                .OrderBy(row => row.Position)
+                .Select(row => $"{row.Position}:{row.DriverId}"));
+
+        throw new TimeoutException(
+            $"Selection for race '{raceId}' was not persisted with the expected ordered set within {timeout.TotalSeconds} seconds. " +
+            $"Expected ({expectedDriverIdsInOrder.Count}): [{expectedSummary}]. Observed ({lastObservedRows.Count}): [{observedSummary}].");
     }
 
     public async Task<RaceMetadataRow> WaitForMetadataAsync(string raceId, string expectedH2hQuestion, TimeSpan timeout, CancellationToken cancellationToken)
@@ -103,7 +133,7 @@ internal class ApiVerificationClient : IDisposable
                     return metadata;
                 }
             }
-            catch (HttpRequestException ex) when (IsTransientStatus(ex.StatusCode))
+            catch (HttpRequestException ex) when (IsTransientTransportFailure(ex))
             {
                 // Transient proxy/API failures happen in CI; keep polling until timeout.
             }
@@ -170,6 +200,16 @@ internal class ApiVerificationClient : IDisposable
     private static bool IsTransientStatus(HttpStatusCode? statusCode)
     {
         return statusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+    }
+
+    private static bool IsTransientTransportFailure(HttpRequestException ex)
+    {
+        if (IsTransientStatus(ex.StatusCode))
+        {
+            return true;
+        }
+
+        return ex.InnerException is IOException or SocketException;
     }
 }
 

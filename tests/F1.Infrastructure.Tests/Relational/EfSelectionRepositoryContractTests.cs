@@ -21,7 +21,7 @@ public class EfSelectionRepositoryContractTests : SelectionRepositoryContractTes
     {
         var context = CreateContext();
         SeedCompetitionAndRace(context, "no-such-race", 24);
-        SeedCompetitionAndRace(context, "2026-02-test", 25);
+        SeedCompetitionAndRace(context, "main-2026-2-test-grand-prix", 25);
         SeedDrivers(context);
         return new EfSelectionRepository(context);
     }
@@ -103,8 +103,8 @@ public class EfSelectionRepositoryContractTests : SelectionRepositoryContractTes
             CompetitionId = 1,
             Season = 2025,
             Round = round,
-            RaceName = "Yas Marina",
-            CircuitName = "Yas Marina",
+            RaceName = "Abu Dhabi Grand Prix",
+            CircuitName = "Yas Marina Circuit",
             StartTimeUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)

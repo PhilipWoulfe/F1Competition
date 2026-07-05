@@ -7,6 +7,8 @@ namespace F1.Web.Tests.Services.Api;
 
 public class DriversAndMetadataApiServiceTests
 {
+    private const string RaceId = "main-2025-24-abu-dhabi-grand-prix";
+
     [Fact]
     public async Task DriversApiService_GetAllAsync_WhenPayloadIsMalformed_ThrowsApiServiceException()
     {
@@ -32,7 +34,7 @@ public class DriversAndMetadataApiServiceTests
 
         var service = new RaceMetadataApiService(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
 
-        var result = await service.GetPublishedAsync("2025-24-yas_marina");
+        var result = await service.GetPublishedAsync(RaceId);
 
         Assert.Null(result);
     }
@@ -48,7 +50,7 @@ public class DriversAndMetadataApiServiceTests
 
         var service = new RaceMetadataApiService(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetPublishedAsync("2025-24-yas_marina"));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetPublishedAsync(RaceId));
 
         Assert.Equal(HttpStatusCode.BadGateway, ex.Error.StatusCode);
         Assert.Equal("Proxy upstream failure", ex.Error.Message);
