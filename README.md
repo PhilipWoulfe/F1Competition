@@ -160,6 +160,10 @@ These `DATA_SYNC_*` values are consumed by `docker-compose.yml` and mapped to `D
 - `DATA_SYNC_DEADLINE_MINUTES_BEFORE_START`: mapped to `DataSyncWorker__DeadlineMinutesBeforeStart`; default placeholder policy is `30`.
 - `DATA_SYNC_JOLPICA_BASE_URL`: mapped to `DataSyncWorker__JolpicaBaseUrl`.
 - `DATA_SYNC_CONTINUE_ON_ERROR`: mapped to `DataSyncWorker__ContinueOnError`.
+- `MIGRATION_IMPORT_ENABLED`: mapped to `MigrationImport__Enabled` for one-time CSV migration mode.
+- `MIGRATION_IMPORT_SEASON`: mapped to `MigrationImport__Season`; default is `2025`.
+- `MIGRATION_IMPORT_SOURCE_FILE_PATH`: mapped to `MigrationImport__SourceFilePath`; default is `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`.
+- `MIGRATION_IMPORT_DRY_RUN`: mapped to `MigrationImport__DryRun`; set `true` for validation runs.
 
 Optional API values in `.env`:
 
@@ -202,17 +206,19 @@ For Docker Compose runtime, `f1-data-sync-worker` runs automatically and reads v
 
 Migration import mode (Story #239 / Phil 2025 one-time load):
 
-- Set `MigrationImport__Enabled=true` to switch worker execution from Jolpica sync mode to migration import mode.
-- Set `MigrationImport__SourceFilePath` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
-- Set `MigrationImport__DryRun=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
+- Set `MIGRATION_IMPORT_ENABLED=true` to switch worker execution from Jolpica sync mode to migration import mode.
+- Set `MIGRATION_IMPORT_SEASON=2025` for the source season being imported.
+- Set `MIGRATION_IMPORT_SOURCE_FILE_PATH` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
+- Set `MIGRATION_IMPORT_DRY_RUN=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
 
 Example one-shot dry-run:
 
 ```bash
 export ConnectionStrings__Postgres='Host=localhost;Port=5432;Database=f1competition;Username=<user>;Password=<password>'
-export MigrationImport__Enabled=true
-export MigrationImport__SourceFilePath='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
-export MigrationImport__DryRun=true
+export MIGRATION_IMPORT_ENABLED=true
+export MIGRATION_IMPORT_SEASON=2025
+export MIGRATION_IMPORT_SOURCE_FILE_PATH='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
+export MIGRATION_IMPORT_DRY_RUN=true
 dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj
 ```
 
