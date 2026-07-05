@@ -1,15 +1,18 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Globalization;
+using System.Net.Http;
 
 namespace F1.E2E.Tests.Infrastructure;
 
 internal class ApiVerificationClient : IDisposable
 {
     private readonly HttpClient _httpClient;
+    private readonly string _raceId;
 
     public ApiVerificationClient(E2eOptions options)
     {
+        _raceId = options.RaceId;
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(options.ApiBaseUrl + "/")
@@ -24,7 +27,7 @@ internal class ApiVerificationClient : IDisposable
 
     public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync("selections/current", cancellationToken);
+        var response = await _httpClient.GetAsync($"selections/{_raceId}/current", cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<List<CurrentSelectionRow>>(cancellationToken: cancellationToken);
@@ -99,7 +102,7 @@ internal class ApiVerificationClient : IDisposable
 
     public async Task<HttpResponseMessage> PostSelectionAsync(string raceId, object submission)
     {
-        var response = await _httpClient.PostAsJsonAsync($"selections/{raceId}/mine", submission);
+        var response = await _httpClient.PutAsJsonAsync($"selections/{raceId}/mine", submission);
         return response;
     }
 
