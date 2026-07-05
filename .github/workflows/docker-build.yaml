@@ -21,7 +21,8 @@ on:
       - 'coverlet*.runsettings'
       - 'Directory.Build.props'
       - 'F1Competition.sln'
-      - '.github/workflows/docker-build.yaml'
+      # build-and-push is a required check, so workflow-only PRs must still trigger it
+      - '.github/workflows/**'
   workflow_dispatch:
 
 concurrency:
@@ -46,6 +47,7 @@ jobs:
       web_changed: ${{ steps.changes.outputs.web }}
       data_sync_changed: ${{ steps.changes.outputs.data_sync }}
       e2e_changed: ${{ steps.changes.outputs.e2e }}
+      build_relevant: ${{ steps.change-summary.outputs.build_relevant }}
     permissions:
       contents: read
       packages: write
@@ -105,6 +107,34 @@ jobs:
               - 'src/F1.Web/Dockerfile'
               - 'docker-compose.yml'
               - 'docker-compose.debug.yml'
+
+      - name: Summarize required-check scope
+        id: change-summary
+        run: |
+          api_changed="${{ steps.changes.outputs.api }}"
+          web_changed="${{ steps.changes.outputs.web }}"
+          data_sync_changed="${{ steps.changes.outputs.data_sync }}"
+          e2e_changed="${{ steps.changes.outputs.e2e }}"
+
+          if [[ "$api_changed" == "true" || "$web_changed" == "true" || "$data_sync_changed" == "true" ]]; then
+            build_relevant=true
+          else
+            build_relevant=false
+          fi
+
+          echo "build_relevant=$build_relevant" >> "$GITHUB_OUTPUT"
+
+          echo "api_changed=$api_changed"
+          echo "web_changed=$web_changed"
+          echo "data_sync_changed=$data_sync_changed"
+          echo "e2e_changed=$e2e_changed"
+          echo "build_relevant=$build_relevant"
+
+      - name: Report required-check no-op
+        if: github.event_name == 'pull_request' && steps.change-summary.outputs.build_relevant != 'true'
+        run: |
+          echo "No build-impacting paths changed in this PR."
+          echo "Reporting success for the required build-and-push check without running Docker build work."
 
       - name: Setup .NET
         if: github.event_name != 'pull_request'

@@ -4,13 +4,8 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - '.editorconfig'
-      - 'Directory.Build.props'
-      - 'F1Competition.sln'
-      - '.github/workflows/copilot-review-gate.yml'
+  pull_request_review:
+    types: [submitted, edited, dismissed]
 
 permissions:
   contents: read
@@ -19,10 +14,11 @@ permissions:
 jobs:
   require-initial-copilot-review:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - name: Enforce Copilot review on initial PR head
+      - name: Wait for Copilot review on current PR head
         uses: actions/github-script@v9
         with:
           script: |
@@ -30,38 +26,104 @@ jobs:
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
             const prNumber = pr.number;
+            const currentHeadSha = pr.head.sha;
             const copilotLogins = new Set(['github-copilot[bot]']);
+            const pollIntervalMs = 15000;
+            const maxAttempts = 4;
 
-            const commits = await github.paginate(github.rest.pulls.listCommits, {
-              owner,
-              repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
+            function isSubstantiveCopilotBody(body) {
+              if (typeof body !== 'string') {
+                return false;
+              }
 
-            const initialSha = commits.length > 0 ? commits[0].sha : pr.head.sha;
+              const normalizedBody = body.trim();
+              if (!normalizedBody) {
+                return false;
+              }
 
-            const reviews = await github.paginate(github.rest.pulls.listReviews, {
-              owner,
-              repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
+              const ignoredBodies = [
+                "Copilot wasn't able to review any files in this pull request."
+              ];
 
-            const matchingCopilotReview = reviews.find((review) => {
-              const login = review.user?.login;
-              const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody && review.commit_id === initialSha;
-            });
+              return !ignoredBodies.includes(normalizedBody);
+            }
 
-            if (!matchingCopilotReview) {
-              core.setFailed(
-                `Missing Copilot review comment for initial PR SHA ${initialSha}. ` +
-                `This gate only accepts Copilot feedback on the initial PR revision.`
+            const reviewEvent = context.payload.review;
+            const isCopilotReviewEvent =
+              reviewEvent &&
+              copilotLogins.has(reviewEvent.user?.login) &&
+              isSubstantiveCopilotBody(reviewEvent.body);
+
+            if (context.eventName === 'pull_request_review' && isCopilotReviewEvent) {
+              core.info(
+                `Copilot review gate passed from review event ${reviewEvent.id} on commit ${reviewEvent.commit_id}.`
               );
               return;
             }
 
-            core.info(
-              `Copilot review gate passed with review ${matchingCopilotReview.id} on initial SHA ${initialSha}.`
+            async function findMatchingCopilotFeedback() {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
+
+              const matchingReview = reviews.find((review) => {
+                const login = review.user?.login;
+                return (
+                  copilotLogins.has(login) &&
+                  isSubstantiveCopilotBody(review.body) &&
+                  review.commit_id === currentHeadSha
+                );
+              });
+
+              if (matchingReview) {
+                return { type: 'review', id: matchingReview.id };
+              }
+
+              const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
+
+              const matchingInlineComment = reviewComments.find((comment) => {
+                const login = comment.user?.login;
+                return (
+                  copilotLogins.has(login) &&
+                  isSubstantiveCopilotBody(comment.body) &&
+                  comment.commit_id === currentHeadSha
+                );
+              });
+
+              if (matchingInlineComment) {
+                return { type: 'inline-comment', id: matchingInlineComment.id };
+              }
+
+              return null;
+            }
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const match = await findMatchingCopilotFeedback();
+              if (match) {
+                core.info(
+                  `Copilot review gate passed with ${match.type} ${match.id} on head SHA ${currentHeadSha}.`
+                );
+                return;
+              }
+
+              core.info(
+                `Waiting for Copilot review on head SHA ${currentHeadSha}. Attempt ${attempt}/${maxAttempts}.`
+              );
+
+              if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+              }
+            }
+
+            core.setFailed(
+              `Timed out waiting for Copilot to review current PR head ${currentHeadSha}. ` +
+              'Merge remains blocked until Copilot completes its review. Re-run this check after Copilot finishes.'
             );
