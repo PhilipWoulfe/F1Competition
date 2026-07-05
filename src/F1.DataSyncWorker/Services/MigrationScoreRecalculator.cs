@@ -79,8 +79,9 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         if (calculatedScores.Count > 0)
         {
             await dbContext.MigrationImportCalculatedScores.AddRangeAsync(calculatedScores, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return new MigrationScoreRecalculationResult(
             ScoredPickCount: calculatedScores.Count,
