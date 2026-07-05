@@ -41,6 +41,7 @@ builder.Services.AddSingleton<IMigrationImportOrchestrator, MigrationImportOrche
 builder.Services.AddSingleton<IMigrationImportRowClassifier, MigrationImportRowClassifier>();
 builder.Services.AddSingleton<IMigrationRaceSelectionParser, MigrationRaceSelectionParser>();
 builder.Services.AddSingleton<IMigrationRaceRoundMapper, MigrationRaceRoundMapper>();
+builder.Services.AddSingleton<IMigrationScoreRecalculator, MigrationScoreRecalculator>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

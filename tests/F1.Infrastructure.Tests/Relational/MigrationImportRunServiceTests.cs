@@ -108,6 +108,7 @@ public sealed class MigrationImportRunServiceTests
                     jolpicaClient,
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -170,6 +171,7 @@ public sealed class MigrationImportRunServiceTests
                     new TrackingJolpicaClient(),
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -224,6 +226,7 @@ public sealed class MigrationImportRunServiceTests
                     new TrackingJolpicaClient(),
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions

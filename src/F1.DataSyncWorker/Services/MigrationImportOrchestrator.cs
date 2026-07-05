@@ -14,6 +14,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationImportRowClassifier _rowClassifier;
     private readonly IMigrationRaceSelectionParser _raceSelectionParser;
     private readonly IMigrationRaceRoundMapper _raceRoundMapper;
+    private readonly IMigrationScoreRecalculator _scoreRecalculator;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -25,6 +26,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IMigrationImportRowClassifier rowClassifier,
         IMigrationRaceSelectionParser raceSelectionParser,
         IMigrationRaceRoundMapper raceRoundMapper,
+        IMigrationScoreRecalculator scoreRecalculator,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions)
@@ -34,6 +36,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _rowClassifier = rowClassifier;
         _raceSelectionParser = raceSelectionParser;
         _raceRoundMapper = raceRoundMapper;
+        _scoreRecalculator = scoreRecalculator;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -88,16 +91,20 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                     run.RunId);
             }
 
+            var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
+
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
-                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, Checksum={Checksum}",
+                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
                 parseResult.SelectionCount,
                 mappingResult.SnapshotCount,
                 mappingResult.MappingCount,
                 mappingResult.WarningCount,
+                scoreResult.ScoredPickCount,
+                scoreResult.TotalPoints,
                 run.SourceFileChecksum);
         }
         catch (Exception ex)

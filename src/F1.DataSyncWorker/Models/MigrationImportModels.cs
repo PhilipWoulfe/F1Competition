@@ -12,3 +12,7 @@ public sealed record MigrationImportRunContext(
 public sealed record MigrationRaceSelectionParseResult(
     int SelectionCount,
     int UnresolvedTokenCount);
+
+public sealed record MigrationScoreRecalculationResult(
+    int ScoredPickCount,
+    int TotalPoints);
