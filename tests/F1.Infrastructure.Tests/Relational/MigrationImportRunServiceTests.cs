@@ -109,6 +109,7 @@ public sealed class MigrationImportRunServiceTests
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
                 new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -172,6 +173,7 @@ public sealed class MigrationImportRunServiceTests
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
                 new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -227,6 +229,7 @@ public sealed class MigrationImportRunServiceTests
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
                 new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions

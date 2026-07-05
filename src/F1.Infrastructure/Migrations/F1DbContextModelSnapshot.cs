@@ -201,6 +201,64 @@ namespace F1.Infrastructure.Migrations
                     b.ToTable("MigrationImportCalculatedScores", (string)null);
                 });
 
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportCalculatedTotalEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CalculatedTotalPoints")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportRunId", "Subject")
+                        .IsUnique();
+
+                    b.ToTable("MigrationImportCalculatedTotals", (string)null);
+                });
+
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportImportedTotalEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ImportedTotalPoints")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RawTotal")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportRunId", "Subject")
+                        .IsUnique();
+
+                    b.ToTable("MigrationImportImportedTotals", (string)null);
+                });
+
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportJolpicaRaceSnapshotEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -236,6 +294,50 @@ namespace F1.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("MigrationImportJolpicaRaceSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportLegacyPickScoreEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("LegacyPoints")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PickType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("RaceCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("RawLegacyPoints")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("RowNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportRunId", "RaceCode", "PickType", "Subject", "RowNumber")
+                        .IsUnique();
+
+                    b.ToTable("MigrationImportLegacyPickScores", (string)null);
                 });
 
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportRaceRoundMappingEntity", b =>
@@ -542,7 +644,34 @@ namespace F1.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportCalculatedTotalEntity", b =>
+                {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportImportedTotalEntity", b =>
+                {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportJolpicaRaceSnapshotEntity", b =>
+                {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportLegacyPickScoreEntity", b =>
                 {
                     b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
                         .WithMany()
