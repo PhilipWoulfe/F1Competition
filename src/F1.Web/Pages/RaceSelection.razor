@@ -1,11 +1,14 @@
 @page "/selection"
 @page "/selection/{RaceId}"
+@page "/selection/{Competition}/{Season:int}/round/{Round:int}"
+@page "/selection/{Competition}/{Season:int}/{RaceSlug}"
 @page "/yas-marina-selection"
 @using F1.Web.Configuration
 @using F1.Web.Models
 @using F1.Web.Services.Api
 @implements IAsyncDisposable
 @inject ISelectionPageService SelectionPageService
+@inject IRaceContextApiService RaceContextApiService
 @inject ISelectionCountdownFormatter CountdownFormatter
 @inject F1.Web.Services.ITimeProvider TimeProvider
 @inject F1.Web.Services.IMockDateService MockDateService
@@ -49,6 +52,10 @@ else
 
 @code {
     [Parameter] public string? RaceId { get; set; }
+    [Parameter] public string? Competition { get; set; }
+    [Parameter] public int? Season { get; set; }
+    [Parameter] public int? Round { get; set; }
+    [Parameter] public string? RaceSlug { get; set; }
 
     private Driver[]? drivers;
     private RaceConfig? raceConfig;
@@ -61,12 +68,14 @@ else
     private CancellationTokenSource? timerCts;
     private Task? tickTask;
     private string? loadedRaceId;
+    private string? loadedContextKey;
     private string? routeContextErrorMessage;
 
     protected override async Task OnParametersSetAsync()
     {
         if (!TryResolveRouteContext(out var routeContext))
         {
+            loadedContextKey = null;
             loadedRaceId = null;
             drivers = null;
             raceConfig = null;
@@ -77,15 +86,27 @@ else
 
         StartCountdownTimerIfNeeded();
 
-        if (string.Equals(loadedRaceId, routeContext.RaceId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(loadedContextKey, routeContext.ContextKey, StringComparison.Ordinal))
         {
             return;
         }
 
+        var activeRaceId = await ResolveRaceIdAsync(routeContext);
+        loadedContextKey = routeContext.ContextKey;
+        if (string.IsNullOrWhiteSpace(activeRaceId))
+        {
+            loadedRaceId = null;
+            drivers = null;
+            raceConfig = null;
+            raceMetadata = null;
+            isReadOnly = false;
+            return;
+        }
+
         routeContextErrorMessage = null;
-        loadedRaceId = routeContext.RaceId;
+        loadedRaceId = activeRaceId;
         await MockDateService.RefreshAsync();
-        await LoadDataAsync(routeContext.RaceId);
+        await LoadDataAsync(activeRaceId);
     }
 
     public async ValueTask DisposeAsync()
@@ -144,9 +165,19 @@ else
             return;
         }
 
+        var activeRaceId = loadedRaceId;
+        if (string.IsNullOrWhiteSpace(activeRaceId))
+        {
+            activeRaceId = await ResolveRaceIdAsync(routeContext);
+            if (string.IsNullOrWhiteSpace(activeRaceId))
+            {
+                return;
+            }
+        }
+
         try
         {
-            var saved = await SelectionPageService.SaveAsync(routeContext.RaceId, formModel);
+            var saved = await SelectionPageService.SaveAsync(activeRaceId, formModel);
             successMessage = "Selection saved successfully.";
             ApplyState(saved.State);
         }
@@ -198,17 +229,66 @@ else
     private bool TryResolveRouteContext(out RaceSelectionContext routeContext)
     {
         var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
-        var success = RaceSelectionRouteResolver.TryResolve(RaceId, relativePath, out var resolved, out var errorMessage);
+        var success = RaceSelectionRouteResolver.TryResolve(RaceId, Competition, Season, Round, RaceSlug, relativePath, out var resolved, out var errorMessage);
         if (!success || resolved is null)
         {
             routeContextErrorMessage = errorMessage;
-            routeContext = new RaceSelectionContext { RaceId = string.Empty };
+            routeContext = new RaceSelectionContext { ContextKey = "invalid" };
             return false;
         }
 
         routeContextErrorMessage = null;
         routeContext = resolved;
         return true;
+    }
+
+    private async Task<string?> ResolveRaceIdAsync(RaceSelectionContext routeContext)
+    {
+        if (!string.IsNullOrWhiteSpace(routeContext.RaceId))
+        {
+            return routeContext.RaceId;
+        }
+
+        var lookup = routeContext.Lookup;
+        if (lookup is null)
+        {
+            routeContextErrorMessage = "Race context is invalid.";
+            return null;
+        }
+
+        var parsedRound = 0;
+        if (lookup.LookupType == RaceRouteLookupType.Round
+            && !int.TryParse(lookup.LookupValue, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out parsedRound))
+        {
+            routeContextErrorMessage = "Race context is invalid. Round must be numeric.";
+            return null;
+        }
+
+        RaceContextResolution? resolved;
+        try
+        {
+            resolved = lookup.LookupType == RaceRouteLookupType.Round
+                ? await RaceContextApiService.ResolveByRoundAsync(lookup.CompetitionSlug, lookup.Season, parsedRound)
+                : await RaceContextApiService.ResolveBySlugAsync(lookup.CompetitionSlug, lookup.Season, lookup.LookupValue);
+        }
+        catch (ApiServiceException ex)
+        {
+            routeContextErrorMessage = $"Unable to resolve race context: {ex.Error.Message}";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            routeContextErrorMessage = $"Unable to resolve race context: {ex.Message}";
+            return null;
+        }
+
+        if (resolved is null)
+        {
+            routeContextErrorMessage = "No race found for the requested competition, season, and race context.";
+            return null;
+        }
+
+        return resolved.RaceId;
     }
 
     private async Task TickCountdownAsync(CancellationToken cancellationToken)
