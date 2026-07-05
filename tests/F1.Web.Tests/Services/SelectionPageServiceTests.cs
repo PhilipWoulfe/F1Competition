@@ -37,7 +37,7 @@ public class SelectionPageServiceTests
                 ]
             });
         selectionApi
-            .Setup(s => s.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetCurrentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 new CurrentSelectionItem
                 {
@@ -85,7 +85,7 @@ public class SelectionPageServiceTests
             .Setup(s => s.GetMineAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Selection?)null);
         selectionApi
-            .Setup(s => s.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetCurrentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<CurrentSelectionItem>());
         metadataApi
             .Setup(s => s.GetPublishedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -135,7 +135,7 @@ public class SelectionPageServiceTests
                 ]
             });
         selectionApi
-            .Setup(s => s.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetCurrentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 new CurrentSelectionItem
                 {
@@ -157,7 +157,7 @@ public class SelectionPageServiceTests
         Assert.Equal("norris", result.State.SelectedDriverIds[0]);
         Assert.Equal(BetType.PreQualy, result.State.SelectedBetType);
         selectionApi.Verify(s => s.SaveMineAsync("2025-24-yas_marina", It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()), Times.Once);
-        selectionApi.Verify(s => s.GetCurrentAsync(It.IsAny<CancellationToken>()), Times.Once);
+        selectionApi.Verify(s => s.GetCurrentAsync("2025-24-yas_marina", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static RaceConfig CreateRaceConfig()
