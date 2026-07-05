@@ -19,6 +19,7 @@ public class F1DbContext : DbContext
     public DbSet<RaceMetadataEntity> RaceMetadata => Set<RaceMetadataEntity>();
     public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
+    public DbSet<MigrationImportRaceSelectionEntity> MigrationImportRaceSelections => Set<MigrationImportRaceSelectionEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -134,6 +135,24 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportRaceSelectionEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRaceSelections");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RawValue).HasMaxLength(512);
+            entity.Property(x => x.NormalizedValue).HasMaxLength(512);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
         });
     }
 }

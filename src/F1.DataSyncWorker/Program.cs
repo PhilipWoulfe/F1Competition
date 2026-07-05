@@ -39,6 +39,7 @@ builder.Services.AddSingleton<IDataSyncOrchestrator, DataSyncOrchestrator>();
 builder.Services.AddSingleton<IMigrationImportRunService, MigrationImportRunService>();
 builder.Services.AddSingleton<IMigrationImportOrchestrator, MigrationImportOrchestrator>();
 builder.Services.AddSingleton<IMigrationImportRowClassifier, MigrationImportRowClassifier>();
+builder.Services.AddSingleton<IMigrationRaceSelectionParser, MigrationRaceSelectionParser>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();
