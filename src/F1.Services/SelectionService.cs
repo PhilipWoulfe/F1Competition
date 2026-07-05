@@ -43,17 +43,16 @@ public class SelectionService : ISelectionService
 
     public async Task<Selection> UpsertSelectionAsync(string raceId, string userId, SelectionSubmissionDto submission)
     {
-        var orderedSelections = submission.OrderedSelections;
-        ValidateSelections(orderedSelections);
-
         var race = await _raceRepository.GetRaceAsync(raceId);
         if (race is null)
         {
             throw new SelectionRaceNotFoundException($"Race '{raceId}' not found.");
         }
 
+        var orderedSelections = submission.OrderedSelections;
         var nowUtc = _dateTimeProvider.UtcNow;
         var rules = _selectionRuleProvider.GetRules(race, nowUtc);
+        ValidateSelections(orderedSelections, rules.SelectionCount);
         var existingSelection = await _selectionRepository.GetSelectionAsync(raceId, userId);
 
         if (!rules.Supports(submission.BetType))
@@ -138,6 +137,7 @@ public class SelectionService : ISelectionService
             return new RaceConfigDto
             {
                 RaceId = race.Id,
+                SelectionCount = rules.SelectionCount,
                 PreQualyDeadlineUtc = race.PreQualyDeadlineUtc,
                 FinalDeadlineUtc = race.FinalDeadlineUtc,
                 EarlyLockBetType = rules.EarlyLockBetType,
@@ -174,7 +174,7 @@ public class SelectionService : ISelectionService
         return basePoints;
     }
 
-    private static void ValidateSelections(List<SelectionPosition> selections)
+    private static void ValidateSelections(List<SelectionPosition> selections, int selectionCount)
     {
         var validSelections = selections
             .Where(item => !string.IsNullOrWhiteSpace(item.DriverId))
@@ -192,14 +192,17 @@ public class SelectionService : ISelectionService
             .Count();
 
         var totalCount = selections.Count;
-        if (totalCount != 5 || validSelections.Count != 5 || distinctCount != 5 || distinctPositions != 5)
+        if (totalCount != selectionCount
+            || validSelections.Count != selectionCount
+            || distinctCount != selectionCount
+            || distinctPositions != selectionCount)
         {
-            throw new SelectionValidationException("Exactly 5 unique drivers must be selected.");
+            throw new SelectionValidationException($"Exactly {selectionCount} unique drivers must be selected.");
         }
 
-        if (validSelections.Any(item => item.Position < 1 || item.Position > 5))
+        if (validSelections.Any(item => item.Position < 1 || item.Position > selectionCount))
         {
-            throw new SelectionValidationException("Selection positions must be between 1 and 5.");
+            throw new SelectionValidationException($"Selection positions must be between 1 and {selectionCount}.");
         }
     }
 

@@ -3,6 +3,7 @@ namespace F1.Web.Models;
 public class RaceConfig
 {
     public string RaceId { get; set; } = string.Empty;
+    public int SelectionCount { get; set; } = 5;
     public DateTime PreQualyDeadlineUtc { get; set; }
     public DateTime FinalDeadlineUtc { get; set; }
     public BetType? EarlyLockBetType { get; set; } = BetType.PreQualy;

@@ -47,6 +47,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IRaceService, RaceService>();
 builder.Services.AddScoped<IRaceMetadataService, RaceMetadataService>();
 builder.Services.AddScoped<IRaceContextResolver, RaceContextResolver>();
+builder.Services.AddSingleton<ICompetitionRuleCatalog, CompetitionRuleCatalog>();
 builder.Services.AddScoped<ISelectionRuleProvider, SelectionRuleProvider>();
 builder.Services.AddScoped<ISelectionService, SelectionService>();
 if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test"))
