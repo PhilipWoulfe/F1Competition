@@ -36,7 +36,7 @@ jobs:
           echo "web_sha_tag=${{ env.REGISTRY }}/$IMAGE_NAME_LOWER-web:$SHA_TAG" >> "$GITHUB_OUTPUT"
           echo "data_sync_sha_tag=${{ env.REGISTRY }}/$IMAGE_NAME_LOWER-data-sync:$SHA_TAG" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -174,7 +174,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
