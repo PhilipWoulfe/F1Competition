@@ -99,6 +99,7 @@ public sealed class MigrationImportRunServiceTests
                 NullLogger<MigrationImportOrchestrator>.Instance,
                 runService,
                 new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions

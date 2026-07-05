@@ -83,8 +83,21 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
     {
         normalizedAsDnf = false;
 
+        if (label.Equals("DNF", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedAsDnf = true;
+            return true;
+        }
+
         if (RaceRowRegex().IsMatch(label))
         {
+            return true;
+        }
+
+        var genericRaceLabelMatch = GenericRaceLabelRegex().Match(label);
+        if (genericRaceLabelMatch.Success)
+        {
+            normalizedAsDnf = true;
             return true;
         }
 
@@ -170,4 +183,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
 
     [GeneratedRegex("^[A-Za-z]{3}-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceRowRegex();
+
+    [GeneratedRegex("^[A-Za-z]{3}-.+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex GenericRaceLabelRegex();
 }
