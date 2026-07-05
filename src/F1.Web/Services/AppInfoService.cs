@@ -24,6 +24,10 @@ public sealed class AppInfoService(IHttpClientFactory httpClientFactory) : IAppI
 
             return versionModel.Version[..Math.Min(7, versionModel.Version.Length)];
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception)
         {
             return "Error";
