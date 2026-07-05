@@ -6,7 +6,7 @@ internal class E2eOptions
     public string BaseUrl { get; init; } = string.Empty;
     public string ApiBaseUrl { get; init; } = string.Empty;
     public string? RaceId { get; init; }
-    public string CompetitionSlug { get; init; } = "main-2026";
+    public string CompetitionSlug { get; init; } = "main";
     public int Season { get; init; } = 2026;
     public int Round { get; init; } = 1;
     public bool Headless { get; init; } = true;
@@ -51,7 +51,7 @@ internal class E2eOptions
 
         var timeoutSeconds = ParseInt(GetSetting("E2E_TIMEOUT_SECONDS"), 20);
         var raceId = GetSetting("E2E_RACE_ID");
-        var competitionSlug = GetSetting("E2E_COMPETITION_SLUG") ?? "main-2026";
+        var competitionSlug = GetSetting("E2E_COMPETITION_SLUG") ?? "main";
         var season = ParseInt(GetSetting("E2E_SEASON"), 2026);
         var round = ParseInt(GetSetting("E2E_ROUND"), 1);
         var headless = ParseBool(GetSetting("E2E_HEADLESS"), true);

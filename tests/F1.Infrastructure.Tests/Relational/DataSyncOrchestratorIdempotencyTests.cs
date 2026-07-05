@@ -39,7 +39,7 @@ public class DataSyncOrchestratorIdempotencyTests
             [
                 new CompetitionSeedDefinition
                 {
-                    Key = "main-2026",
+                    Key = "main",
                     Name = "Main 2026",
                     Year = 2026,
                     Description = "Main 2026 season competition"
@@ -50,7 +50,7 @@ public class DataSyncOrchestratorIdempotencyTests
                 new SeasonSeedDefinition
                 {
                     Season = 2026,
-                    CompetitionKeys = ["main-2026"]
+                    CompetitionKeys = ["main"]
                 }
             ]
         });
@@ -280,7 +280,7 @@ public class DataSyncOrchestratorIdempotencyTests
             [
                 new CompetitionSeedDefinition
                 {
-                    Key = "main-2026",
+                    Key = "main",
                     Name = "Main 2026",
                     Year = 2026,
                     Description = "Main 2026 season competition"
@@ -291,7 +291,7 @@ public class DataSyncOrchestratorIdempotencyTests
                 new SeasonSeedDefinition
                 {
                     Season = 2026,
-                    CompetitionKeys = ["main-2026"]
+                    CompetitionKeys = ["main"]
                 }
             ]
         });

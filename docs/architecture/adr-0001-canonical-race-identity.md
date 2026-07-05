@@ -18,13 +18,14 @@ We need one contract that is shared by:
 ## Decision
 Use a canonical race identifier composed as:
 
-`competition-slug-round-race-slug`
+`competition-slug-season-round-race-slug`
 
 Rules:
 - `competition-slug` uses lowercase slug format (`[a-z0-9-]+`)
+- `season` is a 4-digit year (`\d{4}`)
 - `round` is a positive integer and is serialized as-is (no zero padding)
 - `race-slug` uses lowercase slug format (`[a-z0-9-]+`)
-- competition slug is season-scoped in current domain usage (for example `main-2026`), so season is not repeated in race ID.
+- `competition-slug` does not duplicate season (for example `main`).
 
 Example canonical RaceId:
 - `main-2026-1-australian-grand-prix`
@@ -43,19 +44,20 @@ API route forms that are supported:
 - `/races/{raceId}/metadata`
 
 2. Context resolution routes (preferred for defaults/navigation)
-- `/races/context/{competitionSlug}/round/{round}`
-- `/races/context/{competitionSlug}/slug/{raceSlug}`
+- `/races/context/{competitionSlug}/{season}/round/{round}`
+- `/races/context/{competitionSlug}/{season}/slug/{raceSlug}`
 
-Context example for `main-2026`:
-- Round lookup: `/races/context/main-2026/round/1`
-- Slug lookup: `/races/context/main-2026/slug/australian-grand-prix`
+Context example for `main` and season `2026`:
+- Round lookup: `/races/context/main/2026/round/1`
+- Slug lookup: `/races/context/main/2026/slug/australian-grand-prix`
 
 Expected context resolution payload example:
 
 ```json
 {
   "raceId": "main-2026-1-australian-grand-prix",
-  "competitionSlug": "main-2026",
+  "competitionSlug": "main",
+  "season": 2026,
   "round": 1,
   "raceSlug": "australian-grand-prix"
 }

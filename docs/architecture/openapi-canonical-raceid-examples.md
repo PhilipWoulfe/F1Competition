@@ -6,7 +6,7 @@ This document defines example request/response payloads to align API/OpenAPI exa
 
 Format:
 
-`competitionSlug-round-raceSlug`
+`competitionSlug-season-round-raceSlug`
 
 Example:
 
@@ -16,12 +16,13 @@ Example:
 
 ### Resolve by round
 
-`GET /races/context/main-2026/round/1`
+`GET /races/context/main/2026/round/1`
 
 ```json
 {
   "raceId": "main-2026-1-australian-grand-prix",
-  "competitionSlug": "main-2026",
+  "competitionSlug": "main",
+  "season": 2026,
   "round": 1,
   "raceSlug": "australian-grand-prix"
 }
@@ -29,12 +30,13 @@ Example:
 
 ### Resolve by slug
 
-`GET /races/context/main-2026/slug/australian-grand-prix`
+`GET /races/context/main/2026/slug/australian-grand-prix`
 
 ```json
 {
   "raceId": "main-2026-1-australian-grand-prix",
-  "competitionSlug": "main-2026",
+  "competitionSlug": "main",
+  "season": 2026,
   "round": 1,
   "raceSlug": "australian-grand-prix"
 }

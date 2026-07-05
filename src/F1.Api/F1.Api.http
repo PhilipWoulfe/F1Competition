@@ -1,11 +1,11 @@
 @F1.Api_HostAddress = http://localhost:5099
 
-GET {{F1.Api_HostAddress}}/races/context/main-2026/round/1
+GET {{F1.Api_HostAddress}}/races/context/main/2026/round/1
 Accept: application/json
 
 ###
 
-GET {{F1.Api_HostAddress}}/races/context/main-2026/slug/australian-grand-prix
+GET {{F1.Api_HostAddress}}/races/context/main/2026/slug/australian-grand-prix
 Accept: application/json
 
 ###

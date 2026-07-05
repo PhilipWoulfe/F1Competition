@@ -81,7 +81,7 @@ The solution uses **Cloudflare Tunnels** to securely expose the services without
 - **Additive selection rule config**: `GET /selections/{raceId}/config` now includes `betOptions`, `earlyLockBetType`, `earlyLockLabel`, `finalSubmissionLabel`, `lockMessage`, and `lockedSelectionMessage` so the generic page can render competition-specific lock semantics and labels without route-specific branching.
 - **Additive metadata-driven selection copy**: `GET /races/{raceId}/metadata` may include optional `displayTitle` and `lockMessage` fields for web title/banner rendering; clients must gracefully fall back when absent.
 - **Additive race-context resolver endpoints**: `/races/context/{competitionSlug}/{season}/round/{round}` and `/races/context/{competitionSlug}/{season}/slug/{raceSlug}` resolve generic route context to canonical `raceId` during migration.
-- **Race-scoped web selection routes**: canonical route remains `/selection/{raceId}` with additive generic routes `/selection/{competition}/{season}/round/{round}` and `/selection/{competition}/{season}/{raceSlug}`. Temporary compatibility route `/yas-marina-selection` remains flagged for removal in PR F cleanup.
+- **Race-scoped web selection routes**: direct route `/selection/{raceId}` accepts canonical race IDs only. Preferred defaults/navigation use context routes `/selection/{competition}/{season}/round/{round}` and `/selection/{competition}/{season}/{raceSlug}`.
 
 ---
 
@@ -275,10 +275,10 @@ Optional E2E tuning:
 
 - `E2E_TIMEOUT_SECONDS`: defaults to 20 locally and 30 in CI.
 - `E2E_HEADLESS`: defaults to true.
-- `E2E_COMPETITION_SLUG`: defaults to `main-2026`.
+- `E2E_COMPETITION_SLUG`: defaults to `main`.
 - `E2E_SEASON`: defaults to `2026`.
 - `E2E_ROUND`: defaults to `1`.
-- `E2E_RACE_ID`: optional explicit race ID override. When unset, E2E resolves race ID via `/races/context/{competitionSlug}/{season}/round/{round}`.
+- `E2E_RACE_ID`: optional explicit canonical race ID override. When unset, E2E resolves race ID via `/races/context/{competitionSlug}/{season}/round/{round}`.
 - `E2E_STEP_TRACE_PATH`: optional override for always-on Selenium step logs. Defaults to `TestResults/e2e/step-traces`.
 
 Test-only service-token fallback controls (use only when Cloudflare service-token JWTs omit email claims):
