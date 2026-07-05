@@ -32,7 +32,11 @@ internal class E2eOptions
         }
 
         var timeoutSeconds = ParseInt(Environment.GetEnvironmentVariable("E2E_TIMEOUT_SECONDS"), 20);
-        var raceId = Environment.GetEnvironmentVariable("E2E_RACE_ID") ?? "2025-24-yas_marina";
+        var raceId = Environment.GetEnvironmentVariable("E2E_RACE_ID");
+        if (string.IsNullOrWhiteSpace(raceId))
+        {
+            raceId = "2025-24-yas_marina";
+        }
         var headless = ParseBool(Environment.GetEnvironmentVariable("E2E_HEADLESS"), true);
 
         return new E2eOptions
