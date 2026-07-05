@@ -14,6 +14,14 @@ on:
       - '.github/workflows/docker-build.yaml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.editorconfig'
+      - 'coverlet*.runsettings'
+      - 'Directory.Build.props'
+      - 'F1Competition.sln'
+      - '.github/workflows/docker-build.yaml'
   workflow_dispatch:
 
 concurrency:
@@ -90,13 +98,13 @@ jobs:
               - 'tests/F1.E2E.Tests/**'
               - 'src/F1.Api/**'
               - 'src/F1.Web/**'
-              - 'src/F1.Core/**'
-              - 'src/F1.Infrastructure/**'
-              - 'src/F1.Services/**'
-              - 'Directory.Build.props'
-              - 'F1Competition.sln'
+              - 'src/F1.Api/Dockerfile'
+              - 'src/F1.Web/Dockerfile'
+              - 'docker-compose.yml'
+              - 'docker-compose.debug.yml'
 
       - name: Setup .NET
+        if: github.event_name != 'pull_request'
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
@@ -107,6 +115,7 @@ jobs:
             F1Competition.sln
 
       - name: Run API/Backend Unit Tests with Coverage
+        if: github.event_name != 'pull_request'
         run: |
           dotnet test tests/F1.Api.Tests/F1.Api.Tests.csproj \
           --configuration Debug \
@@ -117,6 +126,7 @@ jobs:
           --results-directory ./coverage/api-coverage
 
       - name: Run Web Unit Tests with Web-Only Coverage
+        if: github.event_name != 'pull_request'
         run: |
           dotnet test tests/F1.Web.Tests/F1.Web.Tests.csproj \
           --configuration Debug \
@@ -127,6 +137,7 @@ jobs:
           --results-directory ./coverage/web-coverage
 
       - name: Code Coverage Summary Report
+        if: github.event_name != 'pull_request'
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
           filename: "**/coverage.cobertura.xml"
@@ -152,7 +163,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        if: steps.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && (steps.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch')
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -164,7 +175,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}
 
       - name: Build and push Web image
-        if: steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && (steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch')
         uses: docker/build-push-action@v7
         with:
           context: src/F1.Web
@@ -178,7 +189,7 @@ jobs:
             COMMIT_HASH=${{ github.sha }}
 
       - name: Build and push Data Sync Worker image
-        if: steps.changes.outputs.data_sync == 'true' || github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && (steps.changes.outputs.data_sync == 'true' || github.event_name == 'workflow_dispatch')
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -354,6 +365,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-results
+          retention-days: 5
           path: |
             TestResults/e2e/**
             **/TestResults/e2e/**
