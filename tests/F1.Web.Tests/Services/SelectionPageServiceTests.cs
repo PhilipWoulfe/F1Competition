@@ -60,7 +60,7 @@ public class SelectionPageServiceTests
 
         var sut = new SelectionPageService(driversApi.Object, selectionApi.Object, metadataApi.Object);
 
-        var result = await sut.LoadAsync("2025-24-yas_marina", 5, new DateTime(2025, 12, 6, 9, 0, 0, DateTimeKind.Utc));
+        var result = await sut.LoadAsync("2025-24-yas_marina", new DateTime(2025, 12, 6, 9, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal("norris", result.State.SelectedDriverIds[0]);
         Assert.Equal("leclerc", result.State.SelectedDriverIds[1]);
@@ -94,7 +94,7 @@ public class SelectionPageServiceTests
 
         var sut = new SelectionPageService(driversApi.Object, selectionApi.Object, metadataApi.Object);
 
-        var result = await sut.LoadAsync("2025-24-yas_marina", 5, new DateTime(2025, 12, 8, 12, 0, 1, DateTimeKind.Utc));
+        var result = await sut.LoadAsync("2025-24-yas_marina", new DateTime(2025, 12, 8, 12, 0, 1, DateTimeKind.Utc));
 
         Assert.True(result.State.IsReadOnly);
     }
@@ -149,6 +149,7 @@ public class SelectionPageServiceTests
 
         var sut = new SelectionPageService(driversApi.Object, selectionApi.Object, metadataApi.Object);
         var form = new SelectionFormModel();
+        form.EnsureSelectionCount(5);
         form.SelectedDriverIds[0] = "leclerc";
         form.SelectedDriverIds[1] = "norris";
         form.SelectedBetType = BetType.Regular;
@@ -161,11 +162,52 @@ public class SelectionPageServiceTests
         selectionApi.Verify(s => s.GetCurrentAsync("2025-24-yas_marina", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task LoadAsync_WhenCompetitionUsesTopThree_ReturnsThreeSlots()
+    {
+        var driversApi = new Mock<IDriversApiService>();
+        var selectionApi = new Mock<ISelectionApiService>();
+        var metadataApi = new Mock<IRaceMetadataApiService>();
+
+        driversApi
+            .Setup(s => s.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new Driver { DriverId = "norris", FullName = "Lando Norris" },
+                new Driver { DriverId = "leclerc", FullName = "Charles Leclerc" },
+                new Driver { DriverId = "hamilton", FullName = "Lewis Hamilton" }
+            ]);
+        selectionApi
+            .Setup(s => s.GetConfigAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RaceConfig
+            {
+                RaceId = "philip-2025-2025-24-yas-marina",
+                SelectionCount = 3,
+                PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
+            });
+        selectionApi
+            .Setup(s => s.GetMineAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Selection?)null);
+        selectionApi
+            .Setup(s => s.GetCurrentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CurrentSelectionItem>());
+        metadataApi
+            .Setup(s => s.GetPublishedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((RaceQuestionMetadata?)null);
+
+        var sut = new SelectionPageService(driversApi.Object, selectionApi.Object, metadataApi.Object);
+
+        var result = await sut.LoadAsync("philip-2025-2025-24-yas-marina", new DateTime(2025, 12, 6, 9, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(3, result.State.SelectedDriverIds.Count);
+    }
+
     private static RaceConfig CreateRaceConfig()
     {
         return new RaceConfig
         {
             RaceId = "2025-24-yas_marina",
+            SelectionCount = 5,
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
             BetOptions =

@@ -34,7 +34,7 @@ else
         LockingMessage="@GetLockingMessage()" />
 
     <EditForm Model="formModel" OnValidSubmit="SaveSelectionAsync">
-        <DriverSelectionList Drivers="@drivers" SelectedDriverIds="@formModel.SelectedDriverIds" IsReadOnly="@isReadOnly" />
+        <DriverSelectionList Drivers="@drivers" SelectedDriverIds="@formModel.SelectedDriverIds" SelectionCount="@formModel.SelectedDriverIds.Count" IsReadOnly="@isReadOnly" />
 
         <BetStrategySelector
             Value="@formModel.SelectedBetType"
@@ -141,7 +141,7 @@ else
 
         try
         {
-            var loaded = await SelectionPageService.LoadAsync(activeRaceId, formModel.SelectedDriverIds.Count, TimeProvider.UtcNow);
+            var loaded = await SelectionPageService.LoadAsync(activeRaceId, TimeProvider.UtcNow);
             drivers = loaded.Drivers;
             raceConfig = loaded.RaceConfig;
             raceMetadata = loaded.RaceMetadata;
@@ -201,6 +201,7 @@ else
 
     private void ApplyState(SelectionPageState state)
     {
+        formModel.EnsureSelectionCount(state.SelectedDriverIds.Count);
         formModel.SelectedBetType = state.SelectedBetType;
 
         for (var i = 0; i < formModel.SelectedDriverIds.Count; i++)

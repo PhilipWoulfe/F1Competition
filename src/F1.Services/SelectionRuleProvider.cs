@@ -9,36 +9,40 @@ public interface ISelectionRuleProvider
 
 public sealed class SelectionRuleProvider : ISelectionRuleProvider
 {
-    private static readonly SelectionRuleDefinition DefaultDefinition = new(
-        new[]
-        {
-            new SelectionRuleBetOption(BetType.Regular, "Regular"),
-            new SelectionRuleBetOption(BetType.PreQualy, "Pre-Qualy"),
-            new SelectionRuleBetOption(BetType.AllOrNothing, "All-or-Nothing")
-        },
-        BetType.PreQualy,
-        "Pre-Qualy lock",
-        "Final submission",
-        "This pre-qualy selection is locked.");
+    private readonly ICompetitionRuleCatalog _competitionRuleCatalog;
+
+    public SelectionRuleProvider()
+        : this(new CompetitionRuleCatalog())
+    {
+    }
+
+    public SelectionRuleProvider(ICompetitionRuleCatalog competitionRuleCatalog)
+    {
+        _competitionRuleCatalog = competitionRuleCatalog;
+    }
 
     public SelectionRuleSet GetRules(Race race, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(race);
 
-        var betOptions = DefaultDefinition.BetOptions
+        var definition = _competitionRuleCatalog.GetForRace(race);
+
+        var betOptions = definition.BetOptions
             .Select(option => new SelectionRuleBetOption(
                 option.BetType,
                 option.Label,
-                IsAvailable(option.BetType, DefaultDefinition.EarlyLockBetType, race, nowUtc)))
+                IsAvailable(option.BetType, definition.EarlyLockBetType, race, nowUtc)))
             .ToArray();
 
         return new SelectionRuleSet(
+            definition.CompetitionKey,
+            definition.SelectionCount,
             betOptions,
-            DefaultDefinition.EarlyLockBetType,
-            DefaultDefinition.EarlyLockLabel,
-            DefaultDefinition.FinalSubmissionLabel,
-            BuildLockMessage(race, DefaultDefinition.EarlyLockBetType, betOptions),
-            DefaultDefinition.LockedSelectionMessage);
+            definition.EarlyLockBetType,
+            definition.EarlyLockLabel,
+            definition.FinalSubmissionLabel,
+            BuildLockMessage(race, definition.EarlyLockBetType, betOptions),
+            definition.LockedSelectionMessage);
     }
 
     private static bool IsAvailable(BetType betType, BetType? earlyLockBetType, Race race, DateTime nowUtc)
@@ -62,6 +66,8 @@ public sealed class SelectionRuleProvider : ISelectionRuleProvider
 }
 
 public sealed class SelectionRuleSet(
+    string competitionKey,
+    int selectionCount,
     IReadOnlyList<SelectionRuleBetOption> betOptions,
     BetType? earlyLockBetType,
     string earlyLockLabel,
@@ -69,6 +75,8 @@ public sealed class SelectionRuleSet(
     string lockMessage,
     string lockedSelectionMessage)
 {
+    public string CompetitionKey { get; } = competitionKey;
+    public int SelectionCount { get; } = selectionCount;
     public IReadOnlyList<SelectionRuleBetOption> BetOptions { get; } = betOptions;
     public BetType? EarlyLockBetType { get; } = earlyLockBetType;
     public string EarlyLockLabel { get; } = earlyLockLabel;
@@ -102,18 +110,4 @@ public sealed class SelectionRuleBetOption(BetType betType, string label, bool i
     public BetType BetType { get; } = betType;
     public string Label { get; } = label;
     public bool IsAvailable { get; } = isAvailable;
-}
-
-internal sealed class SelectionRuleDefinition(
-    IReadOnlyList<SelectionRuleBetOption> betOptions,
-    BetType? earlyLockBetType,
-    string earlyLockLabel,
-    string finalSubmissionLabel,
-    string lockedSelectionMessage)
-{
-    public IReadOnlyList<SelectionRuleBetOption> BetOptions { get; } = betOptions;
-    public BetType? EarlyLockBetType { get; } = earlyLockBetType;
-    public string EarlyLockLabel { get; } = earlyLockLabel;
-    public string FinalSubmissionLabel { get; } = finalSubmissionLabel;
-    public string LockedSelectionMessage { get; } = lockedSelectionMessage;
 }

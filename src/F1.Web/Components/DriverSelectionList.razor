@@ -1,7 +1,7 @@
 @using F1.Web.Models
 
-<h4>Top 5 Driver Predictions</h4>
-@for (var i = 0; i < 5; i++)
+<h4>Top @SelectionCount Driver Predictions</h4>
+@for (var i = 0; i < SelectionCount; i++)
 {
     var rank = i;
     <div class="mb-2">
@@ -18,22 +18,28 @@
 
 @code {
     [Parameter] public Driver[] Drivers { get; set; } = [];
-    [Parameter] public IList<string> SelectedDriverIds { get; set; } = ["", "", "", "", ""];
+    [Parameter] public IList<string> SelectedDriverIds { get; set; } = [];
+    [Parameter] public int SelectionCount { get; set; } = 5;
     [Parameter] public bool IsReadOnly { get; set; }
 
     protected override void OnParametersSet()
     {
+        if (SelectionCount <= 0)
+        {
+            SelectionCount = 5;
+        }
+
         if (SelectedDriverIds is null)
         {
-            SelectedDriverIds = ["", "", "", "", ""];
+            SelectedDriverIds = Enumerable.Repeat(string.Empty, SelectionCount).ToList();
             return;
         }
 
-        if (SelectedDriverIds.Count < 5)
+        if (SelectedDriverIds.Count < SelectionCount)
         {
             if (SelectedDriverIds is List<string> mutable)
             {
-                while (mutable.Count < 5)
+                while (mutable.Count < SelectionCount)
                 {
                     mutable.Add(string.Empty);
                 }
@@ -41,7 +47,7 @@
             else
             {
                 var normalized = new List<string>(SelectedDriverIds);
-                while (normalized.Count < 5)
+                while (normalized.Count < SelectionCount)
                 {
                     normalized.Add(string.Empty);
                 }
@@ -49,15 +55,15 @@
                 SelectedDriverIds = normalized;
             }
         }
-        else if (SelectedDriverIds.Count > 5)
+        else if (SelectedDriverIds.Count > SelectionCount)
         {
             if (SelectedDriverIds is List<string> mutable)
             {
-                mutable.RemoveRange(5, mutable.Count - 5);
+                mutable.RemoveRange(SelectionCount, mutable.Count - SelectionCount);
             }
             else
             {
-                SelectedDriverIds = SelectedDriverIds.Take(5).ToList();
+                SelectedDriverIds = SelectedDriverIds.Take(SelectionCount).ToList();
             }
         }
     }

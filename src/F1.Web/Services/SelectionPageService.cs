@@ -6,7 +6,7 @@ namespace F1.Web.Services;
 
 public interface ISelectionPageService
 {
-    Task<SelectionPageLoadResult> LoadAsync(string raceId, int selectionSize, DateTime nowUtc, CancellationToken cancellationToken = default);
+    Task<SelectionPageLoadResult> LoadAsync(string raceId, DateTime nowUtc, CancellationToken cancellationToken = default);
     Task<SelectionPageSaveResult> SaveAsync(string raceId, SelectionFormModel formModel, CancellationToken cancellationToken = default);
     string GetSaveErrorMessage(ApiServiceException exception);
 }
@@ -16,24 +16,24 @@ public sealed class SelectionPageService(
     ISelectionApiService selectionApiService,
     IRaceMetadataApiService raceMetadataApiService) : ISelectionPageService
 {
-    public async Task<SelectionPageLoadResult> LoadAsync(string raceId, int selectionSize, DateTime nowUtc, CancellationToken cancellationToken = default)
+    public async Task<SelectionPageLoadResult> LoadAsync(string raceId, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(raceId);
-        if (selectionSize <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(selectionSize), "Selection size must be greater than zero.");
-        }
 
         var drivers = await driversApiService.GetAllAsync(cancellationToken);
         var raceConfig = await selectionApiService.GetConfigAsync(raceId, cancellationToken);
         var raceMetadata = await raceMetadataApiService.GetPublishedAsync(raceId, cancellationToken);
+        if (raceConfig.SelectionCount <= 0)
+        {
+            throw new InvalidOperationException("Selection count must be greater than zero.");
+        }
 
-        var state = CreateDefaultState(selectionSize);
+        var state = CreateDefaultState(raceConfig.SelectionCount);
 
         var existing = await selectionApiService.GetMineAsync(raceId, cancellationToken);
         if (existing is not null)
         {
-            state = CreateStateFromSelection(existing, selectionSize);
+            state = CreateStateFromSelection(existing, raceConfig.SelectionCount);
         }
 
         var snapshot = await selectionApiService.GetCurrentAsync(raceId, cancellationToken);

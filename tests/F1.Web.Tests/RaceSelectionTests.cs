@@ -23,6 +23,7 @@ public class RaceSelectionTests : BunitContext
     private static readonly RaceConfig DefaultRaceConfig = new()
     {
         RaceId = "2025-24-yas_marina",
+        SelectionCount = 5,
         PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 4, 30, 0, DateTimeKind.Utc),
         FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc),
         LockMessage = "Locking for Pre-Qualy gives +50% points and prevents changes after 07 Dec 2025 04:30 UTC.",
@@ -264,6 +265,24 @@ public class RaceSelectionTests : BunitContext
         cut.Find("button[type='submit']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Exactly 5 unique drivers must be selected.", cut.Markup));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldRenderThreeDriverSlots_ForTopThreeCompetition()
+    {
+        RegisterDefaultMocks(config: new RaceConfig
+        {
+            RaceId = "philip-2025-2025-24-yas-marina",
+            SelectionCount = 3,
+            PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 4, 30, 0, DateTimeKind.Utc),
+            FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc),
+            BetOptions = DefaultRaceConfig.BetOptions
+        });
+
+        var cut = RenderForRace("philip-2025-2025-24-yas-marina");
+
+        cut.WaitForAssertion(() => Assert.Equal(3, cut.FindAll("select").Count));
+        Assert.Contains("Top 3 Driver Predictions", cut.Markup);
     }
 
     [Theory]
