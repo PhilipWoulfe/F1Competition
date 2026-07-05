@@ -107,6 +107,26 @@ public class RaceSelectionTests : BunitContext
     }
 
     [Fact]
+    public void RaceSelection_ShouldLoadCanonicalRaceTokenRoute_WithoutContextResolution()
+    {
+        var (_, selectionMock, _, raceContextMock) = RegisterDefaultMocks();
+        var raceId = "main-2026-2-australian-grand-prix";
+
+        var cut = RenderForRace(raceId);
+
+        cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
+        selectionMock.Verify(
+            s => s.GetConfigAsync(raceId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        raceContextMock.Verify(
+            s => s.ResolveByRoundAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        raceContextMock.Verify(
+            s => s.ResolveBySlugAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public void RaceSelection_ShouldRenderPublishedRaceQuestions_WhenMetadataExists()
     {
         RegisterDefaultMocks(metadata: new RaceQuestionMetadata
@@ -476,7 +496,51 @@ public class RaceSelectionTests : BunitContext
 
         var cut = Render<RaceSelection>(parameters => parameters.Add(p => p.RaceId, "bad race id"));
 
-        cut.WaitForAssertion(() => Assert.Contains("Race context is invalid.", cut.Markup));
+        cut.WaitForAssertion(() => Assert.Contains("Race token is invalid. Use canonical format", cut.Markup));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenDirectRaceTokenIsNotCanonical()
+    {
+        RegisterDefaultMocks();
+
+        var cut = RenderForRace("main-2026-australian-grand-prix");
+
+        cut.WaitForAssertion(() => Assert.Contains("Race token is invalid. Use canonical format", cut.Markup));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenDirectRaceTokenCannotBeFound()
+    {
+        var (_, selectionMock, _, raceContextMock) = RegisterDefaultMocks();
+        var raceId = "main-2026-99-not-a-real-race";
+        selectionMock
+            .Setup(s => s.GetConfigAsync(raceId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiServiceException(new ApiError(HttpStatusCode.NotFound, "Loading race selection config failed with status code 404.")));
+
+        var cut = RenderForRace(raceId);
+
+        cut.WaitForAssertion(() => Assert.Contains($"No race found for race token '{raceId}'.", cut.Markup));
+        raceContextMock.Verify(
+            s => s.ResolveByRoundAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        raceContextMock.Verify(
+            s => s.ResolveBySlugAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenSlugContextCannotBeResolved()
+    {
+        RegisterDefaultMocks(resolvedContext: null);
+
+        NavigateTo("selection/main/2026/not-a-real-grand-prix");
+        var cut = Render<RaceSelection>(parameters => parameters
+            .Add(p => p.Competition, "main")
+            .Add(p => p.Season, 2026)
+            .Add(p => p.RaceSlug, "not-a-real-grand-prix"));
+
+        cut.WaitForAssertion(() => Assert.Contains("No race found for the requested competition, season, and race context.", cut.Markup));
     }
 
     [Fact]

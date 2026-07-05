@@ -1,9 +1,14 @@
 using F1.Web.Models;
+using System.Text.RegularExpressions;
 
 namespace F1.Web.Configuration;
 
 public static class RaceSelectionRouteResolver
 {
+    private static readonly Regex CanonicalRaceIdPattern = new(
+        "^[a-z0-9]+(?:-[a-z0-9]+)*-[1-9][0-9]{3}-[1-9][0-9]*-[a-z0-9]+(?:-[a-z0-9]+)*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     public static bool TryResolve(
         string? raceIdFromRoute,
         string? competitionFromRoute,
@@ -18,7 +23,7 @@ public static class RaceSelectionRouteResolver
         errorMessage = null;
         _ = relativePath;
 
-        if (TryNormalizeRaceId(raceIdFromRoute, out var normalizedRaceId))
+        if (TryNormalizeCanonicalRaceId(raceIdFromRoute, out var normalizedRaceId))
         {
             context = new RaceSelectionContext
             {
@@ -30,7 +35,7 @@ public static class RaceSelectionRouteResolver
 
         if (!string.IsNullOrWhiteSpace(raceIdFromRoute))
         {
-            errorMessage = "Race context is invalid. Only letters, numbers, underscores, and hyphens are allowed.";
+            errorMessage = "Race token is invalid. Use canonical format: {competition}-{season}-{round}-{race-slug}.";
             return false;
         }
 
@@ -131,7 +136,7 @@ public static class RaceSelectionRouteResolver
         return false;
     }
 
-    private static bool TryNormalizeRaceId(string? raceId, out string normalizedRaceId)
+    private static bool TryNormalizeCanonicalRaceId(string? raceId, out string normalizedRaceId)
     {
         normalizedRaceId = string.Empty;
         if (string.IsNullOrWhiteSpace(raceId))
@@ -139,13 +144,10 @@ public static class RaceSelectionRouteResolver
             return false;
         }
 
-        var trimmed = raceId.Trim();
-        foreach (var ch in trimmed)
+        var trimmed = raceId.Trim().ToLowerInvariant();
+        if (!CanonicalRaceIdPattern.IsMatch(trimmed))
         {
-            if (!(char.IsLetterOrDigit(ch) || ch == '-' || ch == '_'))
-            {
-                return false;
-            }
+            return false;
         }
 
         normalizedRaceId = trimmed;

@@ -19,6 +19,10 @@
 {
     <p role="alert" class="text-danger">@routeContextErrorMessage</p>
 }
+else if (!string.IsNullOrWhiteSpace(errorMessage) && (drivers is null || raceConfig is null))
+{
+    <p role="alert" class="text-danger">@errorMessage</p>
+}
 else if (drivers is null || raceConfig is null)
 {
     <p><em>Loading...</em></p>
@@ -148,6 +152,12 @@ else
         }
         catch (ApiServiceException ex)
         {
+            if (ex.Error.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                errorMessage = $"No race found for race token '{activeRaceId}'.";
+                return;
+            }
+
             errorMessage = $"Error loading data: {ex.Error.Message}";
         }
         catch (Exception ex)
