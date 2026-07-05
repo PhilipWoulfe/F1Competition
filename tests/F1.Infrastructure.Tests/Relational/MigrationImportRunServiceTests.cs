@@ -88,7 +88,7 @@ public sealed class MigrationImportRunServiceTests
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
 
-        var sourceFilePath = await CreateTempCsvAsync("Question,Philip\nAUS-1,NOR\nAUS-DNF,NONE\n");
+        var sourceFilePath = await CreateTempCsvAsync("Question,Philip\nAUS-1,NOR\nBAH-HUMBUG,NONE\n");
 
         try
         {
@@ -98,6 +98,7 @@ public sealed class MigrationImportRunServiceTests
             var orchestrator = new MigrationImportOrchestrator(
                 NullLogger<MigrationImportOrchestrator>.Instance,
                 runService,
+                new MigrationImportRowClassifier(),
                 dbFactory,
                 Options.Create(new DataSyncOptions { AutoMigrate = false }),
                 Options.Create(new MigrationImportOptions
@@ -122,7 +123,10 @@ public sealed class MigrationImportRunServiceTests
 
             var stagedRows = await verificationContext.MigrationImportRawRows.AsNoTracking().OrderBy(x => x.RowNumber).ToListAsync();
             Assert.Equal(3, stagedRows.Count);
-            Assert.All(stagedRows, row => Assert.Equal("Unclassified", row.SectionType));
+            Assert.Equal("Header", stagedRows[0].SectionType);
+            Assert.Equal("RacePick", stagedRows[1].SectionType);
+            Assert.Equal("RacePick", stagedRows[2].SectionType);
+            Assert.Equal("Mapped BAH-HUMBUG label to DNF pick type.", stagedRows[2].ClassificationReason);
         }
         finally
         {

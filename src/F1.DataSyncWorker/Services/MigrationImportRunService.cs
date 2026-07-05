@@ -61,6 +61,7 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
             RowNumber = row.RowNumber,
             SectionType = row.SectionType,
             RawPayload = row.RawPayload,
+            ClassificationReason = Truncate(row.ClassificationReason, 512),
             CreatedAtUtc = createdAtUtc
         });
 

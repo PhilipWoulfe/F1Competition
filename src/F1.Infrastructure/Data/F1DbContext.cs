@@ -126,6 +126,7 @@ public class F1DbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.SectionType).HasMaxLength(64).IsRequired();
             entity.Property(x => x.RawPayload).HasColumnType("text").IsRequired();
+            entity.Property(x => x.ClassificationReason).HasMaxLength(512);
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()

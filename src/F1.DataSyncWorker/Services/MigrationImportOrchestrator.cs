@@ -9,9 +9,9 @@ namespace F1.DataSyncWorker.Services;
 public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 {
     private const int BatchSize = 500;
-    private const string SectionTypeUnclassified = "Unclassified";
     private readonly ILogger<MigrationImportOrchestrator> _logger;
     private readonly IMigrationImportRunService _runService;
+    private readonly IMigrationImportRowClassifier _rowClassifier;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -20,12 +20,14 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     public MigrationImportOrchestrator(
         ILogger<MigrationImportOrchestrator> logger,
         IMigrationImportRunService runService,
+        IMigrationImportRowClassifier rowClassifier,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions)
     {
         _logger = logger;
         _runService = runService;
+        _rowClassifier = rowClassifier;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -87,7 +89,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             }
 
             rowNumber++;
-            batch.Add(new StagedImportRow(rowNumber, SectionTypeUnclassified, line));
+            batch.Add(_rowClassifier.Classify(rowNumber, line));
 
             if (batch.Count < BatchSize)
             {

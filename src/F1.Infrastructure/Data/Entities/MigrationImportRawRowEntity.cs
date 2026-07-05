@@ -7,5 +7,6 @@ public sealed class MigrationImportRawRowEntity
     public int RowNumber { get; set; }
     public string SectionType { get; set; } = string.Empty;
     public string RawPayload { get; set; } = string.Empty;
+    public string? ClassificationReason { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
