@@ -1,9 +1,8 @@
 name: GC Auto Approve
 
 on:
-  workflow_run:
-    workflows: ["Code Quality", "Build and Push F1 API", "CodeQL"]
-    types: [completed]
+  # Disabled automatic execution; keep workflow for optional manual runs only.
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -5,7 +5,19 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.editorconfig'
+      - 'coverlet*.runsettings'
+      - 'Directory.Build.props'
+      - 'F1Competition.sln'
+      - '.github/workflows/docker-build.yaml'
   workflow_dispatch:
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -42,6 +54,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            F1Competition.sln
 
       - name: Run API/Backend Unit Tests with Coverage
         run: |
@@ -74,6 +91,7 @@ jobs:
           thresholds: '10 80'
 
       - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -81,56 +99,72 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: src/F1.Api/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-api-release
+          cache-to: type=gha,mode=max,scope=f1-api-release
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}
 
       - name: Build and push Web image
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: src/F1.Web
           file: src/F1.Web/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-web-release
+          cache-to: type=gha,mode=max,scope=f1-web-release
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}
           build-args: |
             COMMIT_HASH=${{ github.sha }}
 
       - name: Build and push Data Sync Worker image
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: src/F1.DataSyncWorker/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-datasync-release
+          cache-to: type=gha,mode=max,scope=f1-datasync-release
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}
 
       - name: Set up Docker Buildx
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/setup-buildx-action@v4
         with:
           install: true
 
       - name: Build and push API image (Debug)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: src/F1.Api/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-api-debug
+          cache-to: type=gha,mode=max,scope=f1-api-debug
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}-debug
           build-args: |
             CONFIGURATION=Debug
 
       - name: Build and push Web image (Debug)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: src/F1.Web
           file: src/F1.Web/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-web-debug
+          cache-to: type=gha,mode=max,scope=f1-web-debug
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}-debug
           build-args: |
@@ -138,11 +172,14 @@ jobs:
             CONFIGURATION=Debug
 
       - name: Build and push Data Sync Worker image (Debug)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
           file: src/F1.DataSyncWorker/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=f1-datasync-debug
+          cache-to: type=gha,mode=max,scope=f1-datasync-debug
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}-debug
           build-args: |
@@ -180,6 +217,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            F1Competition.sln
 
       - name: Setup Chrome for Testing
         id: setup-chrome
