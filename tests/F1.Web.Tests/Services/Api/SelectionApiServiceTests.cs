@@ -8,6 +8,8 @@ namespace F1.Web.Tests.Services.Api;
 
 public class SelectionApiServiceTests
 {
+    private const string RaceId = "main-2025-24-abu-dhabi-grand-prix";
+
     [Fact]
     public async Task GetMineAsync_WhenResponseIsNotFound_ReturnsNull()
     {
@@ -15,7 +17,7 @@ public class SelectionApiServiceTests
         handler.EnqueueResponse(new HttpResponseMessage(HttpStatusCode.NotFound));
         var service = CreateService(handler);
 
-        var result = await service.GetMineAsync("2025-24-yas_marina");
+        var result = await service.GetMineAsync(RaceId);
 
         Assert.Null(result);
     }
@@ -25,7 +27,7 @@ public class SelectionApiServiceTests
     {
         var expected = new Selection
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = RaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             IsLocked = false
@@ -42,9 +44,9 @@ public class SelectionApiServiceTests
             Selections = ["norris"]
         };
 
-        var result = await service.SaveMineAsync("2025-24-yas_marina", submission);
+        var result = await service.SaveMineAsync(RaceId, submission);
 
-        Assert.Equal("2025-24-yas_marina", result.RaceId);
+        Assert.Equal(RaceId, result.RaceId);
         Assert.Equal("user@example.com", result.UserId);
         Assert.Equal(BetType.Regular, result.BetType);
     }
@@ -66,7 +68,7 @@ public class SelectionApiServiceTests
             Selections = ["norris"]
         };
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync("2025-24-yas_marina", submission));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync(RaceId, submission));
 
         Assert.Equal(HttpStatusCode.OK, ex.Error.StatusCode);
         Assert.Contains("empty response body", ex.Error.Message, StringComparison.OrdinalIgnoreCase);
@@ -89,7 +91,7 @@ public class SelectionApiServiceTests
             Selections = ["norris"]
         };
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync("2025-24-yas_marina", submission));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync(RaceId, submission));
 
         Assert.Equal(HttpStatusCode.OK, ex.Error.StatusCode);
         Assert.Contains("malformed JSON", ex.Error.Message, StringComparison.OrdinalIgnoreCase);
@@ -109,7 +111,7 @@ public class SelectionApiServiceTests
             Selections = ["norris"]
         };
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync("2025-24-yas_marina", submission));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.SaveMineAsync(RaceId, submission));
 
         Assert.Equal(HttpStatusCode.BadRequest, ex.Error.StatusCode);
         Assert.Equal("Validation failed", ex.Error.Message);
@@ -126,7 +128,7 @@ public class SelectionApiServiceTests
         });
         var service = CreateService(handler);
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetCurrentAsync("2025-24-yas_marina"));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetCurrentAsync(RaceId));
 
         Assert.Equal(HttpStatusCode.OK, ex.Error.StatusCode);
         Assert.Contains("malformed JSON", ex.Error.Message, StringComparison.OrdinalIgnoreCase);
@@ -142,7 +144,7 @@ public class SelectionApiServiceTests
         });
         var service = CreateService(handler);
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetConfigAsync("2025-24-yas_marina"));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetConfigAsync(RaceId));
 
         Assert.Equal(HttpStatusCode.InternalServerError, ex.Error.StatusCode);
         Assert.Equal("Backend unavailable", ex.Error.Message);

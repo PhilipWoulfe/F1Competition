@@ -80,8 +80,8 @@ public class EfRaceMetadataRepositoryContractTests : RaceMetadataRepositoryContr
             CompetitionId = 1,
             Season = 2025,
             Round = 24,
-            RaceName = "Yas Marina",
-            CircuitName = "Yas Marina",
+            RaceName = "Abu Dhabi Grand Prix",
+            CircuitName = "Yas Marina Circuit",
             StartTimeUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)

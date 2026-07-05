@@ -22,7 +22,7 @@ public class RaceSelectionTests : BunitContext
 
     private static readonly RaceConfig DefaultRaceConfig = new()
     {
-        RaceId = "2025-24-yas_marina",
+        RaceId = "main-2025-24-abu-dhabi-grand-prix",
         SelectionCount = 5,
         PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 4, 30, 0, DateTimeKind.Utc),
         FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc),
@@ -95,7 +95,7 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks();
 
-        var cut = RenderForRace("2026-01-australia");
+        var cut = RenderForRace("main-2026-2-australian-grand-prix");
 
         cut.WaitForAssertion(() =>
         {
@@ -111,7 +111,7 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks(metadata: new RaceQuestionMetadata
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = "main-2025-24-abu-dhabi-grand-prix",
             DisplayTitle = "Abu Dhabi Grand Prix Selection",
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
             BonusQuestion = "How many safety-car laps?",
@@ -131,14 +131,14 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks(metadata: new RaceQuestionMetadata
         {
-            RaceId = "2026-01-australia",
+            RaceId = "main-2026-2-australian-grand-prix",
             H2HQuestion = "Who finishes higher?",
             BonusQuestion = "How many DNFs?",
             IsPublished = true,
             UpdatedAtUtc = DateTime.UtcNow
         });
 
-        var cut = RenderForRace("2026-01-australia");
+        var cut = RenderForRace("main-2026-2-australian-grand-prix");
 
         cut.WaitForAssertion(() =>
         {
@@ -154,7 +154,7 @@ public class RaceSelectionTests : BunitContext
             mySelection: new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = "2025-24-yas_marina",
+                RaceId = "main-2025-24-abu-dhabi-grand-prix",
                 UserId = "user@example.com",
                 BetType = BetType.Regular,
                 IsLocked = true,
@@ -196,7 +196,7 @@ public class RaceSelectionTests : BunitContext
     [Fact]
     public void RaceSelection_ShouldSaveSelection_WhenSubmitSucceeds()
     {
-        const string raceId = "2026-01-australia";
+        const string raceId = "main-2026-2-australian-grand-prix";
         var (_, selectionMock, _, _) = RegisterDefaultMocks(config: new RaceConfig
         {
             RaceId = raceId,
@@ -272,14 +272,14 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks(config: new RaceConfig
         {
-            RaceId = "philip-2025-2025-24-yas-marina",
+            RaceId = "philip-2025-24-abu-dhabi-grand-prix",
             SelectionCount = 3,
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 4, 30, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 3, 30, 0, DateTimeKind.Utc),
             BetOptions = DefaultRaceConfig.BetOptions
         });
 
-        var cut = RenderForRace("philip-2025-2025-24-yas-marina");
+        var cut = RenderForRace("philip-2025-24-abu-dhabi-grand-prix");
 
         cut.WaitForAssertion(() => Assert.Equal(3, cut.FindAll("select").Count));
         Assert.Contains("Top 3 Driver Predictions", cut.Markup);
@@ -355,7 +355,7 @@ public class RaceSelectionTests : BunitContext
     {
         var pastDeadlineConfig = new RaceConfig
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = "main-2025-24-abu-dhabi-grand-prix",
             PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc),
             BetOptions = DefaultRaceConfig.BetOptions
@@ -484,7 +484,7 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks(config: new RaceConfig
         {
-            RaceId = "2026-01-albert_park",
+            RaceId = "main-2026-2-australian-grand-prix",
             PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
             FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc),
             BetOptions =
@@ -496,7 +496,7 @@ public class RaceSelectionTests : BunitContext
             LockMessage = "Locking for Pre-Qualy gives +50% points and prevents changes after 15 Mar 2026 04:00 UTC."
         });
 
-        var cut = RenderForRace("2026-01-albert_park");
+        var cut = RenderForRace("main-2026-2-australian-grand-prix");
 
         cut.WaitForAssertion(() => Assert.Contains("15 Mar 2026 04:00 UTC", cut.Markup));
         Assert.True(cut.Find("#strategy-prequaly").HasAttribute("disabled"));

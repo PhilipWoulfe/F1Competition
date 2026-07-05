@@ -13,7 +13,7 @@ namespace F1.Api.Tests.Integration;
 public class CurrentSelectionsEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string TestConnectionString = "Host=localhost;Port=5432;Database=f1_tests;Username=f1;Password=f1";
-    private const string RaceId = "2026-01-albert_park";
+    private const string RaceId = "main-2026-2-australian-grand-prix";
 
     private readonly WebApplicationFactory<Program> _factory;
 

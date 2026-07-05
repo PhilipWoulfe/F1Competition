@@ -10,6 +10,8 @@ namespace F1.Web.Tests.Pages;
 
 public class AdminTests : BunitContext
 {
+    private const string RaceId = "main-2025-24-abu-dhabi-grand-prix";
+
     [Fact]
     public void Admin_ShouldRenderMetadata_WhenDraftExists()
     {
@@ -20,7 +22,7 @@ public class AdminTests : BunitContext
         var handler = new QueueHttpMessageHandler();
         handler.EnqueueResponse(CreateJsonResponse(new RaceQuestionMetadata
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = RaceId,
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
             BonusQuestion = "How many safety-car laps?",
             IsPublished = false,
@@ -48,7 +50,7 @@ public class AdminTests : BunitContext
         handler.EnqueueResponse(new HttpResponseMessage(HttpStatusCode.NotFound));
         handler.EnqueueResponse(CreateJsonResponse(new RaceQuestionMetadata
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = RaceId,
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
             BonusQuestion = "How many safety-car laps?",
             IsPublished = true,
@@ -67,7 +69,7 @@ public class AdminTests : BunitContext
         cut.Find("button[type='submit']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Metadata saved and published.", cut.Markup));
-        Assert.Contains(handler.Requests, req => req.Method == HttpMethod.Put && req.RequestUri?.AbsolutePath.EndsWith("/races/2025-24-yas_marina/metadata") == true);
+        Assert.Contains(handler.Requests, req => req.Method == HttpMethod.Put && req.RequestUri?.AbsolutePath.EndsWith($"/races/{RaceId}/metadata") == true);
     }
 
     private static HttpResponseMessage CreateJsonResponse<T>(T payload, HttpStatusCode statusCode = HttpStatusCode.OK)

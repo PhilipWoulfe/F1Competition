@@ -12,7 +12,7 @@ namespace F1.Api.Tests.Controllers;
 
 public class SelectionsControllerTests
 {
-    private const string RaceId = "2026-01-albert_park";
+    private const string RaceId = "main-2026-2-australian-grand-prix";
     private static readonly ISelectionRuleProvider SelectionRuleProvider = new SelectionRuleProvider();
 
     [Fact]
@@ -256,6 +256,7 @@ public class SelectionsControllerTests
             .ReturnsAsync((string raceId) => new Race
             {
                 Id = raceId,
+                Season = 2026,
                 PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
                 FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)
             });

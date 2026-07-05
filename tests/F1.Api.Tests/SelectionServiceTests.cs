@@ -8,9 +8,9 @@ namespace F1.Api.Tests;
 
 public class SelectionServiceTests
 {
-    private const string YasMarinaRaceId = "2025-24-yas_marina";
-    private const string PhilipYasMarinaRaceId = "philip-2025-2025-24-yas-marina";
-    private const string AlbertParkRaceId = "2026-01-albert_park";
+    private const string AbuDhabiRaceId = "main-2025-24-abu-dhabi-grand-prix";
+    private const string PhilipAbuDhabiRaceId = "philip-2025-24-abu-dhabi-grand-prix";
+    private const string AustralianGrandPrixRaceId = "main-2026-2-australian-grand-prix";
 
     private readonly Mock<ISelectionRepository> _selectionRepositoryMock = new();
     private readonly Mock<IDriverRepository> _driverRepositoryMock = new();
@@ -38,7 +38,7 @@ public class SelectionServiceTests
         };
 
         await Assert.ThrowsAsync<SelectionValidationException>(() =>
-            service.UpsertSelectionAsync(YasMarinaRaceId, "user@example.com", submission));
+            service.UpsertSelectionAsync(AbuDhabiRaceId, "user@example.com", submission));
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public class SelectionServiceTests
     {
         var service = CreateServiceAt(new DateTime(2026, 3, 15, 4, 1, 0, DateTimeKind.Utc));
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
         var submission = new SelectionSubmissionDto
@@ -88,7 +88,7 @@ public class SelectionServiceTests
         };
 
         await Assert.ThrowsAsync<SelectionValidationException>(() =>
-            service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission));
+            service.UpsertSelectionAsync(AustralianGrandPrixRaceId, "user@example.com", submission));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class SelectionServiceTests
         var existing = new Selection
         {
             Id = Guid.NewGuid(),
-            RaceId = AlbertParkRaceId,
+            RaceId = AustralianGrandPrixRaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -114,7 +114,7 @@ public class SelectionServiceTests
         };
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync(existing);
 
         _selectionRepositoryMock
@@ -134,7 +134,7 @@ public class SelectionServiceTests
             }
         };
 
-        var updated = await service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission);
+        var updated = await service.UpsertSelectionAsync(AustralianGrandPrixRaceId, "user@example.com", submission);
 
         Assert.Equal(BetType.Regular, updated.BetType);
         Assert.Equal(nowUtc, updated.SubmittedAtUtc);
@@ -147,11 +147,11 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2026, 3, 15, 6, 1, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync(new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = AlbertParkRaceId,
+                RaceId = AustralianGrandPrixRaceId,
                 UserId = "user@example.com",
                 BetType = BetType.Regular,
                 OrderedSelections = new List<SelectionPosition>
@@ -178,7 +178,7 @@ public class SelectionServiceTests
         };
 
         var ex = await Assert.ThrowsAsync<SelectionForbiddenException>(() =>
-            service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission));
+            service.UpsertSelectionAsync(AustralianGrandPrixRaceId, "user@example.com", submission));
 
         Assert.Equal("Selections are locked after 2026-03-15 06:00:00Z.", ex.Message);
     }
@@ -188,10 +188,10 @@ public class SelectionServiceTests
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
-        var config = await service.GetRaceConfigAsync(AlbertParkRaceId);
+        var config = await service.GetRaceConfigAsync(AustralianGrandPrixRaceId);
 
         Assert.NotNull(config);
-        Assert.Equal(AlbertParkRaceId, config.RaceId);
+        Assert.Equal(AustralianGrandPrixRaceId, config.RaceId);
         Assert.Equal(new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc), config.PreQualyDeadlineUtc);
         Assert.Equal(new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc), config.FinalDeadlineUtc);
         Assert.Equal(BetType.PreQualy, config.EarlyLockBetType);
@@ -204,7 +204,7 @@ public class SelectionServiceTests
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
-        var config = await service.GetRaceConfigAsync(PhilipYasMarinaRaceId);
+        var config = await service.GetRaceConfigAsync(PhilipAbuDhabiRaceId);
 
         Assert.NotNull(config);
         Assert.Equal(3, config.SelectionCount);
@@ -228,7 +228,7 @@ public class SelectionServiceTests
         var existing = new Selection
         {
             Id = Guid.NewGuid(),
-            RaceId = AlbertParkRaceId,
+            RaceId = AustralianGrandPrixRaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -242,10 +242,10 @@ public class SelectionServiceTests
         };
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync(existing);
 
-        var result = await service.GetSelectionAsync(AlbertParkRaceId, "user@example.com");
+        var result = await service.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com");
 
         Assert.NotNull(result);
         Assert.True(result.IsLocked);
@@ -259,7 +259,7 @@ public class SelectionServiceTests
         var existing = new Selection
         {
             Id = Guid.NewGuid(),
-            RaceId = AlbertParkRaceId,
+            RaceId = AustralianGrandPrixRaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -273,10 +273,10 @@ public class SelectionServiceTests
         };
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync(existing);
 
-        var result = await service.GetSelectionAsync(AlbertParkRaceId, "user@example.com");
+        var result = await service.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com");
 
         Assert.NotNull(result);
         Assert.False(result.IsLocked);
@@ -333,11 +333,11 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AbuDhabiRaceId, "user@example.com"))
             .ReturnsAsync(new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = YasMarinaRaceId,
+                RaceId = AbuDhabiRaceId,
                 UserId = "user@example.com",
                 BetType = BetType.PreQualy,
                 SubmittedAtUtc = new DateTime(2025, 12, 6, 10, 0, 0, DateTimeKind.Utc),
@@ -355,7 +355,7 @@ public class SelectionServiceTests
                 new Driver { DriverId = "leclerc", FullName = "Charles Leclerc" }
             ]);
 
-        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(AbuDhabiRaceId, "user@example.com");
 
         Assert.Equal(2, rows.Count);
         Assert.Equal(1, rows[0].Position);
@@ -371,11 +371,11 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AbuDhabiRaceId, "user@example.com"))
             .ReturnsAsync(new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = YasMarinaRaceId,
+                RaceId = AbuDhabiRaceId,
                 UserId = "user@example.com",
                 BetType = BetType.Regular,
                 SubmittedAtUtc = new DateTime(2025, 12, 6, 10, 0, 0, DateTimeKind.Utc),
@@ -399,7 +399,7 @@ public class SelectionServiceTests
                 new Driver { DriverId = "verstappen", FullName = "Max Verstappen" }
             ]);
 
-        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(AbuDhabiRaceId, "user@example.com");
 
         Assert.Equal(5, rows.Count);
         Assert.Equal(1, rows[0].Position);
@@ -420,10 +420,10 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AbuDhabiRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
-        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(AbuDhabiRaceId, "user@example.com");
 
         Assert.Empty(rows);
         _driverRepositoryMock.Verify(repo => repo.GetDriversAsync(), Times.Never);
@@ -436,7 +436,7 @@ public class SelectionServiceTests
         var service = CreateServiceAt(beforeDeadline);
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AustralianGrandPrixRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
         _selectionRepositoryMock
@@ -456,7 +456,7 @@ public class SelectionServiceTests
             }
         };
 
-        var result = await service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission);
+        var result = await service.UpsertSelectionAsync(AustralianGrandPrixRaceId, "user@example.com", submission);
 
         Assert.NotNull(result);
         Assert.Equal(BetType.PreQualy, result.BetType);
@@ -471,7 +471,7 @@ public class SelectionServiceTests
         var service = CreateServiceAt(nowUtc);
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync(PhilipYasMarinaRaceId, "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(PhilipAbuDhabiRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
         _selectionRepositoryMock
@@ -489,10 +489,10 @@ public class SelectionServiceTests
             }
         };
 
-        var result = await service.UpsertSelectionAsync(PhilipYasMarinaRaceId, "user@example.com", submission);
+        var result = await service.UpsertSelectionAsync(PhilipAbuDhabiRaceId, "user@example.com", submission);
 
         Assert.NotNull(result);
-        Assert.Equal(3, result.OrderedSelections.Count);
+        Assert.Equal(3, result.OrderedSelections.Count());
         Assert.Equal(nowUtc, result.SubmittedAtUtc);
     }
 
@@ -501,7 +501,7 @@ public class SelectionServiceTests
     {
         var service = CreateServiceAt(new DateTime(2026, 3, 15, 4, 1, 0, DateTimeKind.Utc));
 
-        var config = await service.GetRaceConfigAsync(AlbertParkRaceId);
+        var config = await service.GetRaceConfigAsync(AustralianGrandPrixRaceId);
 
         Assert.NotNull(config);
         var preQualyOption = Assert.Single(config.BetOptions, option => option.BetType == BetType.PreQualy);
@@ -528,22 +528,22 @@ public class SelectionServiceTests
     {
         return raceId switch
         {
-            YasMarinaRaceId => new Race
+            AbuDhabiRaceId => new Race
             {
-                Id = YasMarinaRaceId,
+                Id = AbuDhabiRaceId,
                 PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
                 FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
             },
-            PhilipYasMarinaRaceId => new Race
+            PhilipAbuDhabiRaceId => new Race
             {
-                Id = PhilipYasMarinaRaceId,
+                Id = PhilipAbuDhabiRaceId,
                 Season = 2025,
                 PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
                 FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
             },
-            AlbertParkRaceId => new Race
+            AustralianGrandPrixRaceId => new Race
             {
-                Id = AlbertParkRaceId,
+                Id = AustralianGrandPrixRaceId,
                 Season = 2026,
                 PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
                 FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)

@@ -9,13 +9,15 @@ namespace F1.Web.Tests.Services.Api;
 
 public class RaceMetadataApiServiceTests
 {
+    private const string RaceId = "main-2025-24-abu-dhabi-grand-prix";
+
     [Fact]
     public async Task GetPublishedAsync_WhenResponseIsSuccess_ReturnsMetadata()
     {
         // Arrange
         var metadata = new RaceQuestionMetadata
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = RaceId,
             H2HQuestion = "Who finishes higher?",
             BonusQuestion = "How many safety cars?",
             IsPublished = true,
@@ -41,11 +43,11 @@ public class RaceMetadataApiServiceTests
         var service = new RaceMetadataApiService(httpClient);
 
         // Act
-        var result = await service.GetPublishedAsync("2025-24-yas_marina");
+        var result = await service.GetPublishedAsync(RaceId);
 
         // Assert
         Assert.NotNull(result);
-        Assert.Equal("2025-24-yas_marina", result.RaceId);
+        Assert.Equal(RaceId, result.RaceId);
         Assert.Equal("Who finishes higher?", result.H2HQuestion);
         Assert.True(result.IsPublished);
     }
@@ -72,7 +74,7 @@ public class RaceMetadataApiServiceTests
         var service = new RaceMetadataApiService(httpClient);
 
         // Act
-        var result = await service.GetPublishedAsync("2025-24-yas_marina");
+        var result = await service.GetPublishedAsync(RaceId);
 
         // Assert
         Assert.Null(result);
@@ -101,7 +103,7 @@ public class RaceMetadataApiServiceTests
         var service = new RaceMetadataApiService(httpClient);
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetPublishedAsync("2025-24-yas_marina"));
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetPublishedAsync(RaceId));
         Assert.Equal(HttpStatusCode.InternalServerError, ex.Error.StatusCode);
     }
 

@@ -25,7 +25,7 @@ public abstract class SelectionRepositoryContractTests
     [Fact]
     public async Task GetSelectionAsync_ReturnsSelection_WhenExists()
     {
-        var raceId = "2026-01-test";
+        var raceId = "main-2026-1-test-grand-prix";
         var userId = "user@example.com";
         var selection = new Selection
         {
@@ -55,7 +55,7 @@ public abstract class SelectionRepositoryContractTests
         var repository = CreateEmptyRepository();
         var selection = new Selection
         {
-            RaceId = "2026-02-test",
+            RaceId = "main-2026-2-test-grand-prix",
             UserId = "new@example.com",
             BetType = BetType.Regular,
             OrderedSelections = [new SelectionPosition { Position = 1, DriverId = "verstappen" }]
@@ -65,14 +65,14 @@ public abstract class SelectionRepositoryContractTests
 
         Assert.NotNull(result);
         Assert.NotEqual(Guid.Empty, result.Id);
-        Assert.Equal("2026-02-test", result.RaceId);
+        Assert.Equal("main-2026-2-test-grand-prix", result.RaceId);
         Assert.Equal("new@example.com", result.UserId);
     }
 
     [Fact]
     public async Task UpsertSelectionAsync_UpdatesExistingSelection_PreservesId()
     {
-        var raceId = "2026-03-test";
+        var raceId = "main-2026-3-test-grand-prix";
         var userId = "user@example.com";
         var initial = new Selection
         {
@@ -103,7 +103,7 @@ public abstract class SelectionRepositoryContractTests
     [Fact]
     public async Task UpsertSelectionAsync_PreservesOrderedSelectionsWithPositions()
     {
-        var raceId = "2026-04-test";
+        var raceId = "main-2026-4-test-grand-prix";
         var userId = "user@example.com";
         var positions = new List<SelectionPosition>
         {

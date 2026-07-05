@@ -8,11 +8,11 @@ public class RaceSelectionRouteResolverTests
     [Fact]
     public void TryResolve_WhenRouteRaceIdProvided_ReturnsRouteContext()
     {
-        var success = RaceSelectionRouteResolver.TryResolve("2026-01-australia", null, null, null, null, "selection/2026-01-australia", out var context, out var errorMessage);
+        var success = RaceSelectionRouteResolver.TryResolve("main-2026-2-australian-grand-prix", null, null, null, null, "selection/main-2026-2-australian-grand-prix", out var context, out var errorMessage);
 
         Assert.True(success);
         Assert.NotNull(context);
-        Assert.Equal("2026-01-australia", context.RaceId);
+        Assert.Equal("main-2026-2-australian-grand-prix", context.RaceId);
         Assert.Null(context.Lookup);
         Assert.Null(errorMessage);
     }

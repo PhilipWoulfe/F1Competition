@@ -11,15 +11,17 @@ namespace F1.Api.Tests.Controllers;
 
 public class RaceMetadataControllerTests
 {
+    private const string RaceId = "main-2025-24-abu-dhabi-grand-prix";
+
     [Fact]
     public async Task GetMetadata_ShouldReturnNotFound_WhenNoPublishedMetadataExists()
     {
         var serviceMock = new Mock<IRaceMetadataService>();
-        serviceMock.Setup(service => service.GetMetadataAsync("2025-24-yas_marina", true)).ReturnsAsync((RaceQuestionMetadata?)null);
+        serviceMock.Setup(service => service.GetMetadataAsync(RaceId, true)).ReturnsAsync((RaceQuestionMetadata?)null);
 
         var controller = CreateController(serviceMock);
 
-        var result = await controller.GetMetadata("2025-24-yas_marina");
+        var result = await controller.GetMetadata(RaceId);
 
         Assert.IsType<NotFoundResult>(result);
     }
@@ -37,7 +39,7 @@ public class RaceMetadataControllerTests
             }
         };
 
-        var result = await controller.GetMetadata("2025-24-yas_marina", includeDraft: true);
+        var result = await controller.GetMetadata(RaceId, includeDraft: true);
 
         Assert.IsType<ForbidResult>(result);
     }
