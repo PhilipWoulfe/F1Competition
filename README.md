@@ -77,6 +77,7 @@ The solution uses **Cloudflare Tunnels** to securely expose the services without
 - **ASP.NET Core API**: A containerized Web API for data access.
 - **Persistence**: API runtime persistence via **Postgres**.
 - **Containerized**: Full Docker support for reproducible environments across Proxmox LXCs.
+- **Race-scoped selection endpoints**: selection config, mine, and current snapshot routes require `raceId` in the path, and selection deadlines are read from the race record.
 
 ---
 

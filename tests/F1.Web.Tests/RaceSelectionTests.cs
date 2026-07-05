@@ -55,7 +55,7 @@ public class RaceSelectionTests : BunitContext
             .Setup(s => s.GetMineAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(mySelection);
         selectionMock
-            .Setup(s => s.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .Setup(s => s.GetCurrentAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(current ?? []);
 
         var metadataMock = new Mock<IRaceMetadataApiService>();
@@ -193,7 +193,7 @@ public class RaceSelectionTests : BunitContext
             s => s.SaveMineAsync("2025-24-yas_marina", It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()),
             Times.Once);
         selectionMock.Verify(
-            s => s.GetCurrentAsync(It.IsAny<CancellationToken>()),
+            s => s.GetCurrentAsync("2025-24-yas_marina", It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
     }
 

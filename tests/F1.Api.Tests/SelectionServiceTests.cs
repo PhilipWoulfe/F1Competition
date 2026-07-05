@@ -8,6 +8,9 @@ namespace F1.Api.Tests;
 
 public class SelectionServiceTests
 {
+    private const string YasMarinaRaceId = "2025-24-yas_marina";
+    private const string AlbertParkRaceId = "2026-01-albert_park";
+
     private readonly Mock<ISelectionRepository> _selectionRepositoryMock = new();
     private readonly Mock<IDriverRepository> _driverRepositoryMock = new();
     private readonly Mock<IRaceRepository> _raceRepositoryMock = new();
@@ -33,7 +36,7 @@ public class SelectionServiceTests
         };
 
         await Assert.ThrowsAsync<SelectionValidationException>(() =>
-            service.UpsertSelectionAsync("2025-24-yas_marina", "user@example.com", submission));
+            service.UpsertSelectionAsync(YasMarinaRaceId, "user@example.com", submission));
     }
 
     [Fact]
@@ -62,11 +65,11 @@ public class SelectionServiceTests
     }
 
     [Fact]
-    public async Task UpsertSelectionAsync_ShouldRejectPreQualyBet_AfterDeadline()
+    public async Task UpsertSelectionAsync_ShouldRejectPreQualyBet_AfterRaceDeadline()
     {
-        var service = CreateServiceAt(new DateTime(2025, 12, 7, 13, 1, 0, DateTimeKind.Utc));
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 4, 1, 0, DateTimeKind.Utc));
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
         var submission = new SelectionSubmissionDto
@@ -83,19 +86,19 @@ public class SelectionServiceTests
         };
 
         await Assert.ThrowsAsync<SelectionValidationException>(() =>
-            service.UpsertSelectionAsync("2025-24-yas_marina", "user@example.com", submission));
+            service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission));
     }
 
     [Fact]
     public async Task UpsertSelectionAsync_ShouldAllowRegularUpdate_AfterPreQualyDeadlineBeforeFinal()
     {
-        var nowUtc = new DateTime(2025, 12, 7, 14, 0, 0, DateTimeKind.Utc);
+        var nowUtc = new DateTime(2026, 3, 15, 4, 30, 0, DateTimeKind.Utc);
         var service = CreateServiceAt(nowUtc);
 
         var existing = new Selection
         {
             Id = Guid.NewGuid(),
-            RaceId = "2025-24-yas_marina",
+            RaceId = AlbertParkRaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -109,7 +112,7 @@ public class SelectionServiceTests
         };
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
             .ReturnsAsync(existing);
 
         _selectionRepositoryMock
@@ -129,23 +132,24 @@ public class SelectionServiceTests
             }
         };
 
-        var updated = await service.UpsertSelectionAsync("2025-24-yas_marina", "user@example.com", submission);
+        var updated = await service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission);
 
         Assert.Equal(BetType.Regular, updated.BetType);
         Assert.Equal(nowUtc, updated.SubmittedAtUtc);
         Assert.Equal("norris", updated.OrderedSelections[0].DriverId);
     }
+
     [Fact]
-    public void GetRaceConfig_ShouldReturnConfig_ForCurrentRace()
+    public void GetRaceConfig_ShouldReturnConfig_ForAnyKnownRaceId()
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
-        var config = service.GetRaceConfig("2025-24-yas_marina");
+        var config = service.GetRaceConfig(AlbertParkRaceId);
 
         Assert.NotNull(config);
-        Assert.Equal("2025-24-yas_marina", config.RaceId);
-        Assert.Equal(new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc), config.PreQualyDeadlineUtc);
-        Assert.Equal(new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc), config.FinalDeadlineUtc);
+        Assert.Equal(AlbertParkRaceId, config.RaceId);
+        Assert.Equal(new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc), config.PreQualyDeadlineUtc);
+        Assert.Equal(new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc), config.FinalDeadlineUtc);
     }
 
     [Fact]
@@ -156,17 +160,17 @@ public class SelectionServiceTests
         var config = service.GetRaceConfig("unknown-race");
 
         Assert.Null(config);
-    
     }
+
     [Fact]
     public async Task GetSelectionAsync_ShouldReturnIsLocked_AfterFinalSubmissionDeadline()
     {
-        var service = CreateServiceAt(new DateTime(2025, 12, 8, 12, 1, 0, DateTimeKind.Utc));
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 6, 1, 0, DateTimeKind.Utc));
 
         var existing = new Selection
         {
             Id = Guid.NewGuid(),
-            RaceId = "2025-24-yas_marina",
+            RaceId = AlbertParkRaceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             OrderedSelections = new List<SelectionPosition>
@@ -180,13 +184,44 @@ public class SelectionServiceTests
         };
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
             .ReturnsAsync(existing);
 
-        var result = await service.GetSelectionAsync("2025-24-yas_marina", "user@example.com");
+        var result = await service.GetSelectionAsync(AlbertParkRaceId, "user@example.com");
 
         Assert.NotNull(result);
         Assert.True(result.IsLocked);
+    }
+
+    [Fact]
+    public async Task GetSelectionAsync_ShouldStayUnlocked_BeforeRaceFinalDeadline()
+    {
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 5, 30, 0, DateTimeKind.Utc));
+
+        var existing = new Selection
+        {
+            Id = Guid.NewGuid(),
+            RaceId = AlbertParkRaceId,
+            UserId = "user@example.com",
+            BetType = BetType.Regular,
+            OrderedSelections = new List<SelectionPosition>
+            {
+                new SelectionPosition { Position = 1, DriverId = "norris" },
+                new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                new SelectionPosition { Position = 4, DriverId = "piastri" },
+                new SelectionPosition { Position = 5, DriverId = "verstappen" }
+            }
+        };
+
+        _selectionRepositoryMock
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .ReturnsAsync(existing);
+
+        var result = await service.GetSelectionAsync(AlbertParkRaceId, "user@example.com");
+
+        Assert.NotNull(result);
+        Assert.False(result.IsLocked);
     }
 
     [Fact]
@@ -209,11 +244,11 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
             .ReturnsAsync(new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = "2025-24-yas_marina",
+                RaceId = YasMarinaRaceId,
                 UserId = "user@example.com",
                 BetType = BetType.PreQualy,
                 SubmittedAtUtc = new DateTime(2025, 12, 6, 10, 0, 0, DateTimeKind.Utc),
@@ -231,7 +266,7 @@ public class SelectionServiceTests
                 new Driver { DriverId = "leclerc", FullName = "Charles Leclerc" }
             ]);
 
-        var rows = await service.GetCurrentSelectionsAsync("user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
 
         Assert.Equal(2, rows.Count);
         Assert.Equal(1, rows[0].Position);
@@ -247,11 +282,11 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
             .ReturnsAsync(new Selection
             {
                 Id = Guid.NewGuid(),
-                RaceId = "2025-24-yas_marina",
+                RaceId = YasMarinaRaceId,
                 UserId = "user@example.com",
                 BetType = BetType.Regular,
                 SubmittedAtUtc = new DateTime(2025, 12, 6, 10, 0, 0, DateTimeKind.Utc),
@@ -275,7 +310,7 @@ public class SelectionServiceTests
                 new Driver { DriverId = "verstappen", FullName = "Max Verstappen" }
             ]);
 
-        var rows = await service.GetCurrentSelectionsAsync("user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
 
         Assert.Equal(5, rows.Count);
         Assert.Equal(1, rows[0].Position);
@@ -296,23 +331,23 @@ public class SelectionServiceTests
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(YasMarinaRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
-        var rows = await service.GetCurrentSelectionsAsync("user@example.com");
+        var rows = await service.GetCurrentSelectionsAsync(YasMarinaRaceId, "user@example.com");
 
         Assert.Empty(rows);
         _driverRepositoryMock.Verify(repo => repo.GetDriversAsync(), Times.Never);
     }
 
-     [Fact]
+    [Fact]
     public async Task UpsertSelectionAsync_ShouldAllowPreQualyBet_BeforeDeadline()
     {
-        var beforeDeadline = new DateTime(2025, 12, 7, 12, 59, 0, DateTimeKind.Utc);
+        var beforeDeadline = new DateTime(2026, 3, 15, 3, 59, 0, DateTimeKind.Utc);
         var service = CreateServiceAt(beforeDeadline);
 
         _selectionRepositoryMock
-            .Setup(repo => repo.GetSelectionAsync("2025-24-yas_marina", "user@example.com"))
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
             .ReturnsAsync((Selection?)null);
 
         _selectionRepositoryMock
@@ -332,7 +367,7 @@ public class SelectionServiceTests
             }
         };
 
-        var result = await service.UpsertSelectionAsync("2025-24-yas_marina", "user@example.com", submission);
+        var result = await service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission);
 
         Assert.NotNull(result);
         Assert.Equal(BetType.PreQualy, result.BetType);
@@ -345,12 +380,32 @@ public class SelectionServiceTests
         _dateTimeProviderMock.Setup(clock => clock.UtcNow).Returns(utcNow);
         _raceRepositoryMock
             .Setup(repo => repo.GetRaceAsync(It.IsAny<string>()))
-            .ReturnsAsync((string raceId) => new Race { Id = raceId });
+            .ReturnsAsync((string raceId) => CreateRace(raceId));
 
         return new SelectionService(
             _selectionRepositoryMock.Object,
             _driverRepositoryMock.Object,
             _raceRepositoryMock.Object,
             _dateTimeProviderMock.Object);
+    }
+
+    private static Race? CreateRace(string raceId)
+    {
+        return raceId switch
+        {
+            YasMarinaRaceId => new Race
+            {
+                Id = YasMarinaRaceId,
+                PreQualyDeadlineUtc = new DateTime(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc)
+            },
+            AlbertParkRaceId => new Race
+            {
+                Id = AlbertParkRaceId,
+                PreQualyDeadlineUtc = new DateTime(2026, 3, 15, 4, 0, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2026, 3, 15, 6, 0, 0, DateTimeKind.Utc)
+            },
+            _ => null
+        };
     }
 }

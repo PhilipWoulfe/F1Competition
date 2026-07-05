@@ -13,6 +13,7 @@ namespace F1.Api.Tests.Integration;
 public class CurrentSelectionsEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string TestConnectionString = "Host=localhost;Port=5432;Database=f1_tests;Username=f1;Password=f1";
+    private const string RaceId = "2026-01-albert_park";
 
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -27,7 +28,7 @@ public class CurrentSelectionsEndpointTests : IClassFixture<WebApplicationFactor
     {
         var serviceMock = new Mock<ISelectionService>();
         serviceMock
-            .Setup(service => service.GetCurrentSelectionsAsync("user@example.com"))
+            .Setup(service => service.GetCurrentSelectionsAsync(RaceId, "user@example.com"))
             .ReturnsAsync([
                 new CurrentSelectionDto
                 {
@@ -61,7 +62,7 @@ public class CurrentSelectionsEndpointTests : IClassFixture<WebApplicationFactor
             });
         }).CreateClient();
 
-        var response = await client.GetAsync("/selections/current");
+        var response = await client.GetAsync($"/selections/{RaceId}/current");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

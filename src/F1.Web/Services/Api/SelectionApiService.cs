@@ -27,9 +27,11 @@ public sealed class SelectionApiService(HttpClient httpClient) : ISelectionApiSe
         return await ApiResponseParser.ReadOptionalJsonAsync<Selection?>(response, null, "Loading my race selection", cancellationToken);
     }
 
-    public async Task<CurrentSelectionItem[]> GetCurrentAsync(CancellationToken cancellationToken = default)
+    public async Task<CurrentSelectionItem[]> GetCurrentAsync(string raceId, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.GetAsync("selections/current", cancellationToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(raceId);
+
+        using var response = await httpClient.GetAsync($"selections/{raceId}/current", cancellationToken);
         return await ApiResponseParser.ReadOptionalJsonAsync(response, Array.Empty<CurrentSelectionItem>(), "Loading current selections", cancellationToken);
     }
 

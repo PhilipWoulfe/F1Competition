@@ -126,7 +126,7 @@ public class SelectionApiServiceTests
         });
         var service = CreateService(handler);
 
-        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetCurrentAsync());
+        var ex = await Assert.ThrowsAsync<ApiServiceException>(() => service.GetCurrentAsync("2025-24-yas_marina"));
 
         Assert.Equal(HttpStatusCode.OK, ex.Error.StatusCode);
         Assert.Contains("malformed JSON", ex.Error.Message, StringComparison.OrdinalIgnoreCase);

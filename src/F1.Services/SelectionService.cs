@@ -6,10 +6,6 @@ namespace F1.Services;
 
 public class SelectionService : ISelectionService
 {
-    public static readonly DateTime PreQualyDeadlineUtc = new(2025, 12, 7, 13, 0, 0, DateTimeKind.Utc);
-    public static readonly DateTime FinalSubmissionDeadlineUtc = new(2025, 12, 8, 12, 0, 0, DateTimeKind.Utc);
-    public const string CurrentRaceId = "2025-24-yas_marina";
-
     private readonly ISelectionRepository _selectionRepository;
     private readonly IDriverRepository _driverRepository;
     private readonly IRaceRepository _raceRepository;
@@ -37,7 +33,8 @@ public class SelectionService : ISelectionService
         }
 
         var nowUtc = _dateTimeProvider.UtcNow;
-        selection.IsLocked = IsPreQualyLocked(selection, nowUtc) || nowUtc > FinalSubmissionDeadlineUtc;
+        var race = await _raceRepository.GetRaceAsync(selection.RaceId);
+        selection.IsLocked = race is not null && (IsPreQualyLocked(selection, race, nowUtc) || nowUtc > race.FinalDeadlineUtc);
         return selection;
     }
 
@@ -55,19 +52,19 @@ public class SelectionService : ISelectionService
         var nowUtc = _dateTimeProvider.UtcNow;
         var existingSelection = await _selectionRepository.GetSelectionAsync(raceId, userId);
 
-        if (existingSelection is not null && IsPreQualyLocked(existingSelection, nowUtc))
+        if (existingSelection is not null && IsPreQualyLocked(existingSelection, race, nowUtc))
         {
-            throw new SelectionForbiddenException("Pre-Qualy locked selections cannot be edited after Sunday 13:00 UTC.");
+            throw new SelectionForbiddenException("Pre-Qualy locked selections cannot be edited after the race-specific pre-qualy deadline.");
         }
 
-        if (submission.BetType == BetType.PreQualy && nowUtc > PreQualyDeadlineUtc)
+        if (submission.BetType == BetType.PreQualy && nowUtc > race.PreQualyDeadlineUtc)
         {
-            throw new SelectionValidationException("Pre-Qualy strategy is no longer available after Sunday 13:00 UTC.");
+            throw new SelectionValidationException("Pre-Qualy strategy is no longer available after the race-specific pre-qualy deadline.");
         }
 
-        if (nowUtc > FinalSubmissionDeadlineUtc)
+        if (nowUtc > race.FinalDeadlineUtc)
         {
-            throw new SelectionForbiddenException("Selections are locked after Monday 12:00 UTC.");
+            throw new SelectionForbiddenException("Selections are locked after the race-specific final deadline.");
         }
 
         var selection = existingSelection ?? new Selection();
@@ -82,9 +79,9 @@ public class SelectionService : ISelectionService
         return await _selectionRepository.UpsertSelectionAsync(selection);
     }
 
-    public async Task<IReadOnlyList<CurrentSelectionDto>> GetCurrentSelectionsAsync(string userId)
+    public async Task<IReadOnlyList<CurrentSelectionDto>> GetCurrentSelectionsAsync(string raceId, string userId)
     {
-        var selection = await _selectionRepository.GetSelectionAsync(CurrentRaceId, userId);
+        var selection = await _selectionRepository.GetSelectionAsync(raceId, userId);
         if (selection is null)
         {
             return [];
@@ -124,13 +121,14 @@ public class SelectionService : ISelectionService
 
     public RaceConfigDto? GetRaceConfig(string raceId)
     {
-        if (raceId == CurrentRaceId)
+        var race = _raceRepository.GetRaceAsync(raceId).GetAwaiter().GetResult();
+        if (race is not null)
         {
             return new RaceConfigDto
             {
-                RaceId = CurrentRaceId,
-                PreQualyDeadlineUtc = PreQualyDeadlineUtc,
-                FinalDeadlineUtc = FinalSubmissionDeadlineUtc
+                RaceId = race.Id,
+                PreQualyDeadlineUtc = race.PreQualyDeadlineUtc,
+                FinalDeadlineUtc = race.FinalDeadlineUtc
             };
         }
 
@@ -181,8 +179,8 @@ public class SelectionService : ISelectionService
         }
     }
 
-    private static bool IsPreQualyLocked(Selection selection, DateTime nowUtc)
+    private static bool IsPreQualyLocked(Selection selection, Race race, DateTime nowUtc)
     {
-        return selection.BetType == BetType.PreQualy && nowUtc > PreQualyDeadlineUtc;
+        return selection.BetType == BetType.PreQualy && nowUtc > race.PreQualyDeadlineUtc;
     }
 }

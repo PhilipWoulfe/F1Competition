@@ -51,8 +51,8 @@ public class SelectionsController : ControllerBase
         return Ok(selection);
     }
 
-    [HttpGet("current")]
-    public async Task<IActionResult> GetCurrent()
+    [HttpGet("{raceId}/current")]
+    public async Task<IActionResult> GetCurrent(string raceId)
     {
         var userId = ResolveUserId();
         if (string.IsNullOrWhiteSpace(userId))
@@ -60,7 +60,7 @@ public class SelectionsController : ControllerBase
             return Unauthorized();
         }
 
-        var selections = await _selectionService.GetCurrentSelectionsAsync(userId);
+        var selections = await _selectionService.GetCurrentSelectionsAsync(raceId, userId);
         return Ok(selections);
     }
 
