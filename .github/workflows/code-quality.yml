@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - '.editorconfig'
       - 'coverlet*.runsettings'
       - 'Directory.Build.props'
       - 'F1Competition.sln'
