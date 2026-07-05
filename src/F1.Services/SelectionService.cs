@@ -63,6 +63,11 @@ public class SelectionService : ISelectionService
 
         if (existingSelection is not null && IsLocked(existingSelection, race, nowUtc))
         {
+            if (nowUtc > race.FinalDeadlineUtc)
+            {
+                throw new SelectionForbiddenException($"Selections are locked after {race.FinalDeadlineUtc:u}.");
+            }
+
             var lockedLabel = rules.EarlyLockBetType is null ? "Selections" : $"{rules.GetLabel(rules.EarlyLockBetType.Value)} selections";
             throw new SelectionForbiddenException($"{lockedLabel} cannot be edited after {race.PreQualyDeadlineUtc:u}.");
         }
@@ -70,11 +75,6 @@ public class SelectionService : ISelectionService
         if (!rules.IsAvailable(submission.BetType))
         {
             throw new SelectionValidationException($"{rules.GetLabel(submission.BetType)} strategy is no longer available after {race.PreQualyDeadlineUtc:u}.");
-        }
-
-        if (nowUtc > race.FinalDeadlineUtc)
-        {
-            throw new SelectionForbiddenException($"Selections are locked after {race.FinalDeadlineUtc:u}.");
         }
 
         var selection = existingSelection ?? new Selection();

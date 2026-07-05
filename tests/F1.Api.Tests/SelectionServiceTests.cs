@@ -141,6 +141,48 @@ public class SelectionServiceTests
     }
 
     [Fact]
+    public async Task UpsertSelectionAsync_ShouldReportFinalDeadline_WhenExistingSelectionIsEditedAfterFinalDeadline()
+    {
+        var service = CreateServiceAt(new DateTime(2026, 3, 15, 6, 1, 0, DateTimeKind.Utc));
+
+        _selectionRepositoryMock
+            .Setup(repo => repo.GetSelectionAsync(AlbertParkRaceId, "user@example.com"))
+            .ReturnsAsync(new Selection
+            {
+                Id = Guid.NewGuid(),
+                RaceId = AlbertParkRaceId,
+                UserId = "user@example.com",
+                BetType = BetType.Regular,
+                OrderedSelections = new List<SelectionPosition>
+                {
+                    new SelectionPosition { Position = 1, DriverId = "norris" },
+                    new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                    new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                    new SelectionPosition { Position = 4, DriverId = "piastri" },
+                    new SelectionPosition { Position = 5, DriverId = "verstappen" }
+                }
+            });
+
+        var submission = new SelectionSubmissionDto
+        {
+            BetType = BetType.Regular,
+            OrderedSelections = new List<SelectionPosition>
+            {
+                new SelectionPosition { Position = 1, DriverId = "norris" },
+                new SelectionPosition { Position = 2, DriverId = "leclerc" },
+                new SelectionPosition { Position = 3, DriverId = "hamilton" },
+                new SelectionPosition { Position = 4, DriverId = "piastri" },
+                new SelectionPosition { Position = 5, DriverId = "verstappen" }
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<SelectionForbiddenException>(() =>
+            service.UpsertSelectionAsync(AlbertParkRaceId, "user@example.com", submission));
+
+        Assert.Equal("Selections are locked after 2026-03-15 06:00:00Z.", ex.Message);
+    }
+
+    [Fact]
     public async Task GetRaceConfigAsync_ShouldReturnConfig_ForAnyKnownRaceId()
     {
         var service = CreateServiceAt(new DateTime(2025, 12, 6, 12, 0, 0, DateTimeKind.Utc));
