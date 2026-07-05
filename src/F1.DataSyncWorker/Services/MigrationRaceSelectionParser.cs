@@ -70,7 +70,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             for (var index = 0; index < participants.Count; index++)
             {
                 var rawValue = index < participantValues.Length ? participantValues[index] : string.Empty;
-                var normalization = NormalizeSelection(rawValue);
+                var normalization = NormalizeSelection(rawValue, pickType);
                 selections.Add(new MigrationImportRaceSelectionEntity
                 {
                     ImportRunId = runId,
@@ -83,23 +83,23 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     IsActualOutcome = false
                 });
 
-                if (normalization.IsUnresolved)
+                if (normalization.UnresolvedTokens.Count > 0)
                 {
-                    unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                    unresolvedTokens.AddRange(normalization.UnresolvedTokens.Select(unresolvedToken => new MigrationImportUnresolvedTokenEntity
                     {
                         ImportRunId = runId,
                         RowNumber = row.RowNumber,
                         RaceCode = raceCode,
                         PickType = pickType,
                         Subject = participants[index],
-                        RawToken = normalization.RawToken ?? string.Empty,
+                        RawToken = unresolvedToken,
                         CreatedAtUtc = createdAtUtc
-                    });
+                    }));
                 }
             }
 
             var actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-            var actualNormalization = NormalizeSelection(actualRaw);
+            var actualNormalization = NormalizeSelection(actualRaw, pickType);
             selections.Add(new MigrationImportRaceSelectionEntity
             {
                 ImportRunId = runId,
@@ -112,18 +112,18 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 IsActualOutcome = true
             });
 
-            if (actualNormalization.IsUnresolved)
+            if (actualNormalization.UnresolvedTokens.Count > 0)
             {
-                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                unresolvedTokens.AddRange(actualNormalization.UnresolvedTokens.Select(unresolvedToken => new MigrationImportUnresolvedTokenEntity
                 {
                     ImportRunId = runId,
                     RowNumber = row.RowNumber,
                     RaceCode = raceCode,
                     PickType = pickType,
                     Subject = ActualSubject,
-                    RawToken = actualNormalization.RawToken ?? string.Empty,
+                    RawToken = unresolvedToken,
                     CreatedAtUtc = createdAtUtc
-                });
+                }));
             }
         }
 
@@ -241,11 +241,11 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return true;
     }
 
-    private static NormalizationResult NormalizeSelection(string? rawValue)
+    private static NormalizationResult NormalizeSelection(string? rawValue, string pickType)
     {
         if (string.IsNullOrWhiteSpace(rawValue))
         {
-            return new NormalizationResult(NormalizedValue: null, IsUnresolved: false, RawToken: null);
+            return new NormalizationResult(NormalizedValue: null, UnresolvedTokens: []);
         }
 
         var normalized = rawValue.Trim();
@@ -253,20 +253,56 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         if (lookupToken.Length == 0)
         {
-            return new NormalizationResult(NormalizedValue: null, IsUnresolved: false, RawToken: null);
+            return new NormalizationResult(NormalizedValue: null, UnresolvedTokens: []);
         }
 
-        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
+        // DNF and ACTUAL DNF values can be comma/space-separated token sets.
+        if (string.Equals(pickType, "DNF", StringComparison.OrdinalIgnoreCase) && LooksLikeMultiTokenDnf(rawValue))
         {
-            return new NormalizationResult(NormalizedValue: mappedToken, IsUnresolved: false, RawToken: null);
+            var resolvedTokens = new List<string>();
+            var unresolvedTokens = new List<string>();
+
+            foreach (var token in DnfTokenSplitRegex().Split(lookupToken).Where(token => token.Length > 0))
+            {
+                if (TokenAliasDictionary.TryGetValue(token, out var mappedToken))
+                {
+                    if (!string.IsNullOrWhiteSpace(mappedToken))
+                    {
+                        resolvedTokens.Add(mappedToken);
+                    }
+
+                    continue;
+                }
+
+                if (CanonicalTokenRegex().IsMatch(token))
+                {
+                    resolvedTokens.Add(token);
+                    continue;
+                }
+
+                unresolvedTokens.Add(token);
+            }
+
+            var normalizedDnf = resolvedTokens.Count == 0 ? null : string.Join(" ", resolvedTokens);
+            return new NormalizationResult(NormalizedValue: normalizedDnf, UnresolvedTokens: unresolvedTokens);
+        }
+
+        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedSingleToken))
+        {
+            return new NormalizationResult(NormalizedValue: mappedSingleToken, UnresolvedTokens: []);
         }
 
         if (CanonicalTokenRegex().IsMatch(lookupToken))
         {
-            return new NormalizationResult(NormalizedValue: lookupToken, IsUnresolved: false, RawToken: null);
+            return new NormalizationResult(NormalizedValue: lookupToken, UnresolvedTokens: []);
         }
 
-        return new NormalizationResult(NormalizedValue: normalized, IsUnresolved: true, RawToken: normalized);
+        return new NormalizationResult(NormalizedValue: normalized, UnresolvedTokens: [normalized]);
+    }
+
+    private static bool LooksLikeMultiTokenDnf(string rawValue)
+    {
+        return rawValue.Contains(',') || DnfTokenSplitRegex().Split(rawValue.Trim()).Length > 1;
     }
 
     private static string NormalizeTokenLookup(string rawValue)
@@ -323,5 +359,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     [GeneratedRegex("\\s+", RegexOptions.Compiled)]
     private static partial Regex MultiWhitespaceRegex();
 
-    private readonly record struct NormalizationResult(string? NormalizedValue, bool IsUnresolved, string? RawToken);
+    [GeneratedRegex("[\\s,;/]+", RegexOptions.Compiled)]
+    private static partial Regex DnfTokenSplitRegex();
+
+    private readonly record struct NormalizationResult(string? NormalizedValue, IReadOnlyList<string> UnresolvedTokens);
 }
