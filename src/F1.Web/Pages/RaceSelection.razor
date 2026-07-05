@@ -177,14 +177,15 @@ else
 
     private async Task TickCountdownAsync(CancellationToken cancellationToken)
     {
-        if (countdownTimer is null)
+        var timer = countdownTimer;
+        if (timer is null)
         {
             return;
         }
 
         try
         {
-            while (await countdownTimer.WaitForNextTickAsync(cancellationToken))
+            while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 await InvokeAsync(StateHasChanged);
             }
