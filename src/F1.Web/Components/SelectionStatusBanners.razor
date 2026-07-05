@@ -13,7 +13,7 @@
 @if (RaceMetadata is not null)
 {
     <div class="alert alert-primary">
-        <h4>Race Questions</h4>
+        <h4>@GetMetadataTitle()</h4>
         <p class="mb-2"><strong>H2H:</strong> @RaceMetadata.H2HQuestion</p>
         <p class="mb-0"><strong>Bonus:</strong> @RaceMetadata.BonusQuestion</p>
     </div>
@@ -27,7 +27,7 @@
 }
 
 <div class="alert alert-warning">
-    Locking for Pre-Qualy gives +50% points but prevents changes after Sunday 13:00 UTC!
+    @GetLockingMessage()
 </div>
 
 @code {
@@ -35,4 +35,19 @@
     [Parameter] public string? SuccessMessage { get; set; }
     [Parameter] public RaceQuestionMetadata? RaceMetadata { get; set; }
     [Parameter] public string? CountdownText { get; set; }
+    [Parameter] public string? LockingMessage { get; set; }
+
+    private string GetMetadataTitle()
+    {
+        return string.IsNullOrWhiteSpace(RaceMetadata?.DisplayTitle)
+            ? "Race Questions"
+            : RaceMetadata.DisplayTitle;
+    }
+
+    private string GetLockingMessage()
+    {
+        return string.IsNullOrWhiteSpace(LockingMessage)
+            ? "Locking for Pre-Qualy gives +50% points and prevents changes after the configured lock deadline."
+            : LockingMessage;
+    }
 }

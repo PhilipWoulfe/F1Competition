@@ -4,6 +4,10 @@ public class RaceQuestionMetadata
 {
     public string RaceId { get; set; } = string.Empty;
 
+    public string? DisplayTitle { get; set; }
+
+    public string? LockMessage { get; set; }
+
     public string H2HQuestion { get; set; } = string.Empty;
 
     public string BonusQuestion { get; set; } = string.Empty;
