@@ -336,7 +336,7 @@ Notes:
 
 The E2E test project also reads the repository root `.env` file when you run `dotnet test tests/F1.E2E.Tests/F1.E2E.Tests.csproj` locally.
 
-The checked-in `.env` already points at the local container ports:
+Create a local `.env` (for example by copying `.env.example`) and point it at the local container ports:
 
 - `E2E_BASE_URL=http://localhost:5001`
 - `E2E_API_BASE_URL=http://localhost:5000`
