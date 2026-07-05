@@ -74,8 +74,8 @@ services:
   f1-web:
     image: ghcr.io/philipwoulfe/f1competition-web:${TAG:-test}
     build:
-      context: ./src/F1.Web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./src/F1.Web/Dockerfile
     container_name: f1-web
     environment:
       - BLAZOR_ENVIRONMENT=${BLAZOR_ENVIRONMENT:-Development}
