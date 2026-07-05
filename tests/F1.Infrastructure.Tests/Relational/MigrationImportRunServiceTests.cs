@@ -96,6 +96,7 @@ public sealed class MigrationImportRunServiceTests
         {
             var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
             var runService = new MigrationImportRunService(dbFactory);
+            var jolpicaClient = new TrackingJolpicaClient();
 
             var orchestrator = new MigrationImportOrchestrator(
                 NullLogger<MigrationImportOrchestrator>.Instance,
@@ -104,7 +105,7 @@ public sealed class MigrationImportRunServiceTests
                 new MigrationRaceSelectionParser(dbFactory),
                 new MigrationRaceRoundMapper(
                     dbFactory,
-                    new StubJolpicaClient(),
+                    jolpicaClient,
                     Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
                     Options.Create(new MigrationImportOptions { Season = 2025 })),
                 dbFactory,
@@ -123,6 +124,9 @@ public sealed class MigrationImportRunServiceTests
             Assert.Empty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Races.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.MigrationImportJolpicaRaceSnapshots.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.MigrationImportRaceRoundMappings.AsNoTracking().ToListAsync());
+            Assert.Equal(0, jolpicaClient.GetRacesCallCount);
 
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.True(run.IsDryRun);
@@ -180,8 +184,10 @@ public sealed class MigrationImportRunServiceTests
         }
     }
 
-    private sealed class StubJolpicaClient : IJolpicaClient
+    private sealed class TrackingJolpicaClient : IJolpicaClient
     {
+        public int GetRacesCallCount { get; private set; }
+
         public Task<IReadOnlyList<JolpicaDriverDto>> GetDriversAsync(int season, int retryCount, int retryDelayMs, CancellationToken cancellationToken)
         {
             return Task.FromResult<IReadOnlyList<JolpicaDriverDto>>([]);
@@ -189,6 +195,8 @@ public sealed class MigrationImportRunServiceTests
 
         public Task<IReadOnlyList<JolpicaRaceDto>> GetRacesAsync(int season, int retryCount, int retryDelayMs, CancellationToken cancellationToken)
         {
+            GetRacesCallCount++;
+
             IReadOnlyList<JolpicaRaceDto> races =
             [
                 new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z" },

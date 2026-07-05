@@ -206,19 +206,21 @@ For Docker Compose runtime, `f1-data-sync-worker` runs automatically and reads v
 
 Migration import mode (Story #239 / Phil 2025 one-time load):
 
-- Set `MIGRATION_IMPORT_ENABLED=true` to switch worker execution from Jolpica sync mode to migration import mode.
-- Set `MIGRATION_IMPORT_SEASON=2025` for the source season being imported.
-- Set `MIGRATION_IMPORT_SOURCE_FILE_PATH` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
-- Set `MIGRATION_IMPORT_DRY_RUN=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
+- Set `MigrationImport__Enabled=true` to switch worker execution from Jolpica sync mode to migration import mode.
+- Set `MigrationImport__Season=2025` for the source season being imported.
+- Set `MigrationImport__SourceFilePath` to the CSV file path (default: `data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv`).
+- Set `MigrationImport__DryRun=true` to stage rows and run envelope metadata without writing domain competition/driver/race/selection entities.
+
+When using Docker Compose, keep using `.env` `MIGRATION_IMPORT_*` variables because compose maps those to `MigrationImport__*` for the worker container.
 
 Example one-shot dry-run:
 
 ```bash
 export ConnectionStrings__Postgres='Host=localhost;Port=5432;Database=f1competition;Username=<user>;Password=<password>'
-export MIGRATION_IMPORT_ENABLED=true
-export MIGRATION_IMPORT_SEASON=2025
-export MIGRATION_IMPORT_SOURCE_FILE_PATH='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
-export MIGRATION_IMPORT_DRY_RUN=true
+export MigrationImport__Enabled=true
+export MigrationImport__Season=2025
+export MigrationImport__SourceFilePath='data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv'
+export MigrationImport__DryRun=true
 dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj
 ```
 

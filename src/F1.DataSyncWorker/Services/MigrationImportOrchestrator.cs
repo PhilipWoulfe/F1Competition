@@ -60,7 +60,18 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         {
             var totalRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
             var parsedRaceSelections = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
-            var mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
+            var mappingResult = (SnapshotCount: 0, MappingCount: 0, WarningCount: 0);
+            if (!run.IsDryRun)
+            {
+                mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Migration import run in dry-run mode; skipping race-round mapping and Jolpica fetch. RunId={RunId}",
+                    run.RunId);
+            }
+
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
