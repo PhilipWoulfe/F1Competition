@@ -34,7 +34,9 @@ void ConfigureApi(IServiceProvider sp, HttpClient client)
         {
             var normalized = new UriBuilder(configuredAbsoluteUri)
             {
-                Path = "/"
+                Path = "/",
+                Query = string.Empty,
+                Fragment = string.Empty
             }.Uri;
 
             client.BaseAddress = normalized;
