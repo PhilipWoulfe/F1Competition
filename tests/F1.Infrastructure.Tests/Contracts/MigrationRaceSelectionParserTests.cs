@@ -257,6 +257,14 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal(6, parseResult.SelectionCount);
         Assert.Equal(0, parseResult.UnresolvedTokenCount);
 
+        var dnfKevin = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Kevin" && x.PickType == "DNF");
+        Assert.Equal("BOR", dnfKevin.NormalizedValue);
+
+        var dnfVeronica = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Veronica" && x.PickType == "DNF");
+        Assert.Null(dnfVeronica.NormalizedValue);
+
         var dnfActual = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "ACTUAL" && x.PickType == "DNF");
         Assert.Equal("SAI DOO BOR LAW ALO HAD", dnfActual.NormalizedValue);
