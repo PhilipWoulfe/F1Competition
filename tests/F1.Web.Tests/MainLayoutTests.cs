@@ -66,7 +66,11 @@ public class MainLayoutTests : BunitContext
 
     private void ConfigureCommonServices(string environment, IUserSession userSession)
     {
+        var appInfoService = new Mock<IAppInfoService>();
+        appInfoService.Setup(x => x.GetShortVersionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("abcdef1");
+
         Services.AddSingleton(userSession);
+        Services.AddSingleton(appInfoService.Object);
         Services.AddSingleton<IWebAssemblyHostEnvironment>(new TestHostEnvironment(environment));
         Services.AddSingleton(CreateMockHttpClient());
         Services.AddSingleton<IMockDateService, MockDateService>();

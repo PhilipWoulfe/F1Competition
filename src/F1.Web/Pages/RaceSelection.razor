@@ -1,0 +1,201 @@
+@page "/selection"
+@page "/selection/{RaceId}"
+@page "/yas-marina-selection"
+@using F1.Web.Configuration
+@using F1.Web.Models
+@using F1.Web.Services.Api
+@implements IAsyncDisposable
+@inject ISelectionPageService SelectionPageService
+@inject ISelectionCountdownFormatter CountdownFormatter
+@inject F1.Web.Services.ITimeProvider TimeProvider
+@inject F1.Web.Services.IMockDateService MockDateService
+
+<h1>Race Selection</h1>
+
+@if (drivers is null || raceConfig is null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <SelectionStatusBanners
+        ErrorMessage="@errorMessage"
+        SuccessMessage="@successMessage"
+        RaceMetadata="@raceMetadata"
+        CountdownText="@GetCountdownText()" />
+
+    <EditForm Model="formModel" OnValidSubmit="SaveSelectionAsync">
+        <DriverSelectionList Drivers="@drivers" SelectedDriverIds="@formModel.SelectedDriverIds" IsReadOnly="@isReadOnly" />
+
+        <BetStrategySelector
+            Value="@formModel.SelectedBetType"
+            ValueChanged="OnBetTypeChanged"
+            ValueExpression="@(() => formModel.SelectedBetType)"
+            IsReadOnly="@isReadOnly" />
+
+        <button id="submit-selection" class="btn btn-primary" type="submit" disabled="@isReadOnly">Save Selection</button>
+
+        @if (isReadOnly)
+        {
+            <p class="text-muted mt-2">This pre-qualy selection is locked.</p>
+        }
+    </EditForm>
+}
+
+@code {
+    [Parameter] public string? RaceId { get; set; }
+
+    private Driver[]? drivers;
+    private RaceConfig? raceConfig;
+    private RaceQuestionMetadata? raceMetadata;
+    private readonly SelectionFormModel formModel = new();
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isReadOnly;
+    private PeriodicTimer? countdownTimer;
+    private CancellationTokenSource? timerCts;
+    private Task? tickTask;
+    private string? loadedRaceId;
+
+    private string ActiveRaceId => string.IsNullOrWhiteSpace(RaceId) ? SelectionDefaults.DefaultRaceId : RaceId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        StartCountdownTimerIfNeeded();
+
+        if (string.Equals(loadedRaceId, ActiveRaceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        loadedRaceId = ActiveRaceId;
+        await MockDateService.RefreshAsync();
+        await LoadDataAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        var cts = timerCts;
+        var timer = countdownTimer;
+        var task = tickTask;
+        timerCts = null;
+        countdownTimer = null;
+        tickTask = null;
+
+        if (cts is not null)
+        {
+            await cts.CancelAsync();
+        }
+
+        if (task is not null)
+        {
+            await task;
+        }
+
+        cts?.Dispose();
+        timer?.Dispose();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var loaded = await SelectionPageService.LoadAsync(ActiveRaceId, formModel.SelectedDriverIds.Count, TimeProvider.UtcNow);
+            drivers = loaded.Drivers;
+            raceConfig = loaded.RaceConfig;
+            raceMetadata = loaded.RaceMetadata;
+            ApplyState(loaded.State);
+        }
+        catch (ApiServiceException ex)
+        {
+            errorMessage = $"Error loading data: {ex.Error.Message}";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading data: {ex.Message}";
+        }
+    }
+
+    private async Task SaveSelectionAsync()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var saved = await SelectionPageService.SaveAsync(ActiveRaceId, formModel);
+            successMessage = "Selection saved successfully.";
+            ApplyState(saved.State);
+        }
+        catch (ApiServiceException ex)
+        {
+            errorMessage = SelectionPageService.GetSaveErrorMessage(ex);
+        }
+        catch (Exception)
+        {
+            errorMessage = "Unable to save selection.";
+        }
+    }
+
+    private Task OnBetTypeChanged(BetType betType)
+    {
+        formModel.SelectedBetType = betType;
+        return Task.CompletedTask;
+    }
+
+    private void ApplyState(SelectionPageState state)
+    {
+        formModel.SelectedBetType = state.SelectedBetType;
+
+        for (var i = 0; i < formModel.SelectedDriverIds.Count; i++)
+        {
+            formModel.SelectedDriverIds[i] = i < state.SelectedDriverIds.Count ? state.SelectedDriverIds[i] : string.Empty;
+        }
+
+        isReadOnly = state.IsReadOnly;
+    }
+
+    private string GetCountdownText()
+    {
+        return CountdownFormatter.FormatCountdown(raceConfig, TimeProvider.UtcNow);
+    }
+
+    private void StartCountdownTimerIfNeeded()
+    {
+        if (countdownTimer is not null)
+        {
+            return;
+        }
+
+        timerCts = new CancellationTokenSource();
+        countdownTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        tickTask = TickCountdownAsync(timerCts.Token);
+    }
+
+    private async Task TickCountdownAsync(CancellationToken cancellationToken)
+    {
+        var timer = countdownTimer;
+        if (timer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Unexpected error in countdown timer: {ex}");
+        }
+    }
+}

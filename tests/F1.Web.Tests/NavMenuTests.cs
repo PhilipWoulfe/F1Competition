@@ -14,7 +14,7 @@ public class NavMenuTests : BunitContext
         var cut = Render<NavMenu>();
 
         Assert.DoesNotContain("Driver Standings", cut.Markup);
-        Assert.DoesNotContain("Yas Marina GP", cut.Markup);
+        Assert.DoesNotContain("Race Selection", cut.Markup);
         Assert.DoesNotContain("Drivers", cut.Markup);
     }
 
@@ -27,7 +27,7 @@ public class NavMenuTests : BunitContext
         var cut = Render<NavMenu>();
 
         Assert.Contains("Driver Standings", cut.Markup);
-        Assert.Contains("Yas Marina GP", cut.Markup);
+        Assert.Contains("Race Selection", cut.Markup);
         Assert.Contains("Drivers", cut.Markup);
     }
 

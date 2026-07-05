@@ -32,7 +32,7 @@ internal class HomePage
         PageReadiness.WaitForAppReady(
             _driver,
             _wait.Timeout,
-            driver => driver.FindElements(By.CssSelector("a[href='yas-marina-selection']")).Count > 0);
+            driver => driver.FindElements(By.CssSelector("a[href^='selection/']")).Count > 0);
         _trace("Authenticated navigation link rendered.");
     }
 

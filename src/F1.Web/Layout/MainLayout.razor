@@ -1,8 +1,7 @@
 ﻿@inherits LayoutComponentBase
-@inject NavigationManager Navigation
 @inject IUserSession UserSession
+@inject IAppInfoService AppInfoService
 @inject IWebAssemblyHostEnvironment HostEnvironment
-@using System.Net.Http.Json
 
 <div class="page">
     <div class="sidebar">
@@ -63,18 +62,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            // Version logic
-            using var localClient = new HttpClient { BaseAddress = new Uri(Navigation.BaseUri) };
-            var versionModel = await localClient.GetFromJsonAsync<VersionModel>("version.json");
-            _appVersion = versionModel?.Version?.Substring(0, Math.Min(7, versionModel.Version.Length)) ?? "N/A";
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Startup Error: {ex.Message}");
-            _appVersion = "Error";
-        }
+        _appVersion = await AppInfoService.GetShortVersionAsync();
     }
 
     private async Task ToggleUser()
@@ -92,6 +80,4 @@
             : !string.IsNullOrWhiteSpace(UserSession.User?.Email)
                 ? UserSession.User!.Email!
                 : "User";
-
-    private class VersionModel { public string? Version { get; set; } }
 }
