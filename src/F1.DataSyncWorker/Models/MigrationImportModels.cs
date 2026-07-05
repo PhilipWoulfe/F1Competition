@@ -8,3 +8,16 @@ public sealed record MigrationImportRunContext(
     string SourceFileChecksum,
     bool IsDryRun,
     bool PersistDomainEntities);
+
+public sealed record MigrationRaceSelectionParseResult(
+    int SelectionCount,
+    int UnresolvedTokenCount);
+
+public sealed record MigrationScoreRecalculationResult(
+    int ScoredPickCount,
+    int TotalPoints);
+
+public sealed record MigrationLegacyScoreImportResult(
+    int LegacyPickScoreCount,
+    int ImportedTotalCount,
+    int CalculatedTotalCount);
