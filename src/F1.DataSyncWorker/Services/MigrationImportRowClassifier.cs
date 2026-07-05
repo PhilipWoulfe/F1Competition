@@ -88,7 +88,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
             return true;
         }
 
-        if (label.Contains("HUMBUG", StringComparison.OrdinalIgnoreCase))
+        if (label.Equals("BAH-HUMBUG", StringComparison.OrdinalIgnoreCase))
         {
             normalizedAsDnf = true;
             return true;
