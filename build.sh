@@ -119,6 +119,7 @@ elif [[ "$MODE" == "CI" ]]; then
         /p:CoverletOutputFormat=cobertura \
         /p:CoverletOutput=./TestResults/infra-coverage/ \
         /p:Include="[F1.Infrastructure]*" \
+        /p:ExcludeByFile="**/Migrations/*.cs" \
         /p:Threshold=20; then
         printf "\033[0;31m❌ Infrastructure tests failed in CI mode.\033[0m\n"
         exit 1
@@ -159,6 +160,7 @@ else
         /p:CoverletOutputFormat=cobertura \
         /p:CoverletOutput=./TestResults/infra-coverage/ \
         /p:Include="[F1.Infrastructure]*" \
+        /p:ExcludeByFile="**/Migrations/*.cs" \
         /p:Threshold=20; then
         printf "\033[0;31m❌ Infrastructure tests failed! Aborting build.\033[0m\n"
         printf "\a"
