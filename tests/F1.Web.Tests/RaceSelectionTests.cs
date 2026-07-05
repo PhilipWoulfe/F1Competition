@@ -89,10 +89,13 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace("2026-01-australia");
 
-        cut.WaitForAssertion(() => Assert.Contains("Race Selection", cut.Markup));
-        Assert.Contains("07 Dec 2025 04:30 UTC", cut.Markup);
-        Assert.Contains("Countdown:", cut.Markup);
-        Assert.Equal(string.Empty, cut.FindAll("select")[0].GetAttribute("value"));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Race Selection", cut.Markup);
+            Assert.Contains("07 Dec 2025 04:30 UTC", cut.Markup);
+            Assert.Contains("Countdown:", cut.Markup);
+            Assert.Equal(string.Empty, cut.FindAll("select")[0].GetAttribute("value"));
+        });
     }
 
     [Fact]
@@ -129,8 +132,11 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace("2026-01-australia");
 
-        cut.WaitForAssertion(() => Assert.Contains("<h1>Race Selection</h1>", cut.Markup));
-        Assert.Contains("Race Questions", cut.Markup);
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("<h1>Race Selection</h1>", cut.Markup);
+            Assert.Contains("Race Questions", cut.Markup);
+        });
     }
 
     [Fact]
