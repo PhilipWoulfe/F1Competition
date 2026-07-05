@@ -138,7 +138,7 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal("Header", stagedRows[0].SectionType);
             Assert.Equal("RacePick", stagedRows[1].SectionType);
             Assert.Equal("RacePick", stagedRows[2].SectionType);
-            Assert.Equal("Mapped BAH-HUMBUG label to DNF pick type.", stagedRows[2].ClassificationReason);
+            Assert.Equal("Mapped special label to DNF pick type.", stagedRows[2].ClassificationReason);
         }
         finally
         {
