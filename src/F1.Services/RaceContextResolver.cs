@@ -82,12 +82,22 @@ public sealed class RaceContextResolver(IRaceRepository raceRepository) : IRaceC
 
     private static string ExtractRaceSlug(string raceId)
     {
-        var index = raceId.LastIndexOf('-');
-        if (index <= 0 || index == raceId.Length - 1)
+        if (string.IsNullOrWhiteSpace(raceId))
         {
             return raceId;
         }
 
-        return raceId[(index + 1)..];
+        var parts = raceId.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length - 2; i++)
+        {
+            if (parts[i].Length == 4
+                && int.TryParse(parts[i], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _)
+                && int.TryParse(parts[i + 1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _))
+            {
+                return string.Join('-', parts[(i + 2)..]);
+            }
+        }
+
+        return raceId;
     }
 }
