@@ -1,4 +1,5 @@
 using Bunit.TestDoubles;
+using F1.Web.Configuration;
 using F1.Web.Layout;
 
 namespace F1.Web.Tests.Layout;
@@ -29,6 +30,9 @@ public class NavMenuTests : BunitContext
         Assert.Contains("Driver Standings", cut.Markup);
         Assert.Contains("Race Selection", cut.Markup);
         Assert.Contains("Drivers", cut.Markup);
+
+        var selectionHref = $"selection/{SelectionDefaults.DefaultCompetitionSlug}/{SelectionDefaults.DefaultSeason}/round/{SelectionDefaults.DefaultRound}";
+        Assert.Contains($"href=\"{selectionHref}\"", cut.Markup);
     }
 
     [Fact]
