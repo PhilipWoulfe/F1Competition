@@ -144,8 +144,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             normalizedLabel = normalizedLabel[2..];
         }
 
-        if (normalizedLabel.Equals("DNF", StringComparison.OrdinalIgnoreCase) ||
-            normalizedLabel.Contains("HUMBUG", StringComparison.OrdinalIgnoreCase))
+        if (normalizedLabel.Equals("DNF", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(currentRaceCode))
             {
@@ -154,6 +153,20 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
             raceCode = currentRaceCode;
             pickType = "DNF";
+            return true;
+        }
+
+        if (normalizedLabel.Contains("HUMBUG", StringComparison.OrdinalIgnoreCase))
+        {
+            var humbugMatch = GenericRacePrefixRegex().Match(normalizedLabel);
+            if (!humbugMatch.Success)
+            {
+                return false;
+            }
+
+            raceCode = humbugMatch.Groups[1].Value.ToUpperInvariant();
+            pickType = "DNF";
+            currentRaceCode = raceCode;
             return true;
         }
 
