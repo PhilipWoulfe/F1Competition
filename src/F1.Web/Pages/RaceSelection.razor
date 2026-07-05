@@ -9,10 +9,15 @@
 @inject ISelectionCountdownFormatter CountdownFormatter
 @inject F1.Web.Services.ITimeProvider TimeProvider
 @inject F1.Web.Services.IMockDateService MockDateService
+@inject NavigationManager Navigation
 
 <h1>Race Selection</h1>
 
-@if (drivers is null || raceConfig is null)
+@if (!string.IsNullOrWhiteSpace(routeContextErrorMessage))
+{
+    <p role="alert" class="text-danger">@routeContextErrorMessage</p>
+}
+else if (drivers is null || raceConfig is null)
 {
     <p><em>Loading...</em></p>
 }
@@ -56,21 +61,31 @@ else
     private CancellationTokenSource? timerCts;
     private Task? tickTask;
     private string? loadedRaceId;
-
-    private string ActiveRaceId => string.IsNullOrWhiteSpace(RaceId) ? SelectionDefaults.DefaultRaceId : RaceId;
+    private string? routeContextErrorMessage;
 
     protected override async Task OnParametersSetAsync()
     {
+        if (!TryResolveRouteContext(out var routeContext))
+        {
+            loadedRaceId = null;
+            drivers = null;
+            raceConfig = null;
+            raceMetadata = null;
+            isReadOnly = false;
+            return;
+        }
+
         StartCountdownTimerIfNeeded();
 
-        if (string.Equals(loadedRaceId, ActiveRaceId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(loadedRaceId, routeContext.RaceId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        loadedRaceId = ActiveRaceId;
+        routeContextErrorMessage = null;
+        loadedRaceId = routeContext.RaceId;
         await MockDateService.RefreshAsync();
-        await LoadDataAsync();
+        await LoadDataAsync(routeContext.RaceId);
     }
 
     public async ValueTask DisposeAsync()
@@ -96,14 +111,14 @@ else
         timer?.Dispose();
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadDataAsync(string activeRaceId)
     {
         errorMessage = null;
         successMessage = null;
 
         try
         {
-            var loaded = await SelectionPageService.LoadAsync(ActiveRaceId, formModel.SelectedDriverIds.Count, TimeProvider.UtcNow);
+            var loaded = await SelectionPageService.LoadAsync(activeRaceId, formModel.SelectedDriverIds.Count, TimeProvider.UtcNow);
             drivers = loaded.Drivers;
             raceConfig = loaded.RaceConfig;
             raceMetadata = loaded.RaceMetadata;
@@ -124,9 +139,14 @@ else
         errorMessage = null;
         successMessage = null;
 
+        if (!TryResolveRouteContext(out var routeContext))
+        {
+            return;
+        }
+
         try
         {
-            var saved = await SelectionPageService.SaveAsync(ActiveRaceId, formModel);
+            var saved = await SelectionPageService.SaveAsync(routeContext.RaceId, formModel);
             successMessage = "Selection saved successfully.";
             ApplyState(saved.State);
         }
@@ -173,6 +193,22 @@ else
         timerCts = new CancellationTokenSource();
         countdownTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         tickTask = TickCountdownAsync(timerCts.Token);
+    }
+
+    private bool TryResolveRouteContext(out RaceSelectionContext routeContext)
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var success = RaceSelectionRouteResolver.TryResolve(RaceId, relativePath, out var resolved, out var errorMessage);
+        if (!success || resolved is null)
+        {
+            routeContextErrorMessage = errorMessage;
+            routeContext = new RaceSelectionContext { RaceId = string.Empty };
+            return false;
+        }
+
+        routeContextErrorMessage = null;
+        routeContext = resolved;
+        return true;
     }
 
     private async Task TickCountdownAsync(CancellationToken cancellationToken)

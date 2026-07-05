@@ -1,7 +1,9 @@
+using F1.Web.Configuration;
 using F1.Web.Models;
 using F1.Web.Pages;
 using F1.Web.Services;
 using F1.Web.Services.Api;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using System.Net;
@@ -75,7 +77,7 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks();
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace("2026-01-australia");
 
         cut.WaitForAssertion(() => Assert.Contains("Locking for Pre-Qualy gives +50% points", cut.Markup));
         Assert.Contains("Countdown:", cut.Markup);
@@ -94,7 +96,7 @@ public class RaceSelectionTests : BunitContext
             UpdatedAtUtc = DateTime.UtcNow
         });
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
         cut.WaitForAssertion(() => Assert.Contains("Race Questions", cut.Markup));
         Assert.Contains("Who finishes higher: Leclerc or Norris?", cut.Markup);
@@ -137,7 +139,7 @@ public class RaceSelectionTests : BunitContext
                 },
             ]);
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
         cut.WaitForAssertion(() => Assert.Contains("This pre-qualy selection is locked.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
@@ -150,10 +152,16 @@ public class RaceSelectionTests : BunitContext
     [Fact]
     public void RaceSelection_ShouldSaveSelection_WhenSubmitSucceeds()
     {
-        var (_, selectionMock, _) = RegisterDefaultMocks();
+        const string raceId = "2026-01-australia";
+        var (_, selectionMock, _) = RegisterDefaultMocks(config: new RaceConfig
+        {
+            RaceId = raceId,
+            PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
+            FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc)
+        });
         var savedSelection = new Selection
         {
-            RaceId = "2025-24-yas_marina",
+            RaceId = raceId,
             UserId = "user@example.com",
             BetType = BetType.Regular,
             IsLocked = false,
@@ -172,7 +180,7 @@ public class RaceSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(savedSelection);
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(raceId);
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         ChangeSelect(cut, 0, "norris");
@@ -190,10 +198,10 @@ public class RaceSelectionTests : BunitContext
         Assert.Equal("piastri", cut.FindAll("select")[3].GetAttribute("value"));
         Assert.Equal("verstappen", cut.FindAll("select")[4].GetAttribute("value"));
         selectionMock.Verify(
-            s => s.SaveMineAsync("2025-24-yas_marina", It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()),
+            s => s.SaveMineAsync(raceId, It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()),
             Times.Once);
         selectionMock.Verify(
-            s => s.GetCurrentAsync("2025-24-yas_marina", It.IsAny<CancellationToken>()),
+            s => s.GetCurrentAsync(raceId, It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
     }
 
@@ -206,7 +214,7 @@ public class RaceSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiServiceException(new ApiError(HttpStatusCode.BadRequest, "Exactly 5 unique drivers must be selected.")));
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         cut.Find("button[type='submit']").Click();
@@ -225,7 +233,7 @@ public class RaceSelectionTests : BunitContext
             .Setup(s => s.SaveMineAsync(It.IsAny<string>(), It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiServiceException(new ApiError(statusCode, $"Saving race selection failed with status code {(int)statusCode}.")));
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
         cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
 
         cut.Find("button[type='submit']").Click();
@@ -238,7 +246,7 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks();
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
         cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
 
         var component = (IAsyncDisposable)cut.Instance;
@@ -272,7 +280,7 @@ public class RaceSelectionTests : BunitContext
                 },
             ]);
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
         cut.WaitForAssertion(() => Assert.Equal("norris", cut.FindAll("select")[0].GetAttribute("value")));
         Assert.Equal("leclerc", cut.FindAll("select")[1].GetAttribute("value"));
@@ -292,16 +300,62 @@ public class RaceSelectionTests : BunitContext
         Services.AddSingleton<ITimeProvider>(new FrozenTimeProvider(new DateTime(2025, 12, 8, 12, 1, 0, DateTimeKind.Utc)));
         RegisterDefaultMocks(config: pastDeadlineConfig);
 
-        var cut = Render<RaceSelection>();
+        var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
         cut.WaitForAssertion(() => Assert.Contains("All deadlines have passed.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
         Assert.True(cut.FindAll("select").All(s => s.HasAttribute("disabled")));
     }
 
+    [Fact]
+    public void RaceSelection_ShouldUseCompatibilityRoute_WhenYasMarinaPathIsUsed()
+    {
+        var (_, selectionMock, _) = RegisterDefaultMocks();
+        NavigateTo(SelectionDefaults.CompatibilityRoutePath);
+
+        var cut = Render<RaceSelection>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
+        selectionMock.Verify(
+            s => s.GetConfigAsync(SelectionDefaults.CompatibilityRaceId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenRaceContextMissing()
+    {
+        RegisterDefaultMocks();
+
+        var cut = Render<RaceSelection>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Race context is missing.", cut.Markup));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldShowControlledError_WhenRaceContextInvalid()
+    {
+        RegisterDefaultMocks();
+
+        var cut = Render<RaceSelection>(parameters => parameters.Add(p => p.RaceId, "bad race id"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Race context is invalid.", cut.Markup));
+    }
+
     private static void ChangeSelect(IRenderedComponent<RaceSelection> cut, int index, string value)
     {
         cut.FindAll("select")[index].Change(value);
+    }
+
+    private IRenderedComponent<RaceSelection> RenderForRace(string raceId)
+    {
+        NavigateTo($"selection/{raceId}");
+        return Render<RaceSelection>(parameters => parameters.Add(p => p.RaceId, raceId));
+    }
+
+    private void NavigateTo(string relativePath)
+    {
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo(relativePath);
     }
 
     private sealed class FrozenTimeProvider(DateTime frozenUtc) : ITimeProvider
