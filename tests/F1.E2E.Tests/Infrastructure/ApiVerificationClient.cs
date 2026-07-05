@@ -8,7 +8,7 @@ namespace F1.E2E.Tests.Infrastructure;
 internal class ApiVerificationClient : IDisposable
 {
     private readonly HttpClient _httpClient;
-    private readonly string _raceId;
+    private readonly string? _raceId;
 
     public ApiVerificationClient(E2eOptions options)
     {
@@ -25,9 +25,15 @@ internal class ApiVerificationClient : IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string raceId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CurrentSelectionRow>> GetCurrentSelectionsAsync(string? raceId, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync($"selections/{_raceId}/current", cancellationToken);
+        var targetRaceId = string.IsNullOrWhiteSpace(raceId) ? _raceId : raceId;
+        if (string.IsNullOrWhiteSpace(targetRaceId))
+        {
+            throw new InvalidOperationException("Race id is required for current selections lookup.");
+        }
+
+        var response = await _httpClient.GetAsync($"selections/{targetRaceId}/current", cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var payload = await response.Content.ReadFromJsonAsync<List<CurrentSelectionRow>>(cancellationToken: cancellationToken);
@@ -44,6 +50,20 @@ internal class ApiVerificationClient : IDisposable
 
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<RaceMetadataRow>(cancellationToken: cancellationToken);
+    }
+
+    public async Task<RaceConfigRow> GetRaceConfigAsync(string raceId, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync($"selections/{raceId}/config", cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var config = await response.Content.ReadFromJsonAsync<RaceConfigRow>(cancellationToken: cancellationToken);
+        if (config is null || string.IsNullOrWhiteSpace(config.RaceId))
+        {
+            throw new InvalidOperationException($"Race config payload was empty for race '{raceId}'.");
+        }
+
+        return config;
     }
 
     public async Task WaitForSelectionPersistenceAsync(string raceId, string expectedDriverId, TimeSpan timeout, CancellationToken cancellationToken)
@@ -106,6 +126,25 @@ internal class ApiVerificationClient : IDisposable
         return response;
     }
 
+    public async Task<string> ResolveRaceIdByRoundAsync(string competitionSlug, int season, int round, CancellationToken cancellationToken)
+    {
+        var response = await _httpClient.GetAsync($"races/context/{competitionSlug}/{season}/round/{round}", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException($"No race found for context {competitionSlug}/{season}/round/{round}.");
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<RaceContextResolutionRow>(cancellationToken: cancellationToken);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.RaceId))
+        {
+            throw new InvalidOperationException($"Race context resolution returned an empty payload for {competitionSlug}/{season}/round/{round}.");
+        }
+
+        return payload.RaceId;
+    }
+
     public void Dispose()
     {
         _httpClient.Dispose();
@@ -146,4 +185,15 @@ internal class RaceMetadataRow
     public string H2HQuestion { get; set; } = string.Empty;
     public string BonusQuestion { get; set; } = string.Empty;
     public bool IsPublished { get; set; }
+}
+
+internal sealed class RaceContextResolutionRow
+{
+    public string RaceId { get; set; } = string.Empty;
+}
+
+internal sealed class RaceConfigRow
+{
+    public string RaceId { get; set; } = string.Empty;
+    public DateTime FinalDeadlineUtc { get; set; }
 }

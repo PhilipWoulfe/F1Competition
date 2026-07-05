@@ -5,7 +5,10 @@ internal class E2eOptions
     public bool Enabled { get; init; }
     public string BaseUrl { get; init; } = string.Empty;
     public string ApiBaseUrl { get; init; } = string.Empty;
-    public string RaceId { get; init; } = "2025-24-yas_marina";
+    public string? RaceId { get; init; }
+    public string CompetitionSlug { get; init; } = "main-2026";
+    public int Season { get; init; } = 2026;
+    public int Round { get; init; } = 1;
     public bool Headless { get; init; } = true;
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(20);
     public string? CfClientId { get; init; }
@@ -48,10 +51,9 @@ internal class E2eOptions
 
         var timeoutSeconds = ParseInt(GetSetting("E2E_TIMEOUT_SECONDS"), 20);
         var raceId = GetSetting("E2E_RACE_ID");
-        if (string.IsNullOrWhiteSpace(raceId))
-        {
-            raceId = "2025-24-yas_marina";
-        }
+        var competitionSlug = GetSetting("E2E_COMPETITION_SLUG") ?? "main-2026";
+        var season = ParseInt(GetSetting("E2E_SEASON"), 2026);
+        var round = ParseInt(GetSetting("E2E_ROUND"), 1);
         var headless = ParseBool(GetSetting("E2E_HEADLESS"), true);
 
         return new E2eOptions
@@ -60,6 +62,9 @@ internal class E2eOptions
             BaseUrl = baseUrl.TrimEnd('/'),
             ApiBaseUrl = apiBaseUrl.TrimEnd('/'),
             RaceId = raceId,
+            CompetitionSlug = competitionSlug,
+            Season = season,
+            Round = round,
             Headless = headless,
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
             CfClientId = GetSetting("E2E_CF_CLIENT_ID"),
@@ -92,6 +97,16 @@ internal class E2eOptions
     private static bool ParseBool(string? raw, bool fallback)
     {
         return bool.TryParse(raw, out var parsed) ? parsed : fallback;
+    }
+
+    public string BuildSelectionRoutePath()
+    {
+        if (!string.IsNullOrWhiteSpace(RaceId))
+        {
+            return $"selection/{RaceId}";
+        }
+
+        return $"selection/{CompetitionSlug}/{Season}/round/{Round}";
     }
 
     private static Dictionary<string, string> LoadLocalDotEnv()

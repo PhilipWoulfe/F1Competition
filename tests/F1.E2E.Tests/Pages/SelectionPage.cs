@@ -9,33 +9,40 @@ internal class SelectionPage
     private readonly IWebDriver _driver;
     private readonly WebDriverWait _wait;
     private readonly string _baseUrl;
-    private readonly string _raceId;
+    private readonly string _selectionRoutePath;
     private readonly Action<string> _trace;
 
-    public SelectionPage(IWebDriver driver, WebDriverWait wait, string baseUrl, string raceId, Action<string>? trace = null)
+    public SelectionPage(IWebDriver driver, WebDriverWait wait, string baseUrl, string selectionRoutePath, Action<string>? trace = null)
     {
         _driver = driver;
         _wait = wait;
         _baseUrl = baseUrl.TrimEnd('/');
-        _raceId = raceId;
+        _selectionRoutePath = selectionRoutePath.Trim('/');
         _trace = trace ?? (_ => { });
     }
 
     public void Navigate()
     {
-        _trace($"Navigate -> {_baseUrl}/selection/{_raceId}");
-        _driver.Navigate().GoToUrl($"{_baseUrl}/selection/{_raceId}");
+        _trace($"Navigate -> {_baseUrl}/{_selectionRoutePath}");
+        _driver.Navigate().GoToUrl($"{_baseUrl}/{_selectionRoutePath}");
         _trace($"Navigation complete. Current URL: {_driver.Url}");
     }
 
     public void WaitUntilReady()
     {
-        _trace("Waiting for selection form (5 dropdowns) to render...");
+        _trace("Waiting for selection form to render...");
         PageReadiness.WaitForAppReady(
             _driver,
             _wait.Timeout,
-            driver => driver.FindElements(By.CssSelector("select[id^='driver-select-']")).Count == 5);
-        _trace("Selection form rendered.");
+            driver => driver.FindElements(By.CssSelector("select[id^='driver-select-']")).Count > 0);
+
+        var slotCount = GetSelectionSlotCount();
+        _trace($"Selection form rendered with {slotCount} dropdown(s).");
+    }
+
+    public int GetSelectionSlotCount()
+    {
+        return _driver.FindElements(By.CssSelector("select[id^='driver-select-']")).Count;
     }
 
     public IReadOnlyList<string> GetSelectableDriverIds()
@@ -55,14 +62,31 @@ internal class SelectionPage
         return result;
     }
 
-    public void SelectTopFive(IReadOnlyList<string> driverIds)
+    public void SelectDrivers(IReadOnlyList<string> driverIds)
     {
-        if (driverIds.Count < 5)
+        var slotCount = GetSelectionSlotCount();
+        if (slotCount <= 0)
         {
-            throw new InvalidOperationException("At least 5 unique driver IDs are required.");
+            throw new InvalidOperationException("No selection slots were found on the page.");
         }
 
-        for (var i = 0; i < 5; i++)
+        if (driverIds.Count < slotCount)
+        {
+            throw new InvalidOperationException($"At least {slotCount} unique driver IDs are required.");
+        }
+
+        var chosenDriverIds = driverIds
+            .Take(slotCount)
+            .Where(static driverId => !string.IsNullOrWhiteSpace(driverId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        if (chosenDriverIds < slotCount)
+        {
+            throw new InvalidOperationException($"At least {slotCount} unique driver IDs are required.");
+        }
+
+        for (var i = 0; i < slotCount; i++)
         {
             var dropdown = new SelectElement(_driver.FindElement(By.Id($"driver-select-{i + 1}")));
             _trace($"Selecting position {i + 1} -> {driverIds[i]}");
@@ -106,7 +130,8 @@ internal class SelectionPage
 
     public bool IsAnyDropdownDisabled()
     {
-        for (var i = 0; i < 5; i++)
+        var slotCount = GetSelectionSlotCount();
+        for (var i = 0; i < slotCount; i++)
         {
             var dropdown = _driver.FindElement(By.Id($"driver-select-{i + 1}"));
             if (dropdown.GetAttribute("disabled") != null)

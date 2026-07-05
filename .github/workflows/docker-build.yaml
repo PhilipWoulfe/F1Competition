@@ -309,6 +309,9 @@ jobs:
           E2E_CF_CLIENT_ID: ${{ secrets.E2E_CF_CLIENT_ID }}
           E2E_CF_CLIENT_SECRET: ${{ secrets.E2E_CF_CLIENT_SECRET }}
           E2E_RACE_ID: ${{ vars.E2E_RACE_ID }}
+          E2E_COMPETITION_SLUG: ${{ vars.E2E_COMPETITION_SLUG }}
+          E2E_SEASON: ${{ vars.E2E_SEASON }}
+          E2E_ROUND: ${{ vars.E2E_ROUND }}
         run: |
           set -euo pipefail
 
@@ -316,7 +319,10 @@ jobs:
           EXPECTED_SHA_SHORT="${GITHUB_SHA::7}"
           BASE_URL="${E2E_BASE_URL%/}"
           API_URL="${E2E_API_BASE_URL%/}"
-          RACE_ID="${E2E_RACE_ID:-2025-24-yas_marina}"
+          RACE_ID="${E2E_RACE_ID:-}"
+          COMPETITION_SLUG="${E2E_COMPETITION_SLUG:-main-2026}"
+          SEASON="${E2E_SEASON:-2026}"
+          ROUND="${E2E_ROUND:-1}"
           WEB_CHANGED="${WEB_CHANGED:-false}"
           WEB_CHECK_REQUIRED=false
 
@@ -341,10 +347,22 @@ jobs:
           max_attempts=60
           stable_required=3
           stable_count=0
+          context_response=""
+          api_config=""
 
           for attempt in $(seq 1 "$max_attempts"); do
             web_version="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$BASE_URL/version.json?ts=$(date +%s)" 2>/dev/null || true)"
-            api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$RACE_ID/config" 2>/dev/null || true)"
+            context_response=""
+            resolved_race_id="$RACE_ID"
+            if [ -z "$resolved_race_id" ]; then
+              context_response="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/races/context/$COMPETITION_SLUG/$SEASON/round/$ROUND" 2>/dev/null || true)"
+              resolved_race_id="$(printf '%s' "$context_response" | sed -n 's/.*"raceId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+            fi
+
+            api_config=""
+            if [ -n "$resolved_race_id" ]; then
+              api_config="$(curl -fsS --connect-timeout 5 --max-time 15 "${headers[@]}" "$API_URL/selections/$resolved_race_id/config" 2>/dev/null || true)"
+            fi
             actual_web_sha="$(printf '%s' "$web_version" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
             web_ok=false
@@ -359,11 +377,15 @@ jobs:
               web_ok=true
             fi
 
-            if echo "$api_config" | grep -Eq "\"raceId\"[[:space:]]*:[[:space:]]*\"$RACE_ID\""; then
+            if [ -n "$resolved_race_id" ] && echo "$api_config" | grep -Eq "\"raceId\"[[:space:]]*:[[:space:]]*\"$resolved_race_id\""; then
               api_ok=true
             fi
 
             echo "Attempt $attempt/$max_attempts: web_ok=$web_ok api_ok=$api_ok web_check_required=$WEB_CHECK_REQUIRED stable_count=$stable_count"
+            echo "resolved_race_id=${resolved_race_id:-<none>} context=$COMPETITION_SLUG/$SEASON/round/$ROUND"
+            if [ -z "$resolved_race_id" ]; then
+              echo "Race context lookup did not resolve a race id. context_response=${context_response:-<empty>}"
+            fi
             echo "expected_sha_full=$EXPECTED_SHA_FULL expected_sha_short=$EXPECTED_SHA_SHORT actual_web_sha=${actual_web_sha:-<unparsed>}"
             echo "web_version=$web_version"
 
@@ -382,6 +404,7 @@ jobs:
           done
 
           echo "Timed out waiting for deployment. expected_full=$EXPECTED_SHA_FULL expected_short=$EXPECTED_SHA_SHORT"
+          echo "Last context response: ${context_response:-<empty>}"
           echo "Last web version response: $web_version"
           echo "Last API config response: $api_config"
           exit 1
@@ -394,6 +417,9 @@ jobs:
           E2E_CF_CLIENT_ID: ${{ secrets.E2E_CF_CLIENT_ID }}
           E2E_CF_CLIENT_SECRET: ${{ secrets.E2E_CF_CLIENT_SECRET }}
           E2E_RACE_ID: ${{ vars.E2E_RACE_ID }}
+          E2E_COMPETITION_SLUG: ${{ vars.E2E_COMPETITION_SLUG }}
+          E2E_SEASON: ${{ vars.E2E_SEASON }}
+          E2E_ROUND: ${{ vars.E2E_ROUND }}
           E2E_HEADLESS: "true"
           E2E_TIMEOUT_SECONDS: "30"
           E2E_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/e2e/failure-artifacts
