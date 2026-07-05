@@ -37,7 +37,7 @@ The platform is hosted on a local **Proxmox Virtualization Environment** using D
 
 ### **Workflow Notes (Cost-Optimized)**
 1. `docker-build.yaml`
-  Runs heavy container build/push and post-deploy E2E on main and manual dispatch, with changed-service gating to skip unaffected images.
+  Runs a lightweight, path-filtered check on pull requests and runs heavy container build/push plus post-deploy E2E on main and manual dispatch, with changed-service gating to skip unaffected images.
 2. `code-quality.yml`
   Runs on pull requests for formatting/analyzers, strict build validation, and API/Web unit tests with coverage.
 3. `codeql.yml`
@@ -286,6 +286,7 @@ GitHub Actions artifact behavior:
 - Selenium step traces are always written to `TestResults/e2e/step-traces` (or `E2E_STEP_TRACE_PATH` if set).
 - Failure screenshots and HTML are written to `TestResults/e2e/failure-artifacts` when capture runs.
 - The workflow uploads `TestResults/e2e/**` and `chromedriver.log` as the `e2e-results` artifact.
+- The `e2e-results` artifact is retained for 5 days to limit storage costs.
 - Runner-local files are discarded after the job completes, so GitHub Actions artifacts are the persisted copy for CI runs.
 
 ### 4.2 VM Selenium Debug Helper (Option B)
