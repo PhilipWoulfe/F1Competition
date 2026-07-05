@@ -35,10 +35,10 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
         dbContext.MigrationImportCalculatedScores.RemoveRange(
             dbContext.MigrationImportCalculatedScores.Where(x => x.ImportRunId == runId));
-        await dbContext.SaveChangesAsync(cancellationToken);
 
         if (selections.Count == 0)
         {
+            await dbContext.SaveChangesAsync(cancellationToken);
             return new MigrationScoreRecalculationResult(ScoredPickCount: 0, TotalPoints: 0);
         }
 
