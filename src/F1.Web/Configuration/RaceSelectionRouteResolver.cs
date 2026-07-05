@@ -16,6 +16,7 @@ public static class RaceSelectionRouteResolver
     {
         context = null;
         errorMessage = null;
+        _ = relativePath;
 
         if (TryNormalizeRaceId(raceIdFromRoute, out var normalizedRaceId))
         {
@@ -46,18 +47,7 @@ public static class RaceSelectionRouteResolver
             return true;
         }
 
-        if (IsCompatibilityRoute(relativePath))
-        {
-            // Temporary compatibility route. Remove in PR F cleanup.
-            context = new RaceSelectionContext
-            {
-                RaceId = SelectionDefaults.CompatibilityRaceId,
-                ContextKey = $"compat:{SelectionDefaults.CompatibilityRoutePath}"
-            };
-            return true;
-        }
-
-        errorMessage ??= "Race context is missing. Open this page using /selection/{raceId} or /selection/{competition}/{season}/round/{round}.";
+        errorMessage ??= "Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.";
         return false;
     }
 
@@ -181,11 +171,5 @@ public static class RaceSelectionRouteResolver
 
         normalized = trimmed;
         return true;
-    }
-
-    private static bool IsCompatibilityRoute(string relativePath)
-    {
-        var pathOnly = relativePath.Split('?', '#')[0].Trim('/');
-        return string.Equals(pathOnly, SelectionDefaults.CompatibilityRoutePath, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -50,15 +50,13 @@ public class RaceSelectionRouteResolverTests
     }
 
     [Fact]
-    public void TryResolve_WhenCompatibilityPathUsed_ReturnsCompatibilityRaceContext()
+    public void TryResolve_WhenLegacyPathUsed_ReturnsMissingContextError()
     {
-        var success = RaceSelectionRouteResolver.TryResolve(null, null, null, null, null, SelectionDefaults.CompatibilityRoutePath, out var context, out var errorMessage);
+        var success = RaceSelectionRouteResolver.TryResolve(null, null, null, null, null, "yas-marina-selection", out var context, out var errorMessage);
 
-        Assert.True(success);
-        Assert.NotNull(context);
-        Assert.Equal(SelectionDefaults.CompatibilityRaceId, context.RaceId);
-        Assert.Null(context.Lookup);
-        Assert.Null(errorMessage);
+        Assert.False(success);
+        Assert.Null(context);
+        Assert.Equal("Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.", errorMessage);
     }
 
     [Fact]
@@ -68,7 +66,7 @@ public class RaceSelectionRouteResolverTests
 
         Assert.False(success);
         Assert.Null(context);
-        Assert.Equal("Race context is missing. Open this page using /selection/{raceId} or /selection/{competition}/{season}/round/{round}.", errorMessage);
+        Assert.Equal("Race context is missing. Open this page using /selection/{raceId}, /selection/{competition}/{season}/round/{round}, or /selection/{competition}/{season}/{raceSlug}.", errorMessage);
     }
 
     [Fact]

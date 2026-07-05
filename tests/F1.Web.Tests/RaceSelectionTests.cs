@@ -372,16 +372,39 @@ public class RaceSelectionTests : BunitContext
     }
 
     [Fact]
-    public void RaceSelection_ShouldUseCompatibilityRoute_WhenYasMarinaPathIsUsed()
+    public void RaceSelection_ShouldResolveSlugContext_ThenLoadRaceByCanonicalRaceId()
     {
-        var (_, selectionMock, _, _) = RegisterDefaultMocks();
-        NavigateTo(SelectionDefaults.CompatibilityRoutePath);
+        var resolved = new RaceContextResolution
+        {
+            RaceId = "main-2026-1-bahrain-grand-prix",
+            CompetitionSlug = "main",
+            Season = 2026,
+            Round = 1,
+            RaceSlug = "bahrain-grand-prix"
+        };
 
-        var cut = Render<RaceSelection>();
+        var (_, selectionMock, _, raceContextMock) = RegisterDefaultMocks(
+            config: new RaceConfig
+            {
+                RaceId = resolved.RaceId,
+                PreQualyDeadlineUtc = new DateTime(2026, 3, 6, 4, 30, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2026, 3, 7, 3, 30, 0, DateTimeKind.Utc),
+                BetOptions = DefaultRaceConfig.BetOptions
+            },
+            resolvedContext: resolved);
+
+        NavigateTo("selection/main/2026/bahrain-grand-prix");
+        var cut = Render<RaceSelection>(parameters => parameters
+            .Add(p => p.Competition, "main")
+            .Add(p => p.Season, 2026)
+            .Add(p => p.RaceSlug, "bahrain-grand-prix"));
 
         cut.WaitForAssertion(() => Assert.Contains("Countdown:", cut.Markup));
+        raceContextMock.Verify(
+            s => s.ResolveBySlugAsync("main", 2026, "bahrain-grand-prix", It.IsAny<CancellationToken>()),
+            Times.Once);
         selectionMock.Verify(
-            s => s.GetConfigAsync(SelectionDefaults.CompatibilityRaceId, It.IsAny<CancellationToken>()),
+            s => s.GetConfigAsync(resolved.RaceId, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
