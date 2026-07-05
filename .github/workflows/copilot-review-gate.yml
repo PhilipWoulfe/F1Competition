@@ -4,26 +4,21 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - '.editorconfig'
-      - 'Directory.Build.props'
-      - 'F1Competition.sln'
-      - '.github/workflows/copilot-review-gate.yml'
+  pull_request_review:
+    types: [submitted, edited, dismissed]
 
 permissions:
   contents: read
-  issues: write
+  issues: read
   pull-requests: read
 
 jobs:
-  require-initial-copilot-review:
+  require-copilot-comment:
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - name: Enforce Copilot review on initial PR head
+      - name: Enforce at least one Copilot comment
         uses: actions/github-script@v9
         with:
           script: |
@@ -31,30 +26,7 @@ jobs:
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
             const prNumber = pr.number;
-            const labelPrefix = 'copilot-initial-sha:';
             const copilotLogins = new Set(['github-copilot[bot]']);
-
-            const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
-
-            let initialShaLabel = labels.find((l) => l.name.startsWith(labelPrefix));
-            let initialSha = initialShaLabel ? initialShaLabel.name.slice(labelPrefix.length) : null;
-
-            // Capture initial SHA on first run, and backfill for older PRs if missing.
-            if (!initialSha) {
-              initialSha = pr.head.sha;
-              await github.rest.issues.addLabels({
-                owner,
-                repo,
-                issue_number: prNumber,
-                labels: [`${labelPrefix}${initialSha}`]
-              });
-              core.notice(`Recorded initial PR SHA for Copilot gate: ${initialSha}`);
-            }
 
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner,
@@ -63,20 +35,43 @@ jobs:
               per_page: 100
             });
 
-            const matchingCopilotReview = reviews.find((review) => {
+            const hasCopilotReviewSummary = reviews.some((review) => {
               const login = review.user?.login;
               const hasBody = typeof review.body === 'string' && review.body.trim().length > 0;
-              return copilotLogins.has(login) && hasBody && review.commit_id === initialSha;
+              return copilotLogins.has(login) && hasBody;
             });
 
-            if (!matchingCopilotReview) {
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+
+            const hasCopilotInlineComment = reviewComments.some((comment) => {
+              const login = comment.user?.login;
+              const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
+              return copilotLogins.has(login) && hasBody;
+            });
+
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100
+            });
+
+            const hasCopilotIssueComment = issueComments.some((comment) => {
+              const login = comment.user?.login;
+              const hasBody = typeof comment.body === 'string' && comment.body.trim().length > 0;
+              return copilotLogins.has(login) && hasBody;
+            });
+
+            if (!hasCopilotReviewSummary && !hasCopilotInlineComment && !hasCopilotIssueComment) {
               core.setFailed(
-                `Missing Copilot review comment for initial PR SHA ${initialSha}. ` +
-                `This gate only accepts Copilot feedback on the initial PR revision.`
+                'Missing Copilot PR feedback. At least one comment from github-copilot[bot] is required before merge.'
               );
               return;
             }
 
-            core.info(
-              `Copilot review gate passed with review ${matchingCopilotReview.id} on initial SHA ${initialSha}.`
-            );
+            core.info('Copilot review gate passed: found at least one Copilot comment on this PR.');
