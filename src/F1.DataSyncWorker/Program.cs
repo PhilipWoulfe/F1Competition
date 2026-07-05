@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IMigrationRaceSelectionParser, MigrationRaceSelect
 builder.Services.AddSingleton<IMigrationRaceRoundMapper, MigrationRaceRoundMapper>();
 builder.Services.AddSingleton<IMigrationScoreRecalculator, MigrationScoreRecalculator>();
 builder.Services.AddSingleton<IMigrationLegacyScoreImporter, MigrationLegacyScoreImporter>();
+builder.Services.AddSingleton<IMigrationReconciliationService, MigrationReconciliationService>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

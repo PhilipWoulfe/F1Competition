@@ -24,6 +24,10 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportLegacyPickScoreEntity> MigrationImportLegacyPickScores => Set<MigrationImportLegacyPickScoreEntity>();
     public DbSet<MigrationImportImportedTotalEntity> MigrationImportImportedTotals => Set<MigrationImportImportedTotalEntity>();
     public DbSet<MigrationImportCalculatedTotalEntity> MigrationImportCalculatedTotals => Set<MigrationImportCalculatedTotalEntity>();
+    public DbSet<MigrationImportPickDiffEntity> MigrationImportPickDiffs => Set<MigrationImportPickDiffEntity>();
+    public DbSet<MigrationImportRaceDiffEntity> MigrationImportRaceDiffs => Set<MigrationImportRaceDiffEntity>();
+    public DbSet<MigrationImportParticipantDeltaSummaryEntity> MigrationImportParticipantDeltaSummaries => Set<MigrationImportParticipantDeltaSummaryEntity>();
+    public DbSet<MigrationImportReasonCategorySummaryEntity> MigrationImportReasonCategorySummaries => Set<MigrationImportReasonCategorySummaryEntity>();
     public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
@@ -225,6 +229,70 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportPickDiffEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportPickDiffs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Explanation).HasMaxLength(1024).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.Subject, x.PickType }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportRaceDiffEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRaceDiffs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Explanation).HasMaxLength(1024).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportParticipantDeltaSummaryEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportParticipantDeltaSummaries");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.TopReasonCode).HasMaxLength(64);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportReasonCategorySummaryEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportReasonCategorySummaries");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.ReasonCode }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportUnresolvedTokenEntity>(entity =>
