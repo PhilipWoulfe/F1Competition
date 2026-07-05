@@ -40,7 +40,9 @@ void ConfigureApi(IServiceProvider sp, HttpClient client)
             }.Uri;
 
             client.BaseAddress = normalized;
-            Console.WriteLine($"[Config] Normalized API address from '{configuredAbsoluteUri}' to '{normalized}'.");
+#if DEBUG
+            Console.WriteLine($"[Config] Normalized API address host from '{configuredAbsoluteUri.Host}:{configuredAbsoluteUri.Port}' to '{normalized.Host}:{normalized.Port}'.");
+#endif
         }
         else
         {
