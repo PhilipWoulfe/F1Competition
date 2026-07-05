@@ -8,16 +8,22 @@ public sealed class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IDataSyncOrchestrator _orchestrator;
-    private readonly DataSyncOptions _options;
+    private readonly IMigrationImportOrchestrator _migrationImportOrchestrator;
+    private readonly DataSyncOptions _dataSyncOptions;
+    private readonly MigrationImportOptions _migrationImportOptions;
 
     public Worker(
         ILogger<Worker> logger,
         IDataSyncOrchestrator orchestrator,
-        IOptions<DataSyncOptions> options)
+        IMigrationImportOrchestrator migrationImportOrchestrator,
+        IOptions<DataSyncOptions> dataSyncOptions,
+        IOptions<MigrationImportOptions> migrationImportOptions)
     {
         _logger = logger;
         _orchestrator = orchestrator;
-        _options = options.Value;
+        _migrationImportOrchestrator = migrationImportOrchestrator;
+        _dataSyncOptions = dataSyncOptions.Value;
+        _migrationImportOptions = migrationImportOptions.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -28,7 +34,14 @@ public sealed class Worker : BackgroundService
         {
             try
             {
-                await _orchestrator.RunOnceAsync(stoppingToken);
+                if (_migrationImportOptions.Enabled)
+                {
+                    await _migrationImportOrchestrator.RunOnceAsync(stoppingToken);
+                }
+                else
+                {
+                    await _orchestrator.RunOnceAsync(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -36,22 +49,28 @@ public sealed class Worker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Data sync run failed.");
+                _logger.LogError(ex, "Worker run failed.");
 
-                if (!_options.ContinueOnError)
+                if (!_dataSyncOptions.ContinueOnError)
                 {
                     throw;
                 }
             }
 
-            if (_options.IntervalMinutes <= 0)
+            if (_migrationImportOptions.Enabled)
             {
-                _logger.LogInformation("IntervalMinutes is {IntervalMinutes}. Exiting after single run.", _options.IntervalMinutes);
+                _logger.LogInformation("Migration import mode runs once per process. Exiting.");
                 break;
             }
 
-            var delay = TimeSpan.FromMinutes(_options.IntervalMinutes);
-            _logger.LogInformation("Next data sync run scheduled in {DelayMinutes} minutes.", _options.IntervalMinutes);
+            if (_dataSyncOptions.IntervalMinutes <= 0)
+            {
+                _logger.LogInformation("IntervalMinutes is {IntervalMinutes}. Exiting after single run.", _dataSyncOptions.IntervalMinutes);
+                break;
+            }
+
+            var delay = TimeSpan.FromMinutes(_dataSyncOptions.IntervalMinutes);
+            _logger.LogInformation("Next data sync run scheduled in {DelayMinutes} minutes.", _dataSyncOptions.IntervalMinutes);
             await Task.Delay(delay, stoppingToken);
         }
 
