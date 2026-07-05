@@ -102,7 +102,7 @@ if (response.StatusCode == HttpStatusCode.NotFound)
         _httpClient.DefaultRequestHeaders.Add("X-Mock-Date", isoDate);
     }
 
-    public async Task<HttpResponseMessage> PostSelectionAsync(string raceId, object submission)
+    public async Task<HttpResponseMessage> PutSelectionAsync(string raceId, object submission)
     {
         var response = await _httpClient.PutAsJsonAsync($"selections/{raceId}/mine", submission);
         return response;
@@ -132,7 +132,7 @@ if (response.StatusCode == HttpStatusCode.NotFound)
 
     private static bool IsTransientStatus(HttpStatusCode? statusCode)
     {
-        return statusCode is HttpStatusCode.NotFound or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+        return statusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
     }
 }
 

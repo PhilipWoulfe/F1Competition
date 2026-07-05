@@ -176,7 +176,7 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             }
         };
 
-        var response = await api.PostSelectionAsync(options.RaceId, submission);
+        var response = await api.PutSelectionAsync(options.RaceId, submission);
         Assert.True(
             response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
             response.StatusCode == System.Net.HttpStatusCode.BadRequest ||
