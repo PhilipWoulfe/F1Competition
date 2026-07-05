@@ -1,8 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["F1.Web.csproj", "."]
-RUN dotnet restore "F1.Web.csproj"
+COPY ["src/F1.Web/F1.Web.csproj", "src/F1.Web/"]
+COPY ["src/F1.Core/F1.Core.csproj", "src/F1.Core/"]
+RUN dotnet restore "src/F1.Web/F1.Web.csproj"
 COPY . .
+WORKDIR /src/src/F1.Web
 ARG CONFIGURATION=Release
 RUN dotnet publish "F1.Web.csproj" -c $CONFIGURATION -o /app/publish /p:UseAppHost=false
 
@@ -13,7 +15,7 @@ RUN echo "{ \"version\": \"$COMMIT_HASH\" }" > /app/publish/wwwroot/version.json
 FROM nginx:1.25.3-alpine
 WORKDIR /usr/share/nginx/html
 COPY --from=build /app/publish/wwwroot .
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY src/F1.Web/nginx.conf /etc/nginx/templates/default.conf.template
 
 # Install jq for runtime configuration injection
 RUN apk add --no-cache jq
