@@ -121,12 +121,16 @@ public sealed class MigrationRaceRoundMapper : IMigrationRaceRoundMapper
             return null;
         }
 
-        if (!DateTime.TryParse($"{date}T{time}", null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
+        if (!DateTimeOffset.TryParse(
+                $"{date}T{time}",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed))
         {
             return null;
         }
 
-        return parsed;
+        return parsed.UtcDateTime;
     }
 
     private static string AppendWarning(string? existing, string message)
