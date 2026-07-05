@@ -311,7 +311,7 @@ public class RaceSelectionTests : BunitContext
     public void RaceSelection_ShouldUseCompatibilityRoute_WhenYasMarinaPathIsUsed()
     {
         var (_, selectionMock, _) = RegisterDefaultMocks();
-        NavigateTo("yas-marina-selection");
+        NavigateTo(SelectionDefaults.CompatibilityRoutePath);
 
         var cut = Render<RaceSelection>();
 

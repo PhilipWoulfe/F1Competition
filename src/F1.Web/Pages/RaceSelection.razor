@@ -65,8 +65,6 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        StartCountdownTimerIfNeeded();
-
         if (!TryResolveRouteContext(out var routeContext))
         {
             loadedRaceId = null;
@@ -76,6 +74,8 @@ else
             isReadOnly = false;
             return;
         }
+
+        StartCountdownTimerIfNeeded();
 
         if (string.Equals(loadedRaceId, routeContext.RaceId, StringComparison.OrdinalIgnoreCase))
         {

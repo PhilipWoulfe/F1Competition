@@ -18,7 +18,7 @@ public class RaceSelectionRouteResolverTests
     [Fact]
     public void TryResolve_WhenCompatibilityPathUsed_ReturnsCompatibilityRaceContext()
     {
-        var success = RaceSelectionRouteResolver.TryResolve(null, "yas-marina-selection", out var context, out var errorMessage);
+        var success = RaceSelectionRouteResolver.TryResolve(null, SelectionDefaults.CompatibilityRoutePath, out var context, out var errorMessage);
 
         Assert.True(success);
         Assert.NotNull(context);
