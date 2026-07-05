@@ -1,14 +1,10 @@
 using F1.Web.Models;
-using System.Text.RegularExpressions;
+using F1.Core.Identifiers;
 
 namespace F1.Web.Configuration;
 
 public static class RaceSelectionRouteResolver
 {
-    private static readonly Regex CanonicalRaceIdPattern = new(
-        "^[a-z0-9]+(?:-[a-z0-9]+)*-[1-9][0-9]{3}-[1-9][0-9]*-[a-z0-9]+(?:-[a-z0-9]+)*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     public static bool TryResolve(
         string? raceIdFromRoute,
         string? competitionFromRoute,
@@ -138,20 +134,7 @@ public static class RaceSelectionRouteResolver
 
     private static bool TryNormalizeCanonicalRaceId(string? raceId, out string normalizedRaceId)
     {
-        normalizedRaceId = string.Empty;
-        if (string.IsNullOrWhiteSpace(raceId))
-        {
-            return false;
-        }
-
-        var trimmed = raceId.Trim().ToLowerInvariant();
-        if (!CanonicalRaceIdPattern.IsMatch(trimmed))
-        {
-            return false;
-        }
-
-        normalizedRaceId = trimmed;
-        return true;
+        return CanonicalRaceId.TryNormalize(raceId, out normalizedRaceId);
     }
 
     private static bool TryNormalizeSlug(string? value, out string normalized)
