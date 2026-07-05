@@ -21,7 +21,7 @@ on:
       - 'coverlet*.runsettings'
       - 'Directory.Build.props'
       - 'F1Competition.sln'
-      - '.github/workflows/docker-build.yaml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 concurrency:

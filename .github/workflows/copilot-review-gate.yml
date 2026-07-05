@@ -4,13 +4,6 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - '.editorconfig'
-      - 'Directory.Build.props'
-      - 'F1Competition.sln'
-      - '.github/workflows/copilot-review-gate.yml'
 
 permissions:
   contents: read
