@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'coverlet*.runsettings'
       - 'Directory.Build.props'
       - 'F1Competition.sln'
       - '.github/workflows/code-quality.yml'
@@ -84,4 +85,46 @@ jobs:
           dotnet build src/F1.Web/F1.Web.csproj --configuration Release --no-restore /warnaserror
           dotnet build tests/F1.Api.Tests/F1.Api.Tests.csproj --configuration Release --no-restore /warnaserror
           dotnet build tests/F1.Web.Tests/F1.Web.Tests.csproj --configuration Release --no-restore /warnaserror
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            F1Competition.sln
+
+      - name: Restore dependencies
+        run: |
+          dotnet restore tests/F1.Api.Tests/F1.Api.Tests.csproj
+          dotnet restore tests/F1.Web.Tests/F1.Web.Tests.csproj
+
+      - name: Run API Unit Tests with Coverage
+        run: |
+          dotnet test tests/F1.Api.Tests/F1.Api.Tests.csproj \
+            --configuration Debug \
+            --nologo \
+            --verbosity minimal \
+            --collect:"XPlat Code Coverage" \
+            --settings coverlet.api.runsettings \
+            --results-directory ./coverage/api-coverage
+
+      - name: Run Web Unit Tests with Coverage
+        run: |
+          dotnet test tests/F1.Web.Tests/F1.Web.Tests.csproj \
+            --configuration Debug \
+            --nologo \
+            --verbosity minimal \
+            --collect:"XPlat Code Coverage" \
+            --settings coverlet.web.runsettings \
+            --results-directory ./coverage/web-coverage
 
