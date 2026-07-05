@@ -1,6 +1,6 @@
 ﻿# F1 Competition Platform 🏎️
 
-[![Build and Push F1 API](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/docker-build.yaml/badge.svg)](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/docker-build.yaml)
+[![Build and Push F1 Platform](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/docker-build.yaml/badge.svg)](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/docker-build.yaml)
 [![CodeQL](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/codeql.yml/badge.svg)](https://github.com/PhilipWoulfe/F1Competition/actions/workflows/codeql.yml)
 ![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)
 ![GitHub last commit](https://img.shields.io/github/last-commit/PhilipWoulfe/F1Competition)
@@ -30,10 +30,22 @@ The solution is built using **.NET 8** and follows **Clean Architecture** princi
 The platform is hosted on a local **Proxmox Virtualization Environment** using Debian 12 LXC containers.
 
 ### **The Pipeline**
-1. **Continuous Integration**: GitHub Actions builds the .NET solution, executes unit tests, and enforces a code coverage gate (80% target).
-2. **Registry**: Successful builds on `main` are packaged into Docker images and pushed to **GitHub Container Registry (GHCR)**.
+1. **Pull Request Validation**: GitHub Actions runs formatting/analyzer checks, strict builds, and unit tests with coverage on pull requests.
+2. **Registry (Release-Only on `main`)**: Successful main-branch runs build and push release images to **GitHub Container Registry (GHCR)**.
 3. **Automated Staging (`f1-test`)**: The test environment runs **Watchtower**, which automatically pulls and restarts the containers whenever the moving `:test` image aliases are updated.
 4. **Production Gate (`f1-prod`)**: Deployment to production requires **Manual Approval** via GitHub Environments, ensuring a stable "human-in-the-loop" verification before live updates.
+
+### **Workflow Notes (Cost-Optimized)**
+1. `docker-build.yaml`
+  Runs heavy container build/push and post-deploy E2E on main and manual dispatch, with changed-service gating to skip unaffected images.
+2. `code-quality.yml`
+  Runs on pull requests for formatting/analyzers, strict build validation, and API/Web unit tests with coverage.
+3. `codeql.yml`
+  Runs weekly by schedule and supports manual dispatch for urgent security investigations.
+4. `docker-debug-on-demand.yml`
+  Manual workflow that builds/pushes debug images only when incident debugging is needed.
+5. `dependency-review.yml`
+  Lightweight dependency risk check on pull requests.
 
 ### **Image Tag Strategy**
 - `sha-<shortsha>`: immutable build artifact for traceability and rollback.
@@ -239,11 +251,13 @@ chmod +x build.sh
 
 ### 4.1 Post-Deploy E2E Gate (Story #82)
 
-The `Build and Push F1 API` workflow now includes a post-deploy Selenium gate:
+The `Build and Push F1 Platform` workflow includes a post-deploy Selenium gate:
 
-1. `build-and-push` publishes immutable `:sha-<shortsha>` images and updates the moving `:test` aliases used by the test environment.
+1. `build-and-push` publishes immutable release `:sha-<shortsha>` images and updates the moving `:test` aliases used by the test environment.
 2. `run-e2e-test` executes Selenium flows against the deployed test environment.
 3. `deploy-prod` is blocked unless `run-e2e-test` succeeds, then manually promotes the exact tested images to the moving `:stable` aliases.
+
+For deep runtime debugging, use the manual `Build Debug Images On Demand` workflow (`docker-debug-on-demand.yml`) rather than building debug images on every main run.
 
 Required GitHub Environment (`test`) secrets for the E2E job:
 

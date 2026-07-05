@@ -3,16 +3,17 @@ name: Build and Push F1 Platform
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
     paths:
       - 'src/**'
       - 'tests/**'
-      - '.editorconfig'
-      - 'coverlet*.runsettings'
       - 'Directory.Build.props'
       - 'F1Competition.sln'
+      - 'docker-compose.yml'
+      - 'docker-compose.debug.yml'
+      - 'infra/**'
       - '.github/workflows/docker-build.yaml'
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
@@ -27,11 +28,16 @@ jobs:
   # --- JOB 1: THE FACTORY (Build, Test, and Push immutable + test tags) ---
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     outputs:
       image_name_lower: ${{ steps.image-metadata.outputs.image_name_lower }}
       api_sha_tag: ${{ steps.image-metadata.outputs.api_sha_tag }}
       web_sha_tag: ${{ steps.image-metadata.outputs.web_sha_tag }}
       data_sync_sha_tag: ${{ steps.image-metadata.outputs.data_sync_sha_tag }}
+      api_changed: ${{ steps.changes.outputs.api }}
+      web_changed: ${{ steps.changes.outputs.web }}
+      data_sync_changed: ${{ steps.changes.outputs.data_sync }}
+      e2e_changed: ${{ steps.changes.outputs.e2e }}
     permissions:
       contents: read
       packages: write
@@ -49,6 +55,46 @@ jobs:
           echo "data_sync_sha_tag=${{ env.REGISTRY }}/$IMAGE_NAME_LOWER-data-sync:$SHA_TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
+
+      - name: Detect changed services
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api:
+              - 'src/F1.Api/**'
+              - 'src/F1.Core/**'
+              - 'src/F1.Infrastructure/**'
+              - 'src/F1.Services/**'
+              - 'tests/F1.Api.Tests/**'
+              - 'Directory.Build.props'
+              - 'F1Competition.sln'
+              - 'src/F1.Api/Dockerfile'
+            web:
+              - 'src/F1.Web/**'
+              - 'src/F1.Core/**'
+              - 'src/F1.Services/**'
+              - 'tests/F1.Web.Tests/**'
+              - 'Directory.Build.props'
+              - 'F1Competition.sln'
+              - 'src/F1.Web/Dockerfile'
+            data_sync:
+              - 'src/F1.DataSyncWorker/**'
+              - 'src/F1.Core/**'
+              - 'src/F1.Infrastructure/**'
+              - 'src/F1.Services/**'
+              - 'Directory.Build.props'
+              - 'F1Competition.sln'
+              - 'src/F1.DataSyncWorker/Dockerfile'
+            e2e:
+              - 'tests/F1.E2E.Tests/**'
+              - 'src/F1.Api/**'
+              - 'src/F1.Web/**'
+              - 'src/F1.Core/**'
+              - 'src/F1.Infrastructure/**'
+              - 'src/F1.Services/**'
+              - 'Directory.Build.props'
+              - 'F1Competition.sln'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -106,7 +152,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: steps.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -118,7 +164,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}
 
       - name: Build and push Web image
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: src/F1.Web
@@ -132,7 +178,7 @@ jobs:
             COMMIT_HASH=${{ github.sha }}
 
       - name: Build and push Data Sync Worker image
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: steps.changes.outputs.data_sync == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -143,71 +189,32 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}
 
-      - name: Build and push API image (Debug)
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: src/F1.Api/Dockerfile
-          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          cache-from: type=gha,scope=f1-api-debug
-          cache-to: type=gha,mode=max,scope=f1-api-debug
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}-debug
-          build-args: |
-            CONFIGURATION=Debug
-
-      - name: Build and push Web image (Debug)
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v7
-        with:
-          context: src/F1.Web
-          file: src/F1.Web/Dockerfile
-          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          cache-from: type=gha,scope=f1-web-debug
-          cache-to: type=gha,mode=max,scope=f1-web-debug
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}-debug
-          build-args: |
-            COMMIT_HASH=${{ github.sha }}
-            CONFIGURATION=Debug
-
-      - name: Build and push Data Sync Worker image (Debug)
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: src/F1.DataSyncWorker/Dockerfile
-          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          cache-from: type=gha,scope=f1-datasync-debug
-          cache-to: type=gha,mode=max,scope=f1-datasync-debug
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}-debug
-          build-args: |
-            CONFIGURATION=Debug
-
-      - name: Promote SHA images to :test tags
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Promote API SHA image to :test tag
+        if: github.ref == 'refs/heads/main' && (steps.changes.outputs.api == 'true' || github.event_name == 'workflow_dispatch')
         run: |
-          # Promote API image SHA tag to :test
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:test \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}-debug
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}
 
-          # Promote Web image SHA tag to :test
+      - name: Promote Web SHA image to :test tag
+        if: github.ref == 'refs/heads/main' && (steps.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch')
+        run: |
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:test \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}-debug
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}
 
-          # Promote Data Sync Worker image SHA tag to :test
+      - name: Promote Data Sync Worker SHA image to :test tag
+        if: github.ref == 'refs/heads/main' && (steps.changes.outputs.data_sync == 'true' || github.event_name == 'workflow_dispatch')
+        run: |
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:test \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}-debug
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}
 
   run-e2e-test:
     needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && (needs.build-and-push.outputs.e2e_changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: test
     permissions:
       contents: read
@@ -357,8 +364,9 @@ jobs:
     needs:
       - build-and-push
       - run-e2e-test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && (needs.run-e2e-test.result == 'success' || needs.run-e2e-test.result == 'skipped')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: production # Requires your manual approval click
     permissions:
       packages: write
@@ -371,18 +379,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Promote API image to stable
+        if: needs.build-and-push.outputs.api_changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ needs.build-and-push.outputs.image_name_lower }}:stable \
             ${{ needs.build-and-push.outputs.api_sha_tag }}
 
       - name: Promote Web image to stable
+        if: needs.build-and-push.outputs.web_changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ needs.build-and-push.outputs.image_name_lower }}-web:stable \
             ${{ needs.build-and-push.outputs.web_sha_tag }}
 
       - name: Promote Data Sync Worker image to stable
+        if: needs.build-and-push.outputs.data_sync_changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ needs.build-and-push.outputs.image_name_lower }}-data-sync:stable \

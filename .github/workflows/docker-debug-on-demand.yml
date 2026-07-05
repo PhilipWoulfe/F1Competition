@@ -1,0 +1,93 @@
+name: Build Debug Images On Demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service to build debug image for
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - api
+          - web
+          - data-sync
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-debug-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compute image metadata
+        run: |
+          IMAGE_NAME_LOWER="$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')"
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          echo "IMAGE_NAME_LOWER=$IMAGE_NAME_LOWER" >> "$GITHUB_ENV"
+          echo "SHA_TAG=$SHA_TAG" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+          install: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image (Debug)
+        if: github.event.inputs.service == 'all' || github.event.inputs.service == 'api'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: src/F1.Api/Dockerfile
+          push: true
+          cache-from: type=gha,scope=f1-api-debug
+          cache-to: type=gha,mode=max,scope=f1-api-debug
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.SHA_TAG }}-debug
+          build-args: |
+            CONFIGURATION=Debug
+
+      - name: Build and push Web image (Debug)
+        if: github.event.inputs.service == 'all' || github.event.inputs.service == 'web'
+        uses: docker/build-push-action@v7
+        with:
+          context: src/F1.Web
+          file: src/F1.Web/Dockerfile
+          push: true
+          cache-from: type=gha,scope=f1-web-debug
+          cache-to: type=gha,mode=max,scope=f1-web-debug
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-web:${{ env.SHA_TAG }}-debug
+          build-args: |
+            COMMIT_HASH=${{ github.sha }}
+            CONFIGURATION=Debug
+
+      - name: Build and push Data Sync Worker image (Debug)
+        if: github.event.inputs.service == 'all' || github.event.inputs.service == 'data-sync'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: src/F1.DataSyncWorker/Dockerfile
+          push: true
+          cache-from: type=gha,scope=f1-datasync-debug
+          cache-to: type=gha,mode=max,scope=f1-datasync-debug
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}-data-sync:${{ env.SHA_TAG }}-debug
+          build-args: |
+            CONFIGURATION=Debug
