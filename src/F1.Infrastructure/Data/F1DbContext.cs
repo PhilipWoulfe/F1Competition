@@ -20,6 +20,7 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
     public DbSet<MigrationImportRaceSelectionEntity> MigrationImportRaceSelections => Set<MigrationImportRaceSelectionEntity>();
+    public DbSet<MigrationImportCalculatedScoreEntity> MigrationImportCalculatedScores => Set<MigrationImportCalculatedScoreEntity>();
     public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
@@ -149,6 +150,25 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.RawValue).HasMaxLength(512);
             entity.Property(x => x.NormalizedValue).HasMaxLength(512);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportCalculatedScoreEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportCalculatedScores");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PredictedValue).HasMaxLength(512);
+            entity.Property(x => x.ActualValue).HasMaxLength(512);
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()
