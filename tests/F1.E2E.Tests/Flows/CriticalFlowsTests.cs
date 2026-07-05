@@ -7,14 +7,10 @@ namespace F1.E2E.Tests.Flows;
 
 public class CriticalFlowsTests(ITestOutputHelper output)
 {
-    [Fact]
+    [E2EFact]
     public void Login_ShouldSucceed()
     {
         var options = E2eOptions.FromEnvironment();
-        if (!options.Enabled)
-        {
-            return;
-        }
 
         using var trace = E2eStepTrace.Start(nameof(Login_ShouldSucceed), output);
         using var driver = WebDriverFactory.Create(options);
@@ -39,14 +35,10 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [E2EFact]
     public async Task SubmitSelection_ShouldPersistServerSide()
     {
         var options = E2eOptions.FromEnvironment();
-        if (!options.Enabled)
-        {
-            return;
-        }
 
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldPersistServerSide), output);
         using var driver = WebDriverFactory.Create(options);
@@ -149,14 +141,10 @@ public class CriticalFlowsTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [E2EFact]
     public async Task SubmitSelection_ShouldBeForbidden_AfterDeadline_Api()
     {
         var options = E2eOptions.FromEnvironment();
-        if (!options.Enabled)
-        {
-            return;
-        }
 
         // Set mock date header to after the final deadline
         var afterDeadline = "2025-12-08T12:01:00Z";
@@ -184,14 +172,10 @@ public class CriticalFlowsTests(ITestOutputHelper output)
             $"Expected forbidden, bad request, or method not allowed, got {response.StatusCode}");
     }
 
-    [Fact]
+    [E2EFact]
     public async Task SubmitSelection_ShouldShowError_AfterDeadline_Ui()
     {
         var options = E2eOptions.FromEnvironment();
-        if (!options.Enabled)
-        {
-            return;
-        }
 
         var afterDeadline = "2025-12-08T12:01:00Z";
         using var trace = E2eStepTrace.Start(nameof(SubmitSelection_ShouldShowError_AfterDeadline_Ui), output);

@@ -332,7 +332,18 @@ Notes:
 - Keep Cloudflare service token values out of the script. Set `E2E_CF_CLIENT_ID` and `E2E_CF_CLIENT_SECRET` in your shell when needed.
 - If API verification returns 404, verify `E2E_API_BASE_URL` is correct for your route path.
 
-### 4.3 Deployment Environment Tag Settings
+### 4.3 Local `dotnet test` Runs
+
+The E2E test project also reads the repository root `.env` file when you run `dotnet test tests/F1.E2E.Tests/F1.E2E.Tests.csproj` locally.
+
+Create a local `.env` (for example by copying `.env.example`) and point it at the local container ports:
+
+- `E2E_BASE_URL=http://localhost:5001`
+- `E2E_API_BASE_URL=http://localhost:5000`
+
+If you want the browser flows to execute locally, start the local stack first, then run the E2E project test command directly.
+
+### 4.4 Deployment Environment Tag Settings
 
 Set deployment host `.env` files to match the image promotion flow:
 
@@ -342,7 +353,7 @@ Set deployment host `.env` files to match the image promotion flow:
 
 After changing `TAG` or any other deployment environment variable, recreate the containers. Watchtower updates images but does not apply changed container environment settings on its own.
 
-### 4.4 Proxmox ZFS Log Storage
+### 4.5 Proxmox ZFS Log Storage
 
 For persistent API logs on Proxmox, keep test and production isolated with separate ZFS datasets and mount each dataset into its matching LXC.
 
@@ -374,7 +385,7 @@ Notes:
 - Inside each LXC, set `HOST_LOG_PATH=/mnt/f1-logs` in the deployment `.env` before recreating the API container.
 - The `selenium` mount is reserved for manual or self-hosted test runs. GitHub Actions still uploads CI artifacts to the workflow run rather than writing them to Proxmox storage.
 
-### 4.5 SSH Log Cheat Sheet
+### 4.6 SSH Log Cheat Sheet
 
 After the mount is in place and the API container has been recreated, use the following commands inside `f1-test` or `f1-prod`.
 
