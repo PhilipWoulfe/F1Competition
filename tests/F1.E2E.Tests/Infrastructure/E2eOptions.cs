@@ -13,8 +13,23 @@ internal class E2eOptions
 
     public static E2eOptions FromEnvironment()
     {
-        var required = ParseBool(Environment.GetEnvironmentVariable("E2E_REQUIRED"), false);
-        var baseUrl = Environment.GetEnvironmentVariable("E2E_BASE_URL") ?? string.Empty;
+        var localSettings = LoadLocalDotEnv();
+
+        string? GetSetting(string name)
+        {
+            var envValue = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(envValue))
+            {
+                return envValue;
+            }
+
+            return localSettings.TryGetValue(name, out var localValue) && !string.IsNullOrWhiteSpace(localValue)
+                ? localValue
+                : null;
+        }
+
+        var required = ParseBool(GetSetting("E2E_REQUIRED"), false);
+        var baseUrl = GetSetting("E2E_BASE_URL") ?? string.Empty;
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
             if (required)
@@ -25,19 +40,19 @@ internal class E2eOptions
             return new E2eOptions { Enabled = false };
         }
 
-        var apiBaseUrl = Environment.GetEnvironmentVariable("E2E_API_BASE_URL");
+        var apiBaseUrl = GetSetting("E2E_API_BASE_URL");
         if (string.IsNullOrWhiteSpace(apiBaseUrl))
         {
             apiBaseUrl = BuildDefaultApiBaseUrl(baseUrl);
         }
 
-        var timeoutSeconds = ParseInt(Environment.GetEnvironmentVariable("E2E_TIMEOUT_SECONDS"), 20);
-        var raceId = Environment.GetEnvironmentVariable("E2E_RACE_ID");
+        var timeoutSeconds = ParseInt(GetSetting("E2E_TIMEOUT_SECONDS"), 20);
+        var raceId = GetSetting("E2E_RACE_ID");
         if (string.IsNullOrWhiteSpace(raceId))
         {
             raceId = "2025-24-yas_marina";
         }
-        var headless = ParseBool(Environment.GetEnvironmentVariable("E2E_HEADLESS"), true);
+        var headless = ParseBool(GetSetting("E2E_HEADLESS"), true);
 
         return new E2eOptions
         {
@@ -47,8 +62,8 @@ internal class E2eOptions
             RaceId = raceId,
             Headless = headless,
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
-            CfClientId = Environment.GetEnvironmentVariable("E2E_CF_CLIENT_ID"),
-            CfClientSecret = Environment.GetEnvironmentVariable("E2E_CF_CLIENT_SECRET")
+            CfClientId = GetSetting("E2E_CF_CLIENT_ID"),
+            CfClientSecret = GetSetting("E2E_CF_CLIENT_SECRET")
         };
     }
 
@@ -77,5 +92,49 @@ internal class E2eOptions
     private static bool ParseBool(string? raw, bool fallback)
     {
         return bool.TryParse(raw, out var parsed) ? parsed : fallback;
+    }
+
+    private static Dictionary<string, string> LoadLocalDotEnv()
+    {
+        var envPath = Path.Combine(E2ePathResolver.ResolveRepositoryRoot(), ".env");
+        if (!File.Exists(envPath))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(envPath))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var equalsIndex = line.IndexOf('=');
+            if (equalsIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..equalsIndex].Trim();
+            var value = line[(equalsIndex + 1)..].Trim();
+            if (value.Length >= 2)
+            {
+                var first = value[0];
+                var last = value[^1];
+                if ((first == '"' && last == '"') || (first == '\'' && last == '\''))
+                {
+                    value = value[1..^1];
+                }
+            }
+
+            if (key.Length > 0)
+            {
+                values[key] = value;
+            }
+        }
+
+        return values;
     }
 }
