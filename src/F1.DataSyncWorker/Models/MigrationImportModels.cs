@@ -21,3 +21,10 @@ public sealed record MigrationLegacyScoreImportResult(
     int LegacyPickScoreCount,
     int ImportedTotalCount,
     int CalculatedTotalCount);
+
+public sealed record MigrationReconciliationResult(
+    int PickDiffCount,
+    int RaceDiffCount,
+    int ParticipantSummaryCount,
+    int ReasonSummaryCount,
+    int TotalDelta);

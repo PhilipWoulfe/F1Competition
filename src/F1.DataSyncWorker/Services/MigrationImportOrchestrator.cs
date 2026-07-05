@@ -16,6 +16,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationRaceRoundMapper _raceRoundMapper;
     private readonly IMigrationScoreRecalculator _scoreRecalculator;
     private readonly IMigrationLegacyScoreImporter _legacyScoreImporter;
+    private readonly IMigrationReconciliationService _reconciliationService;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -29,6 +30,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IMigrationRaceRoundMapper raceRoundMapper,
         IMigrationScoreRecalculator scoreRecalculator,
         IMigrationLegacyScoreImporter legacyScoreImporter,
+        IMigrationReconciliationService reconciliationService,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions)
@@ -40,6 +42,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _raceRoundMapper = raceRoundMapper;
         _scoreRecalculator = scoreRecalculator;
         _legacyScoreImporter = legacyScoreImporter;
+        _reconciliationService = reconciliationService;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -96,11 +99,12 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
             var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
             var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
+            var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
 
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
-                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, Checksum={Checksum}",
+                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, PickDiffs={PickDiffs}, RaceDiffs={RaceDiffs}, ParticipantDeltaSummaries={ParticipantDeltaSummaries}, ReasonSummaries={ReasonSummaries}, NetDelta={NetDelta}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
                 parseResult.SelectionCount,
@@ -112,6 +116,11 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 legacyResult.LegacyPickScoreCount,
                 legacyResult.ImportedTotalCount,
                 legacyResult.CalculatedTotalCount,
+                reconciliationResult.PickDiffCount,
+                reconciliationResult.RaceDiffCount,
+                reconciliationResult.ParticipantSummaryCount,
+                reconciliationResult.ReasonSummaryCount,
+                reconciliationResult.TotalDelta,
                 run.SourceFileChecksum);
         }
         catch (Exception ex)
