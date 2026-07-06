@@ -3,6 +3,7 @@ using F1.Web.Pages;
 using F1.Web.Services.Api;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using System.Net;
 
 namespace F1.Web.Tests.Pages;
 
@@ -197,5 +198,79 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.WaitForAssertion(() =>
             Assert.Contains($"Migration run detail was not found for run {runId}.", cut.Markup));
         Assert.DoesNotContain("Run Detail", cut.Markup);
+    }
+
+    [Fact]
+    public void AdminMigrationRuns_ShouldRequireConfirmation_AndShowSuccess_WhenKickoffStarts()
+    {
+        var runId = Guid.NewGuid();
+        var listResponse = new AdminMigrationRunListResponse(1, 25, 0, []);
+
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .SetupSequence(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(listResponse)
+            .ReturnsAsync(listResponse);
+        apiMock
+            .Setup(x => x.StartRunAsync(
+                It.IsAny<AdminMigrationRunKickoffRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunKickoffResponse(
+                RunId: runId,
+                Status: "Started",
+                IsDryRun: true,
+                RequestedMode: "dry-run",
+                SourceFilePath: "/tmp/import.csv",
+                SourceFileChecksum: "abc123",
+                TriggeredAtUtc: new DateTime(2026, 7, 6, 14, 0, 0, DateTimeKind.Utc),
+                RequestedBy: "admin@example.com"));
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Start Migration Run", cut.Markup));
+
+        cut.Find("#kickoff-source-path").Change("/tmp/import.csv");
+        cut.Find("#kickoff-mode").Change("dry-run");
+        cut.Find("button.btn.btn-success").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Confirm Migration Kickoff", cut.Markup));
+        cut.Find("button.btn.btn-danger").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains($"Migration run {runId} started in dry-run mode", cut.Markup));
+        apiMock.Verify(x => x.StartRunAsync(
+            It.Is<AdminMigrationRunKickoffRequest>(request =>
+                request.SourceFilePath == "/tmp/import.csv" &&
+                request.Mode == "dry-run"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void AdminMigrationRuns_ShouldShowConflictError_WhenKickoffConflicts()
+    {
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunListResponse(1, 25, 0, []));
+        apiMock
+            .Setup(x => x.StartRunAsync(
+                It.IsAny<AdminMigrationRunKickoffRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiServiceException(new ApiError(
+                HttpStatusCode.Conflict,
+                "An active migration run already exists for this source/checksum.",
+                "active_run_conflict")));
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Start Migration Run", cut.Markup));
+
+        cut.Find("button.btn.btn-success").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Confirm Migration Kickoff", cut.Markup));
+        cut.Find("button.btn.btn-danger").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Failed to start migration run: An active migration run already exists for this source/checksum.", cut.Markup));
     }
 }
