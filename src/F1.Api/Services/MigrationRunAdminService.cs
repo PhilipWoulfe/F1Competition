@@ -43,13 +43,43 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var totalCount = await runsQuery.CountAsync(cancellationToken);
-        var runs = await runsQuery
+        var pagedRunsQuery = runsQuery
             .OrderByDescending(x => x.StartedAtUtc)
             .ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(run => new
-            {
+            .Take(pageSize);
+
+        var unresolvedCountsQuery = _dbContext.MigrationImportUnresolvedTokens
+            .AsNoTracking()
+            .GroupBy(x => x.ImportRunId)
+            .Select(group => new { RunId = group.Key, Count = group.Count() });
+
+        var pickDiffCountsQuery = _dbContext.MigrationImportPickDiffs
+            .AsNoTracking()
+            .GroupBy(x => x.ImportRunId)
+            .Select(group => new { RunId = group.Key, Count = group.Count() });
+
+        var raceDiffCountsQuery = _dbContext.MigrationImportRaceDiffs
+            .AsNoTracking()
+            .GroupBy(x => x.ImportRunId)
+            .Select(group => new { RunId = group.Key, Count = group.Count() });
+
+        var totalDeltaQuery = _dbContext.MigrationImportParticipantDeltaSummaries
+            .AsNoTracking()
+            .GroupBy(x => x.ImportRunId)
+            .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) });
+
+        var items = await (
+            from run in pagedRunsQuery
+            join unresolved in unresolvedCountsQuery on run.Id equals unresolved.RunId into unresolvedJoin
+            from unresolved in unresolvedJoin.DefaultIfEmpty()
+            join pickDiff in pickDiffCountsQuery on run.Id equals pickDiff.RunId into pickDiffJoin
+            from pickDiff in pickDiffJoin.DefaultIfEmpty()
+            join raceDiff in raceDiffCountsQuery on run.Id equals raceDiff.RunId into raceDiffJoin
+            from raceDiff in raceDiffJoin.DefaultIfEmpty()
+            join totalDelta in totalDeltaQuery on run.Id equals totalDelta.RunId into totalDeltaJoin
+            from totalDelta in totalDeltaJoin.DefaultIfEmpty()
+            select new AdminMigrationRunListItemDto(
                 run.Id,
                 run.Status,
                 run.IsDryRun,
@@ -58,37 +88,17 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 run.StartedAtUtc,
                 run.FinishedAtUtc,
                 run.RawRowCount,
-                run.ErrorMessage,
-                UnresolvedTokenCount = _dbContext.MigrationImportUnresolvedTokens.Count(x => x.ImportRunId == run.Id),
-                PickDiffCount = _dbContext.MigrationImportPickDiffs.Count(x => x.ImportRunId == run.Id),
-                RaceDiffCount = _dbContext.MigrationImportRaceDiffs.Count(x => x.ImportRunId == run.Id),
-                TotalDeltaPoints = _dbContext.MigrationImportParticipantDeltaSummaries
-                    .Where(x => x.ImportRunId == run.Id)
-                    .Select(x => (int?)x.NetDeltaPoints)
-                    .Sum() ?? 0
-            })
-            .ToListAsync(cancellationToken);
+                unresolved != null ? unresolved.Count : 0,
+                pickDiff != null ? pickDiff.Count : 0,
+                raceDiff != null ? raceDiff.Count : 0,
+                totalDelta != null ? totalDelta.TotalDelta : 0,
+                run.ErrorMessage))
+            .ToArrayAsync(cancellationToken);
 
-        if (runs.Count == 0)
+        if (items.Length == 0)
         {
             return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, []);
         }
-
-        var items = runs.Select(run => new AdminMigrationRunListItemDto(
-                RunId: run.Id,
-                Status: run.Status,
-                IsDryRun: run.IsDryRun,
-                SourceFilePath: run.SourceFilePath,
-                SourceFileChecksum: run.SourceFileChecksum,
-                StartedAtUtc: run.StartedAtUtc,
-                FinishedAtUtc: run.FinishedAtUtc,
-                RawRowCount: run.RawRowCount,
-                UnresolvedTokenCount: run.UnresolvedTokenCount,
-                PickDiffCount: run.PickDiffCount,
-                RaceDiffCount: run.RaceDiffCount,
-                TotalDeltaPoints: run.TotalDeltaPoints,
-                ErrorMessage: run.ErrorMessage))
-            .ToArray();
 
         return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, items);
     }
