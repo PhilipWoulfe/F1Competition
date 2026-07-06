@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Encodings.Web;
 
 namespace F1.Api.Tests.Integration;
@@ -69,6 +70,24 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((MigrationRunDiffExportResponse?)null);
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: true,
+                Conflict: false,
+                Error: null,
+                ExistingRunId: null,
+                Run: new AdminMigrationRunKickoffResponseDto(
+                    RunId: Guid.NewGuid(),
+                    Status: "Started",
+                    IsDryRun: true,
+                    RequestedMode: "dry-run",
+                    SourceFilePath: "/tmp/import.csv",
+                    SourceFileChecksum: "abc123",
+                    TriggeredAtUtc: DateTime.UtcNow,
+                    RequestedBy: "admin@example.com")));
 
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -137,6 +156,36 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
         var response = await client.GetAsync($"/admin/migration-runs/{Guid.NewGuid()}/exports/pick-diffs?format=csv");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunKickoffRoute_WhenAnonymous_ShouldReturnUnauthorized()
+    {
+        var client = CreateClient(mockEmail: null, mockGroups: null);
+
+        var response = await client.PostAsJsonAsync("/admin/migration-runs/kickoff", new { sourceFilePath = "/tmp/import.csv", mode = "dry-run" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunKickoffRoute_WhenAuthenticatedNonAdmin_ShouldReturnForbidden()
+    {
+        var client = CreateClient(mockEmail: "user@example.com", mockGroups: ["F1 Users"]);
+
+        var response = await client.PostAsJsonAsync("/admin/migration-runs/kickoff", new { sourceFilePath = "/tmp/import.csv", mode = "dry-run" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunKickoffRoute_WhenAuthenticatedAdmin_ShouldReturnCreated()
+    {
+        var client = CreateClient(mockEmail: "admin@example.com", mockGroups: ["F1 Admins"]);
+
+        var response = await client.PostAsJsonAsync("/admin/migration-runs/kickoff", new { sourceFilePath = "/tmp/import.csv", mode = "dry-run" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     private sealed class IntegrationTestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>

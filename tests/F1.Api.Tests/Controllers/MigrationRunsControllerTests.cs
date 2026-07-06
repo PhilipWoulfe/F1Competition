@@ -220,6 +220,111 @@ public sealed class MigrationRunsControllerTests
         Assert.IsType<NotFoundResult>(result);
     }
 
+    [Fact]
+    public async Task KickoffRun_WhenValidRequest_ReturnsCreatedPayload()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: true,
+                Conflict: false,
+                Error: null,
+                ExistingRunId: null,
+                Run: new AdminMigrationRunKickoffResponseDto(
+                    RunId: runId,
+                    Status: "Started",
+                    IsDryRun: true,
+                    RequestedMode: "dry-run",
+                    SourceFilePath: "/tmp/import.csv",
+                    SourceFileChecksum: "abc123",
+                    TriggeredAtUtc: new DateTime(2026, 7, 6, 13, 0, 0, DateTimeKind.Utc),
+                    RequestedBy: "admin@example.com")));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.KickoffRun(new AdminMigrationRunKickoffRequestDto(
+            SourceFilePath: "/tmp/import.csv",
+            Mode: "dry-run"));
+
+        var created = Assert.IsType<CreatedAtActionResult>(result);
+        var payload = Assert.IsType<AdminMigrationRunKickoffResponseDto>(created.Value);
+        Assert.Equal(runId, payload.RunId);
+        Assert.Equal(nameof(MigrationRunsController.GetRunDetail), created.ActionName);
+    }
+
+    [Fact]
+    public async Task KickoffRun_WhenActiveDuplicateExists_ReturnsConflict()
+    {
+        var existingRunId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: true,
+                Error: "An active migration run already exists for this source/checksum.",
+                ExistingRunId: existingRunId,
+                Run: null));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.KickoffRun(new AdminMigrationRunKickoffRequestDto(
+            SourceFilePath: "/tmp/import.csv",
+            Mode: "dry-run"));
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+    }
+
+    [Fact]
+    public async Task KickoffRun_WhenRequestInvalid_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Mode is required.",
+                ExistingRunId: null,
+                Run: null));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.KickoffRun(new AdminMigrationRunKickoffRequestDto(
+            SourceFilePath: "/tmp/import.csv",
+            Mode: string.Empty));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+    }
+
     private static HttpContext CreateHttpContext(bool isAdmin)
     {
         var claims = new List<Claim>

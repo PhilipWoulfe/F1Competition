@@ -16,6 +16,18 @@ public sealed record MigrationRunDiffExportResponse(
     string ContentType,
     byte[] Payload);
 
+public sealed record MigrationRunKickoffCommand(
+    string? SourceFilePath,
+    string RequestedMode,
+    string RequestedBy);
+
+public sealed record MigrationRunKickoffResult(
+    bool Success,
+    bool Conflict,
+    string? Error,
+    Guid? ExistingRunId,
+    AdminMigrationRunKickoffResponseDto? Run);
+
 public interface IMigrationRunAdminService
 {
     Task<AdminMigrationRunListResponseDto> GetRunsAsync(MigrationRunListQuery query, CancellationToken cancellationToken);
@@ -27,5 +39,9 @@ public interface IMigrationRunAdminService
         string exportType,
         string format,
         string requestedBy,
+        CancellationToken cancellationToken);
+
+    Task<MigrationRunKickoffResult> KickoffRunAsync(
+        MigrationRunKickoffCommand command,
         CancellationToken cancellationToken);
 }

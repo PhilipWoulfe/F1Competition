@@ -61,6 +61,30 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
         var sourceFilePath = ResolveSourceFilePath(_importOptions.SourceFilePath);
         var run = await _runService.StartRunAsync(sourceFilePath, _importOptions.DryRun, cancellationToken);
+        await ExecuteRunAsync(run, cancellationToken);
+    }
+
+    public async Task<bool> RunNextQueuedAsync(CancellationToken cancellationToken)
+    {
+        if (_dataSyncOptions.AutoMigrate && Interlocked.CompareExchange(ref _migrationsApplied, 1, 0) == 0)
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            _logger.LogInformation("Applying EF migrations before queued migration import run.");
+            await dbContext.Database.MigrateAsync(cancellationToken);
+        }
+
+        var run = await _runService.TryClaimNextQueuedRunAsync(cancellationToken);
+        if (run is null)
+        {
+            return false;
+        }
+
+        await ExecuteRunAsync(run, cancellationToken);
+        return true;
+    }
+
+    private async Task ExecuteRunAsync(MigrationImportRunContext run, CancellationToken cancellationToken)
+    {
         _logger.LogInformation(
             "Migration import run started. RunId={RunId}, DryRun={DryRun}, Source={SourceFilePath}",
             run.RunId,
@@ -69,7 +93,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
         try
         {
-            var rawRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
+            var rawRows = await StageRawRowsAsync(run.RunId, run.SourceFilePath, cancellationToken);
             var parseResult = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
             if (parseResult.UnresolvedTokenCount > 0)
             {

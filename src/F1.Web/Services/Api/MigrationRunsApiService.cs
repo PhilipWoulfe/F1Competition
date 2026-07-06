@@ -1,5 +1,6 @@
 using F1.Web.Models;
 using System.Net;
+using System.Net.Http.Json;
 
 namespace F1.Web.Services.Api;
 
@@ -54,6 +55,15 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             response,
             null,
             "Loading migration run details",
+            cancellationToken);
+    }
+
+    public async Task<AdminMigrationRunKickoffResponse> StartRunAsync(AdminMigrationRunKickoffRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await httpClient.PostAsJsonAsync("admin/migration-runs/kickoff", request, cancellationToken);
+        return await ApiResponseParser.ReadRequiredJsonAsync<AdminMigrationRunKickoffResponse>(
+            response,
+            "Starting migration run",
             cancellationToken);
     }
 

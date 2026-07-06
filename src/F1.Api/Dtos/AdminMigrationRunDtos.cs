@@ -72,3 +72,17 @@ public sealed record AdminMigrationPickDiffDto(
     int DeltaPoints,
     string ReasonCode,
     string Explanation);
+
+public sealed record AdminMigrationRunKickoffRequestDto(
+    string? SourceFilePath,
+    string Mode);
+
+public sealed record AdminMigrationRunKickoffResponseDto(
+    Guid RunId,
+    string Status,
+    bool IsDryRun,
+    string RequestedMode,
+    string SourceFilePath,
+    string SourceFileChecksum,
+    DateTime TriggeredAtUtc,
+    string RequestedBy);

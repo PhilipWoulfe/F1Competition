@@ -6,6 +6,7 @@ namespace F1.DataSyncWorker;
 
 public sealed class Worker : BackgroundService
 {
+    private static readonly TimeSpan QueuePollInterval = TimeSpan.FromSeconds(10);
     private readonly ILogger<Worker> _logger;
     private readonly IDataSyncOrchestrator _orchestrator;
     private readonly IMigrationImportOrchestrator _migrationImportOrchestrator;
@@ -30,6 +31,8 @@ public sealed class Worker : BackgroundService
     {
         _logger.LogInformation("F1 data sync worker started.");
 
+        var nextDataSyncUtc = DateTime.UtcNow;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -40,7 +43,21 @@ public sealed class Worker : BackgroundService
                 }
                 else
                 {
-                    await _orchestrator.RunOnceAsync(stoppingToken);
+                    var queuedRunExecuted = await _migrationImportOrchestrator.RunNextQueuedAsync(stoppingToken);
+                    if (queuedRunExecuted)
+                    {
+                        _logger.LogInformation("Processed a queued migration run from admin kickoff.");
+                        continue;
+                    }
+
+                    if (DateTime.UtcNow >= nextDataSyncUtc)
+                    {
+                        await _orchestrator.RunOnceAsync(stoppingToken);
+                        if (_dataSyncOptions.IntervalMinutes > 0)
+                        {
+                            nextDataSyncUtc = DateTime.UtcNow.AddMinutes(_dataSyncOptions.IntervalMinutes);
+                        }
+                    }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -71,9 +88,7 @@ public sealed class Worker : BackgroundService
                 break;
             }
 
-            var delay = TimeSpan.FromMinutes(_dataSyncOptions.IntervalMinutes);
-            _logger.LogInformation("Next data sync run scheduled in {DelayMinutes} minutes.", _dataSyncOptions.IntervalMinutes);
-            await Task.Delay(delay, stoppingToken);
+            await Task.Delay(QueuePollInterval, stoppingToken);
         }
 
         _logger.LogInformation("F1 data sync worker stopped.");

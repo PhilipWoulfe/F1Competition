@@ -3,7 +3,9 @@ using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using System.Security.Cryptography;
 using System.Globalization;
+using System.Data;
 using System.Text;
 using System.Text.Json;
 
@@ -11,6 +13,10 @@ namespace F1.Api.Services;
 
 public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
+    private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
+    private const string AllowedImportRootPath = "data/imports";
+    private const string StatusQueued = "Queued";
+    private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
     private const int DefaultPageSize = 25;
     private const int MaxPageSize = 100;
@@ -123,6 +129,147 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 "Migration run tables are not fully available yet. Returning an empty run list instead of failing.");
             return new AdminMigrationRunListResponseDto(page, pageSize, 0, []);
         }
+    }
+
+    public async Task<MigrationRunKickoffResult> KickoffRunAsync(MigrationRunKickoffCommand command, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.RequestedMode))
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Mode is required.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        var normalizedMode = command.RequestedMode.Trim().ToLowerInvariant();
+        if (normalizedMode is not ("dry-run" or "write"))
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Mode must be dry-run or write.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        var requestedSource = string.IsNullOrWhiteSpace(command.SourceFilePath)
+            ? DefaultSourceFilePath
+            : command.SourceFilePath.Trim();
+        var sourceFilePath = ResolveSourceFilePath(requestedSource);
+        if (sourceFilePath is null)
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Source file path must be within the configured import directory.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        if (!File.Exists(sourceFilePath))
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Migration source file was not found.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        var checksum = await ComputeSha256Async(sourceFilePath, cancellationToken);
+        var now = DateTime.UtcNow;
+        var isDryRun = normalizedMode == "dry-run";
+        var runId = Guid.NewGuid();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var activeRun = await _dbContext.MigrationImportRuns
+                .AsNoTracking()
+                .Where(x =>
+                    (x.Status == StatusQueued || x.Status == StatusStarted) &&
+                    x.FinishedAtUtc == null &&
+                    x.SourceFilePath == sourceFilePath &&
+                    x.SourceFileChecksum == checksum)
+                .OrderByDescending(x => x.StartedAtUtc)
+                .ThenByDescending(x => x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (activeRun is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+
+                return new MigrationRunKickoffResult(
+                    Success: false,
+                    Conflict: true,
+                    Error: "An active migration run already exists for this source/checksum.",
+                    ExistingRunId: activeRun.Id,
+                    Run: null);
+            }
+
+            _dbContext.MigrationImportRuns.Add(new()
+            {
+                Id = runId,
+                SourceFilePath = sourceFilePath,
+                SourceFileChecksum = checksum,
+                IsDryRun = isDryRun,
+                Status = StatusQueued,
+                StartedAtUtc = now
+            });
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure })
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            var existingRunId = await FindActiveRunIdAsync(sourceFilePath, checksum, cancellationToken);
+
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: true,
+                Error: "An active migration run already exists for this source/checksum.",
+                ExistingRunId: existingRunId,
+                Run: null);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            var existingRunId = await FindActiveRunIdAsync(sourceFilePath, checksum, cancellationToken);
+
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: true,
+                Error: "An active migration run already exists for this source/checksum.",
+                ExistingRunId: existingRunId,
+                Run: null);
+        }
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} requestedMode={RequestedMode} sourceFilePath={SourceFilePath} checksum={Checksum}",
+            "kickoff",
+            runId,
+            command.RequestedBy,
+            now,
+            normalizedMode,
+            sourceFilePath,
+            checksum);
+
+        return new MigrationRunKickoffResult(
+            Success: true,
+            Conflict: false,
+            Error: null,
+            ExistingRunId: null,
+            Run: new AdminMigrationRunKickoffResponseDto(
+                RunId: runId,
+                Status: StatusQueued,
+                IsDryRun: isDryRun,
+                RequestedMode: normalizedMode,
+                SourceFilePath: sourceFilePath,
+                SourceFileChecksum: checksum,
+                TriggeredAtUtc: now,
+                RequestedBy: command.RequestedBy));
     }
 
     public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, string requestedBy, CancellationToken cancellationToken)
@@ -434,5 +581,55 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         return $"\"{value.Replace("\"", "\"\"")}\"";
+    }
+
+    private async Task<Guid?> FindActiveRunIdAsync(string sourceFilePath, string checksum, CancellationToken cancellationToken)
+    {
+        return await _dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .Where(x =>
+                (x.Status == StatusQueued || x.Status == StatusStarted) &&
+                x.FinishedAtUtc == null &&
+                x.SourceFilePath == sourceFilePath &&
+                x.SourceFileChecksum == checksum)
+            .OrderByDescending(x => x.StartedAtUtc)
+            .ThenByDescending(x => x.Id)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static string? ResolveSourceFilePath(string sourceFilePath)
+    {
+        var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
+        var candidatePath = Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        if (string.Equals(candidatePath, importRoot, comparison))
+        {
+            return candidatePath;
+        }
+
+        var importRootWithSeparator = importRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? importRoot
+            : importRoot + Path.DirectorySeparatorChar;
+
+        return candidatePath.StartsWith(importRootWithSeparator, comparison)
+            ? candidatePath
+            : null;
+    }
+
+    private static async Task<string> ComputeSha256Async(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(sourceFilePath);
+        using var sha256 = SHA256.Create();
+        var hash = await sha256.ComputeHashAsync(stream, cancellationToken);
+        var builder = new StringBuilder(hash.Length * 2);
+
+        foreach (var value in hash)
+        {
+            builder.Append(value.ToString("x2"));
+        }
+
+        return builder.ToString();
     }
 }

@@ -13,6 +13,50 @@
     <div class="alert alert-danger" role="alert">@errorMessage</div>
 }
 
+@if (!string.IsNullOrWhiteSpace(kickoffSuccessMessage))
+{
+    <div class="alert alert-success" role="alert">@kickoffSuccessMessage</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Start Migration Run</h2>
+        <p class="text-muted mb-3">Select mode and source, then confirm before starting a new migration run.</p>
+        <div class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="kickoff-mode">Mode</label>
+                <select id="kickoff-mode" class="form-select" @bind="kickoffMode">
+                    <option value="dry-run">Dry-run</option>
+                    <option value="write">Write</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-grid">
+                <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
+            </div>
+        </div>
+
+        @if (showKickoffConfirmation)
+        {
+            <div class="alert alert-warning mt-3 mb-0" role="alert">
+                <h3 class="h6">Confirm Migration Kickoff</h3>
+                <p class="mb-2">
+                    You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
+                    <code>@kickoffSourceFilePath</code>.
+                </p>
+                <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-danger" @onclick="ConfirmKickoffAsync" disabled="@isKickoffSubmitting">Confirm Start</button>
+                    <button class="btn btn-outline-secondary" @onclick="CancelKickoffConfirmation" disabled="@isKickoffSubmitting">Cancel</button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
 <div class="card mb-3">
     <div class="card-body">
         <div class="row g-3 align-items-end">
@@ -20,6 +64,7 @@
                 <label class="form-label" for="status-filter">Status Filter</label>
                 <select id="status-filter" class="form-select" @bind="statusFilter">
                     <option value="">All</option>
+                    <option value="Queued">Queued</option>
                     <option value="Started">Started</option>
                     <option value="Completed">Completed</option>
                     <option value="Failed">Failed</option>
@@ -319,7 +364,13 @@ else if (selectedRunDetail is not null)
     private Guid? selectedRunId;
     private bool isLoadingRuns;
     private bool isLoadingDetail;
+    private bool isKickoffSubmitting;
+    private bool showKickoffConfirmation;
     private string? errorMessage;
+    private string? kickoffSuccessMessage;
+
+    private string kickoffSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
+    private string kickoffMode = "dry-run";
 
     private int page = 1;
     private int pageSize = 25;
@@ -363,6 +414,46 @@ else if (selectedRunDetail is not null)
         finally
         {
             isLoadingRuns = false;
+        }
+    }
+
+    private void PrepareKickoff()
+    {
+        kickoffSuccessMessage = null;
+        errorMessage = null;
+        showKickoffConfirmation = true;
+    }
+
+    private void CancelKickoffConfirmation()
+    {
+        showKickoffConfirmation = false;
+    }
+
+    private async Task ConfirmKickoffAsync()
+    {
+        isKickoffSubmitting = true;
+        kickoffSuccessMessage = null;
+        errorMessage = null;
+
+        try
+        {
+            var response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
+                SourceFilePath: kickoffSourceFilePath,
+                Mode: kickoffMode));
+
+            kickoffSuccessMessage =
+                $"Migration run {response.RunId} started in {response.RequestedMode} mode by {response.RequestedBy} at {response.TriggeredAtUtc:yyyy-MM-dd HH:mm} UTC.";
+            showKickoffConfirmation = false;
+            page = 1;
+            await LoadRunsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to start migration run: {ex.Message}";
+        }
+        finally
+        {
+            isKickoffSubmitting = false;
         }
     }
 

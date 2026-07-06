@@ -78,6 +78,40 @@ public sealed class MigrationRunsController : ControllerBase
         return File(export.Payload, export.ContentType, export.FileName);
     }
 
+    [HttpPost("kickoff")]
+    public async Task<IActionResult> KickoffRun(
+        [FromBody] AdminMigrationRunKickoffRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _migrationRunAdminService.KickoffRunAsync(
+            new MigrationRunKickoffCommand(
+                request.SourceFilePath,
+                request.Mode,
+                ResolveActor()),
+            cancellationToken);
+
+        if (!result.Success)
+        {
+            if (result.Conflict)
+            {
+                return Conflict(new
+                {
+                    message = result.Error ?? "An active migration run already exists for this source/checksum.",
+                    code = "active_run_conflict",
+                    existingRunId = result.ExistingRunId
+                });
+            }
+
+            return BadRequest(new
+            {
+                message = result.Error ?? "Unable to start migration run kickoff.",
+                code = "kickoff_invalid_request"
+            });
+        }
+
+        return CreatedAtAction(nameof(GetRunDetail), new { runId = result.Run!.RunId }, result.Run);
+    }
+
     private string ResolveActor()
     {
         return User.FindFirstValue(ClaimTypes.Email)
