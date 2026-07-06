@@ -72,12 +72,23 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
                 PickDiffKeyComparer.Instance);
 
+        var raceOrderByRaceCode = legacy
+            .Select(x => new { x.RaceCode, x.PickType, x.RowNumber })
+            .Concat(calculated.Select(x => new { x.RaceCode, x.PickType, x.RowNumber }))
+            .Where(x => string.Equals(x.PickType, "1", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Min(y => y.RowNumber),
+                StringComparer.OrdinalIgnoreCase);
+
         var participantColumnBySubject = await ResolveParticipantColumnsBySubjectAsync(dbContext, runId, cancellationToken);
 
         var allKeys = legacyByKey.Keys
             .Concat(calculatedByKey.Keys)
             .Distinct(PickDiffKeyComparer.Instance)
-            .OrderBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => raceOrderByRaceCode.GetValueOrDefault(x.RaceCode, int.MaxValue))
+            .ThenBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => PickTypeOrder(x.PickType))
             .ThenBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
@@ -124,7 +135,8 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
 
         var raceDiffs = pickDiffs
             .GroupBy(x => new RaceDiffKey(x.RaceCode, x.Subject), RaceDiffKeyComparer.Instance)
-            .OrderBy(x => x.Key.RaceCode, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => raceOrderByRaceCode.GetValueOrDefault(x.Key.RaceCode, int.MaxValue))
+            .ThenBy(x => x.Key.RaceCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Key.Subject, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
