@@ -93,6 +93,9 @@ Acceptance criteria:
 ### Story 6: Provide operator runbook for expected variance governance
 As an operator, I want a documented process for creating and maintaining expected variance rules.
 
+Story 6 artifact:
+- Runbook: `docs/runbooks/expected-variance-governance.md`
+
 Acceptance criteria:
 - Runbook defines rule authoring, review, approval, and expiration policy.
 - Each rule includes owner, rationale, and traceable reference.
