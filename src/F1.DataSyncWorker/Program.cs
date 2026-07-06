@@ -26,6 +26,12 @@ builder.Services
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
 
+builder.Services
+	.AddOptions<MigrationExpectedVarianceOptions>()
+	.Bind(builder.Configuration.GetSection(MigrationExpectedVarianceOptions.SectionName))
+	.ValidateDataAnnotations()
+	.ValidateOnStart();
+
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres");
 if (string.IsNullOrWhiteSpace(postgresConnectionString))
 {
@@ -43,6 +49,11 @@ builder.Services
 
 builder.Services.AddSingleton<IJolpicaClient, JolpicaClient>();
 builder.Services.AddSingleton<IDataSyncOrchestrator, DataSyncOrchestrator>();
+builder.Services.AddSingleton<FileBackedMigrationExpectedVarianceRuleCatalog>();
+builder.Services.AddSingleton<IMigrationExpectedVarianceRuleCatalog>(sp =>
+	sp.GetRequiredService<FileBackedMigrationExpectedVarianceRuleCatalog>());
+builder.Services.AddSingleton<IMigrationExpectedVarianceRuleSetMetadataProvider>(sp =>
+	sp.GetRequiredService<FileBackedMigrationExpectedVarianceRuleCatalog>());
 builder.Services.AddSingleton<IMigrationImportRunService, MigrationImportRunService>();
 builder.Services.AddSingleton<IMigrationImportOrchestrator, MigrationImportOrchestrator>();
 builder.Services.AddSingleton<IMigrationImportRowClassifier, MigrationImportRowClassifier>();

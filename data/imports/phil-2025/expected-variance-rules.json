@@ -1,0 +1,20 @@
+{
+  "ruleSetId": "phil-2025-expected-variance",
+  "ruleSetVersion": "2026.07.06.2",
+  "rules": [
+    {
+      "ruleId": "phil-2025-shanghai-andy-p2-row145-colD",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Andy",
+      "raceCode": "shanghai",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 145, column D",
+      "calculatedSourcePattern": "race-picks row 48, column D",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    }
+  ]
+}

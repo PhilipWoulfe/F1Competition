@@ -14,7 +14,9 @@ This runbook applies to expected variance metadata only. It must never rewrite i
 - Rule matching is executed by `MigrationExpectedVarianceClassifier` in `src/F1.DataSyncWorker/Services/MigrationExpectedVarianceClassifier.cs`.
 - Classification metadata is persisted on pick and race diff rows (`IsExpectedVariance`, `ExpectedVarianceReasonCode`, `ExpectedVarianceRuleId`) and remains additive.
 - `MigrationReconciliationService` applies classification only when `delta != 0`.
-- Current source-of-truth is code-level catalog injection. Story 7 will move this to environment-promotable rule storage.
+- Source-of-truth manifest is `data/imports/phil-2025/expected-variance-rules.json` loaded by `FileBackedMigrationExpectedVarianceRuleCatalog`.
+- Promotion is controlled via `MigrationExpectedVariance__RuleManifestPath` and `MigrationExpectedVariance__Enabled`.
+- Audit trail is emitted per run with environment, ruleset id/version/checksum, and active rule count.
 
 ## Rule Record Template
 Every rule proposal must include these fields before approval:
@@ -83,6 +85,18 @@ Weekly operator task:
    - Expected rows include both reason code and rule ID.
 5. Export for audit when needed:
    - `GET /admin/migration-runs/{runId}/exports/pick-diffs?format=csv&expectedStatus=all`
+
+## Environment Promotion Workflow
+1. Update the manifest file in source control with approved rules and increment `ruleSetVersion`.
+2. Open PR with owner, rationale, and evidence references for each new or changed rule.
+3. Merge to dev deployment branch and run a dry-run import in dev.
+4. Verify audit logs include expected ruleset metadata for the dev run.
+5. Promote the same manifest revision to test, then prod (no manual data rewrite required).
+6. In each environment, verify run logs report the same `RuleSetChecksum` for the promoted revision.
+
+Environment targeting:
+- Use optional `targetEnvironments` per rule to constrain rule activation.
+- Omit `targetEnvironments` for rules that must apply in every environment.
 
 ## Rollback and Removal Procedure
 Use this when a rule is incorrect, over-broad, or no longer needed.

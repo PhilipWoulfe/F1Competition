@@ -35,6 +35,8 @@ services:
       - MigrationImport__SourceFilePath=${MIGRATION_IMPORT_SOURCE_FILE_PATH:-data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv}
       - MigrationImport__DryRun=${MIGRATION_IMPORT_DRY_RUN:-true}
       - MigrationImport__UnresolvedTokenFailThreshold=${MIGRATION_IMPORT_UNRESOLVED_TOKEN_FAIL_THRESHOLD:-0}
+      - MigrationExpectedVariance__Enabled=${MIGRATION_EXPECTED_VARIANCE_ENABLED:-true}
+      - MigrationExpectedVariance__RuleManifestPath=${MIGRATION_EXPECTED_VARIANCE_RULE_MANIFEST_PATH:-data/imports/phil-2025/expected-variance-rules.json}
     build:
       context: .
       dockerfile: ./src/F1.DataSyncWorker/Dockerfile

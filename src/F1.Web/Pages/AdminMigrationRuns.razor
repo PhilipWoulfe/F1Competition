@@ -328,6 +328,8 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Variance Status</th>
+                        <th>Expected Rule</th>
                         <th>Explanation</th>
                     </tr>
                 </thead>
@@ -341,6 +343,30 @@ else if (selectedRunDetail is not null)
                             <td>@row.CalculatedPoints</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>
+                                @if (row.IsExpectedVariance)
+                                {
+                                    <span class="badge text-bg-success">Expected</span>
+                                }
+                                else
+                                {
+                                    <span class="badge text-bg-warning">Unexpected</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                {
+                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                    {
+                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </td>
                             <td>@row.Explanation</td>
                         </tr>
                     }
@@ -367,6 +393,8 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Variance Status</th>
+                        <th>Expected Rule</th>
                         <th>Explanation</th>
                     </tr>
                 </thead>
@@ -381,6 +409,30 @@ else if (selectedRunDetail is not null)
                             <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>
+                                @if (row.IsExpectedVariance)
+                                {
+                                    <span class="badge text-bg-success">Expected</span>
+                                }
+                                else
+                                {
+                                    <span class="badge text-bg-warning">Unexpected</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                {
+                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                    {
+                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </td>
                             <td>@row.Explanation</td>
                         </tr>
                     }

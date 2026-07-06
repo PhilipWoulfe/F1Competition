@@ -20,6 +20,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
+    private readonly IMigrationExpectedVarianceRuleSetMetadataProvider _ruleSetMetadataProvider;
     private int _migrationsApplied;
 
     private readonly record struct RawRowStageResult(int StagedRowCount, int RejectedRowCount);
@@ -35,7 +36,8 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IMigrationReconciliationService reconciliationService,
         IDbContextFactory<F1DbContext> dbContextFactory,
         IOptions<DataSyncOptions> dataSyncOptions,
-        IOptions<MigrationImportOptions> importOptions)
+        IOptions<MigrationImportOptions> importOptions,
+        IMigrationExpectedVarianceRuleSetMetadataProvider ruleSetMetadataProvider)
     {
         _logger = logger;
         _runService = runService;
@@ -48,6 +50,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
+        _ruleSetMetadataProvider = ruleSetMetadataProvider;
     }
 
     public async Task RunOnceAsync(CancellationToken cancellationToken)
@@ -90,6 +93,17 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             run.RunId,
             run.IsDryRun,
             run.SourceFilePath);
+
+        _logger.LogInformation(
+            "Migration expected variance ruleset applied. RunId={RunId}, Environment={Environment}, RuleSetId={RuleSetId}, RuleSetVersion={RuleSetVersion}, RuleSetChecksum={RuleSetChecksum}, ActiveRuleCount={ActiveRuleCount}, RuleSource={RuleSource}, RulesEnabled={RulesEnabled}",
+            run.RunId,
+            _ruleSetMetadataProvider.ActiveEnvironment,
+            _ruleSetMetadataProvider.RuleSetId,
+            _ruleSetMetadataProvider.RuleSetVersion,
+            _ruleSetMetadataProvider.RuleSetChecksum,
+            _ruleSetMetadataProvider.ActiveRuleCount,
+            _ruleSetMetadataProvider.RuleSource,
+            _ruleSetMetadataProvider.IsEnabled);
 
         try
         {

@@ -104,6 +104,10 @@ Acceptance criteria:
 ### Story 7: Promote expected variance rules across environments
 As an operator, I want expected variance rules to move consistently from dev to test and prod so I can compare the same classifications in each environment.
 
+Story 7 artifacts:
+- Ruleset manifest: `data/imports/phil-2025/expected-variance-rules.json`
+- Governance + promotion workflow: `docs/runbooks/expected-variance-governance.md`
+
 Acceptance criteria:
 - Rules are stored in an idempotent source of truth that can be applied repeatedly without duplication.
 - The same approved rule set can be promoted from dev to test and prod with environment-specific targeting.

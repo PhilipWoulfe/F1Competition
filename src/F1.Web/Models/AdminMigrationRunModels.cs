@@ -62,7 +62,10 @@ public sealed record AdminMigrationRaceDiff(
     int CalculatedPoints,
     int DeltaPoints,
     string ReasonCode,
-    string Explanation);
+    string Explanation,
+    bool IsExpectedVariance = false,
+    string? ExpectedVarianceReasonCode = null,
+    string? ExpectedVarianceRuleId = null);
 
 public sealed record AdminMigrationPickDiff(
     string RaceCode,
@@ -72,7 +75,10 @@ public sealed record AdminMigrationPickDiff(
     int? CalculatedPoints,
     int DeltaPoints,
     string ReasonCode,
-    string Explanation);
+    string Explanation,
+    bool IsExpectedVariance = false,
+    string? ExpectedVarianceReasonCode = null,
+    string? ExpectedVarianceRuleId = null);
 
 public sealed record AdminMigrationRunKickoffRequest(
     string? SourceFilePath,
