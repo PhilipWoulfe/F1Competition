@@ -86,10 +86,12 @@ public sealed class MigrationReconciliationServiceTests
         Assert.All(nonZero, x => Assert.False(string.IsNullOrWhiteSpace(x.Explanation)));
 
         var philipFirstPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
-        Assert.Contains("row 1, column B", philipFirstPick.Explanation);
+        Assert.Contains("race-points row 1, column B", philipFirstPick.Explanation);
+        Assert.Contains("race-picks row 1, column B", philipFirstPick.Explanation);
 
         var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
-        Assert.Contains("row 5, column C", andySecondPick.Explanation);
+        Assert.Contains("race-points row 5, column C", andySecondPick.Explanation);
+        Assert.Contains("race-picks row 5, column C", andySecondPick.Explanation);
 
         var philipAusRaceDiff = await dbContext.MigrationImportRaceDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
@@ -217,6 +219,60 @@ public sealed class MigrationReconciliationServiceTests
         Assert.StartsWith("Philip AUS-1 imported 500", pickDiff.Explanation);
         Assert.Equal(1024, pickDiff.Explanation.Length);
         Assert.EndsWith("...", pickDiff.Explanation);
+    }
+
+    [Fact]
+    public async Task ReconcileAndPersistAsync_OrdersComparisonsByRaceOccurrence()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,"
+        });
+
+        // ZZZ race occurs first by row number, even though alphabetically it sorts after AAA.
+        dbContext.MigrationImportLegacyPickScores.AddRange(
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 10, RaceCode = "zzz_race", PickType = "1", Subject = "Philip", LegacyPoints = 10 },
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 11, RaceCode = "zzz_race", PickType = "2", Subject = "Philip", LegacyPoints = 0 },
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 20, RaceCode = "aaa_race", PickType = "1", Subject = "Philip", LegacyPoints = 10 },
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 21, RaceCode = "aaa_race", PickType = "2", Subject = "Philip", LegacyPoints = 0 });
+
+        dbContext.MigrationImportCalculatedScores.AddRange(
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 10, RaceCode = "zzz_race", PickType = "1", Subject = "Philip", Points = 5, ReasonCode = "PODIUM_TOP3_WRONG_SLOT" },
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 11, RaceCode = "zzz_race", PickType = "2", Subject = "Philip", Points = 10, ReasonCode = "PODIUM_EXACT" },
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 20, RaceCode = "aaa_race", PickType = "1", Subject = "Philip", Points = 5, ReasonCode = "PODIUM_TOP3_WRONG_SLOT" },
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 21, RaceCode = "aaa_race", PickType = "2", Subject = "Philip", Points = 10, ReasonCode = "PODIUM_EXACT" });
+
+        await dbContext.SaveChangesAsync();
+
+        var service = new MigrationReconciliationService(new TestDbContextFactory(options));
+        await service.ReconcileAndPersistAsync(runId, CancellationToken.None);
+
+        var pickDiffsByInsertOrder = await dbContext.MigrationImportPickDiffs
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+
+        Assert.Equal("zzz_race", pickDiffsByInsertOrder[0].RaceCode);
+        Assert.Equal("zzz_race", pickDiffsByInsertOrder[1].RaceCode);
+        Assert.Equal("aaa_race", pickDiffsByInsertOrder[2].RaceCode);
+        Assert.Equal("aaa_race", pickDiffsByInsertOrder[3].RaceCode);
     }
 
     private static string GetGoldenFilePath(string fileName)
