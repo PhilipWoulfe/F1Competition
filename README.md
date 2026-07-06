@@ -178,6 +178,7 @@ Optional development toggle in `.env`:
 - `DEV_MOCK_EMAIL`: mapped to `DevSettings__MockEmail` for `f1-api`. Sets the mock user identity used when simulating Cloudflare locally.
 - `DEV_MOCK_GROUPS`: mapped to `DevSettings__MockGroups` for `f1-api`. Sets the mock group memberships used for local Admin/non-Admin testing.
 - `DEV_ENABLE_DEBUG_ENDPOINTS`: mapped to `DevSettings__EnableDebugEndpoints` for `f1-api`. When `true`, enables the test-only `/api/users/debug/me` diagnostics endpoint in allowed environments.
+- `HOST_MIGRATION_UPLOAD_PATH`: shared host path bind-mounted to `/tmp/f1-imports` in both `f1-api` and `f1-data-sync-worker` so uploaded migration files are readable by the worker container. Ensure the host directory exists and is writable by container users, for example: `mkdir -p /tmp/f1-migration-imports && chmod 1777 /tmp/f1-migration-imports`.
 
 Notes:
 

@@ -175,6 +175,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     {
         await using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
+        var applyPhil2025ContractPolicy = MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
 
         var rowNumber = 0;
         var stagedCount = 0;
@@ -193,6 +194,11 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
             rowNumber++;
             var stagedRow = _rowClassifier.Classify(rowNumber, line);
+            if (applyPhil2025ContractPolicy)
+            {
+                stagedRow = MigrationPhil2025CsvContractPolicy.Apply(stagedRow);
+            }
+
             batch.Add(stagedRow);
             if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
             {
