@@ -1,8 +1,10 @@
 using System.Text.RegularExpressions;
 using F1.DataSyncWorker.Models;
+using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace F1.DataSyncWorker.Services;
 
@@ -10,13 +12,23 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 {
     private const string SectionTypeHeader = "Header";
     private const string SectionTypeRacePoints = "RacePoints";
+    private const string SectionTypeSeasonQuestionPoints = "SeasonQuestionPoints";
     private const string SectionTypeTotalsMeta = "TotalsMeta";
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
+    private readonly MigrationImportOptions _importOptions;
 
-    public MigrationLegacyScoreImporter(IDbContextFactory<F1DbContext> dbContextFactory)
+    public MigrationLegacyScoreImporter(
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IOptions<MigrationImportOptions> importOptions)
     {
         _dbContextFactory = dbContextFactory;
+        _importOptions = importOptions.Value;
+    }
+
+    public MigrationLegacyScoreImporter(IDbContextFactory<F1DbContext> dbContextFactory)
+        : this(dbContextFactory, Microsoft.Extensions.Options.Options.Create(new MigrationImportOptions()))
+    {
     }
 
     public async Task<MigrationLegacyScoreImportResult> ImportAndPersistAsync(Guid runId, CancellationToken cancellationToken)
@@ -46,6 +58,10 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         dbContext.MigrationImportLegacyPickScores.RemoveRange(
             dbContext.MigrationImportLegacyPickScores.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonPolicies.RemoveRange(
+            dbContext.MigrationImportPreseasonPolicies.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonImportedTallies.RemoveRange(
+            dbContext.MigrationImportPreseasonImportedTallies.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportImportedTotals.RemoveRange(
             dbContext.MigrationImportImportedTotals.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportCalculatedTotals.RemoveRange(
@@ -154,9 +170,22 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             })
             .ToListAsync(cancellationToken);
 
+        var preseasonPolicy = ParsePreseasonPolicy(runId, stagedRows, usePhil2025SequenceMapping);
+        var preseasonTallies = ParsePreseasonImportedTallies(runId, stagedRows, participants, usePhil2025SequenceMapping);
+
         if (legacyPickScores.Count > 0)
         {
             await dbContext.MigrationImportLegacyPickScores.AddRangeAsync(legacyPickScores, cancellationToken);
+        }
+
+        if (preseasonPolicy is not null)
+        {
+            await dbContext.MigrationImportPreseasonPolicies.AddAsync(preseasonPolicy, cancellationToken);
+        }
+
+        if (preseasonTallies.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonImportedTallies.AddRangeAsync(preseasonTallies, cancellationToken);
         }
 
         if (importedTotalsBySubject.Count > 0)
@@ -175,6 +204,176 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             LegacyPickScoreCount: legacyPickScores.Count,
             ImportedTotalCount: importedTotalsBySubject.Count,
             CalculatedTotalCount: calculatedTotals.Count);
+    }
+
+    private MigrationImportPreseasonPolicyEntity? ParsePreseasonPolicy(
+        Guid runId,
+        IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
+        bool usePhil2025Contract)
+    {
+        if (!usePhil2025Contract)
+        {
+            return null;
+        }
+
+        var policyRow = stagedRows.FirstOrDefault(x => x.RowNumber == MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyRow);
+        if (policyRow is null)
+        {
+            HandlePreseasonPolicyParseIssue(
+                $"Missing preseason policy cell M2: row {MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyRow} not found.");
+            return new MigrationImportPreseasonPolicyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyRow,
+                ColumnIndex = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex,
+                CellReference = "M2",
+                RawPointsPerQuestion = null,
+                PointsPerQuestion = null
+            };
+        }
+
+        var columns = CsvLineParser.Parse(policyRow.RawPayload);
+        var raw = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex < columns.Count
+            ? columns[MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex].Trim()
+            : null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            HandlePreseasonPolicyParseIssue(
+                $"Missing preseason policy value at M2 (row {policyRow.RowNumber}, column M).",
+                policyRow.RowNumber);
+            return new MigrationImportPreseasonPolicyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = policyRow.RowNumber,
+                ColumnIndex = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex,
+                CellReference = "M2",
+                RawPointsPerQuestion = null,
+                PointsPerQuestion = null
+            };
+        }
+
+        if (!int.TryParse(raw, out var parsedPoints))
+        {
+            HandlePreseasonPolicyParseIssue(
+                $"Malformed preseason policy value at M2 (row {policyRow.RowNumber}): '{raw}' is not an integer.",
+                policyRow.RowNumber);
+            return new MigrationImportPreseasonPolicyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = policyRow.RowNumber,
+                ColumnIndex = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex,
+                CellReference = "M2",
+                RawPointsPerQuestion = raw,
+                PointsPerQuestion = null
+            };
+        }
+
+        return new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = policyRow.RowNumber,
+            ColumnIndex = MigrationPhil2025CsvContractPolicy.PreseasonPointsPolicyColumnIndex,
+            CellReference = "M2",
+            RawPointsPerQuestion = raw,
+            PointsPerQuestion = parsedPoints
+        };
+    }
+
+    private List<MigrationImportPreseasonImportedTallyEntity> ParsePreseasonImportedTallies(
+        Guid runId,
+        IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
+        IReadOnlyList<string> participants,
+        bool usePhil2025Contract)
+    {
+        if (!usePhil2025Contract || participants.Count == 0)
+        {
+            return [];
+        }
+
+        var preseasonRows = stagedRows
+            .Where(x => string.Equals(x.SectionType, SectionTypeSeasonQuestionPoints, StringComparison.Ordinal))
+            .OrderBy(x => x.RowNumber)
+            .ToList();
+
+        var parsed = new List<MigrationImportPreseasonImportedTallyEntity>();
+        var participantStartColumnIndex = MigrationPhil2025CsvContractPolicy.ParticipantStartColumnIndex;
+
+        foreach (var row in preseasonRows)
+        {
+            var columns = CsvLineParser.Parse(row.RawPayload);
+            if (columns.Count == 0)
+            {
+                continue;
+            }
+
+            var questionText = columns[0].Trim();
+            var questionKey = $"PRE-{row.RowNumber:D3}";
+
+            for (var participantIndex = 0; participantIndex < participants.Count; participantIndex++)
+            {
+                var columnIndex = participantStartColumnIndex + participantIndex;
+                var raw = columnIndex < columns.Count ? columns[columnIndex].Trim() : null;
+
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    continue;
+                }
+
+                if (!int.TryParse(raw, out var parsedPoints))
+                {
+                    HandlePreseasonTallyParseIssue(
+                        $"Malformed preseason tally at row {row.RowNumber}, column {ToExcelColumnName(columnIndex)} for '{participants[participantIndex]}': '{raw}' is not an integer.",
+                        row.RowNumber);
+                }
+
+                parsed.Add(new MigrationImportPreseasonImportedTallyEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    QuestionKey = questionKey,
+                    QuestionText = questionText,
+                    Subject = participants[participantIndex],
+                    RawPoints = raw,
+                    ImportedPoints = int.TryParse(raw, out var points) ? points : null
+                });
+            }
+        }
+
+        return parsed;
+    }
+
+    private void HandlePreseasonPolicyParseIssue(string message, int? rowNumber = null)
+    {
+        if (_importOptions.FailOnPreseasonPolicyParseError)
+        {
+            throw rowNumber is null
+                ? new InvalidOperationException($"Preseason policy parse failed. {message}")
+                : new InvalidOperationException($"Preseason policy parse failed at row {rowNumber}. {message}");
+        }
+    }
+
+    private void HandlePreseasonTallyParseIssue(string message, int rowNumber)
+    {
+        if (_importOptions.FailOnPreseasonTallyParseError)
+        {
+            throw new InvalidOperationException($"Preseason tally parse failed at row {rowNumber}. {message}");
+        }
+    }
+
+    private static string ToExcelColumnName(int zeroBasedIndex)
+    {
+        var index = zeroBasedIndex + 1;
+        var result = string.Empty;
+
+        while (index > 0)
+        {
+            var remainder = (index - 1) % 26;
+            result = (char)('A' + remainder) + result;
+            index = (index - 1) / 26;
+        }
+
+        return result;
     }
 
     private static List<string> ResolveParticipants(string? headerPayload)

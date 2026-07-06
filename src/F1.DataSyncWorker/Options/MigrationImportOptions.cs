@@ -18,4 +18,8 @@ public sealed class MigrationImportOptions
 
     [Range(0, int.MaxValue)]
     public int UnresolvedTokenFailThreshold { get; set; } = 0;
+
+    public bool FailOnPreseasonPolicyParseError { get; set; } = false;
+
+    public bool FailOnPreseasonTallyParseError { get; set; } = false;
 }
