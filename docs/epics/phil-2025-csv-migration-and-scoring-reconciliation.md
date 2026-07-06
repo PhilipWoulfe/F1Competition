@@ -37,6 +37,7 @@ In scope:
 Out of scope:
 - Full historical multi-season scoring redesign
 - Non-2025 source adapter implementation (tracked as follow-on stories)
+- Preseason question parsing and preseason scoring implementation (tracked in docs/epics/phil-2025-preseason-questions-and-scoring.md)
 
 ## Canonical Contract (Target State)
 - Canonical race identity is season + round number.

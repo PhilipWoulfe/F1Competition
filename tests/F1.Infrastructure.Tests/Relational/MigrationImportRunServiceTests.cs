@@ -339,9 +339,116 @@ public sealed class MigrationImportRunServiceTests
         }
     }
 
+    [Fact]
+    public async Task RunOnceAsync_WhenPhilCsvContainsPreseasonTwentyPointRows_DoesNotImportThemAsRacePoints()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var rows = new List<string> { "Question,Philip,," };
+
+        // Rows 2-21 preseason questions.
+        for (var row = 2; row <= 21; row++)
+        {
+            rows.Add($"Pre-Q-{row},Y,,");
+        }
+
+        // Rows 22-41 preseason tallies, intentionally race-like label with 20 points.
+        rows.Add("AUS-1,20,,");
+        for (var row = 23; row <= 41; row++)
+        {
+            rows.Add($"Pre-P-{row},0,,");
+        }
+
+        // Row 42 spacer.
+        rows.Add(",,,");
+
+        // Row 43 race selections begin.
+        rows.Add("AUS-1,VER,NOR");
+
+        // Rows 44-138 filler race picks to preserve Phil contract row windows.
+        for (var row = 44; row <= 138; row++)
+        {
+            rows.Add($"R{row}-1,VER,NOR");
+        }
+
+        // Row 139 spacer.
+        rows.Add(",,,");
+
+        // Row 140 race points (in scope).
+        rows.Add("AUS-1,10,,");
+
+        // Row 141 totals.
+        rows.Add("Result,10,,");
+
+        var sourceFilePath = await CreateTempCsvAsync(string.Join(Environment.NewLine, rows), MigrationPhil2025CsvContractPolicy.SourceFileName);
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    Season = 2025
+                }));
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+
+            var preseasonStaged = await verificationContext.MigrationImportRawRows
+                .AsNoTracking()
+                .SingleAsync(x => x.ImportRunId == run.Id && x.RowNumber == 22);
+            Assert.Equal(MigrationImportSectionTypes.SeasonQuestionPoints, preseasonStaged.SectionType);
+
+            var legacyScores = await verificationContext.MigrationImportLegacyPickScores
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == run.Id)
+                .ToListAsync();
+
+            Assert.Single(legacyScores);
+            Assert.Equal(140, legacyScores[0].RowNumber);
+            Assert.Equal(10, legacyScores[0].LegacyPoints);
+            Assert.DoesNotContain(legacyScores, x => x.LegacyPoints == 20);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
     private static async Task<string> CreateTempCsvAsync(string content)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"f1-migration-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(tempPath, content);
+        return tempPath;
+    }
+
+    private static async Task<string> CreateTempCsvAsync(string content, string fileName)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-{fileName}");
         await File.WriteAllTextAsync(tempPath, content);
         return tempPath;
     }

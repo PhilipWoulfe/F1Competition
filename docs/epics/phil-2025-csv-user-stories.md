@@ -6,6 +6,27 @@
 - Canonical race identity: season + round
 - This source format is one-time, but the import core must support additional adapters.
 
+## Story M0: Formalize Phil 2025 CSV shape contract
+As an engineer, I want a precise CSV shape definition for this source file so import behavior is deterministic and preseason values are not accidentally scored.
+
+Acceptance criteria:
+- Column map is documented as: B=Philip, C=New Sexy Ayrton, D=Andy, E=Claire, F=Dave, G=Kevin, H=Pious, I=Shane, J=Veronica, K=BinGPT, L=Actual Answers.
+- Cell M2 is documented as preseason question points-per-question and explicitly marked out of scope for the current migration/scoring pass.
+- Row ranges are documented as:
+	- 2-21 preseason questions (out of scope)
+	- 22-41 preseason point tallies (out of scope)
+	- 43-138 race selections (in scope)
+	- 140-235 race points awarded (in scope for reconciliation import)
+- Import validation rejects or ignores out-of-scope preseason sections by policy and does not include them in race scoring outputs.
+
+Test notes:
+- Add fixture assertions proving rows 2-41 are excluded from race scoring calculations.
+- Add a regression test proving preseason point values do not appear as race-level points (for example, preventing accidental 20-point race entries from preseason data).
+
+## Preseason Scope Split
+- Preseason questions, preseason scoring policy (M2), preseason tallies, and preseason admin review flows are tracked in a dedicated epic: docs/epics/phil-2025-preseason-questions-and-scoring.md.
+- This backlog remains focused on race selection and race scoring migration behavior.
+
 ## Story M1: Create import staging model and run envelope
 As a developer, I want a staging model and import run envelope so every row is traceable and reruns are auditable.
 
