@@ -101,6 +101,7 @@ public sealed class MigrationRaceRoundMapper : IMigrationRaceRoundMapper
                 SourceRaceCode = start.RaceCode,
                 Season = mappedRace?.Season,
                 Round = mappedRace?.Round,
+                MappedCircuitId = mappedRace?.Race.Circuit?.CircuitId,
                 MappedRaceName = mappedRace?.Race.RaceName,
                 Warning = warning
             });

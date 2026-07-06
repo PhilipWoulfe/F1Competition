@@ -82,6 +82,9 @@ public sealed class JolpicaRaceDto
 
 public sealed class JolpicaCircuitDto
 {
+    [JsonPropertyName("circuitId")]
+    public string? CircuitId { get; set; }
+
     [JsonPropertyName("circuitName")]
     public string? CircuitName { get; set; }
 }

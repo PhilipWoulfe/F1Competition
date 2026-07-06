@@ -262,6 +262,83 @@ public sealed class MigrationImportRunServiceTests
         }
     }
 
+    [Fact]
+    public async Task RunOnceAsync_WhenWriteModeEnabled_RewritesSelectionRaceCodesToMappedCircuitIds()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "CHN-1,NOR,NOR\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "CHN-1,10,10\n" +
+            "DNF,0,0\n" +
+            "Result,25\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025
+                }));
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+
+            var participantSelections = await verificationContext.MigrationImportRaceSelections
+                .Where(x => x.ImportRunId == run.Id && x.Subject == "Philip")
+                .OrderBy(x => x.RowNumber)
+                .ToListAsync();
+
+            Assert.Equal("albert_park", participantSelections[0].RaceCode);
+            Assert.Equal("albert_park", participantSelections[1].RaceCode);
+            Assert.Equal("shanghai", participantSelections[2].RaceCode);
+            Assert.Equal("shanghai", participantSelections[3].RaceCode);
+
+            var legacyScores = await verificationContext.MigrationImportLegacyPickScores
+                .Where(x => x.ImportRunId == run.Id)
+                .OrderBy(x => x.RowNumber)
+                .ToListAsync();
+
+            Assert.Contains(legacyScores, x => x.RaceCode == "albert_park");
+            Assert.Contains(legacyScores, x => x.RaceCode == "shanghai");
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
     private static async Task<string> CreateTempCsvAsync(string content)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"f1-migration-{Guid.NewGuid():N}.csv");
@@ -315,8 +392,8 @@ public sealed class MigrationImportRunServiceTests
 
             IReadOnlyList<JolpicaRaceDto> races =
             [
-                new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z" },
-                new() { Season = "2025", Round = "2", RaceName = "Chinese Grand Prix", Date = "2025-03-23", Time = "07:00:00Z" }
+                new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "albert_park", CircuitName = "Albert Park Grand Prix Circuit" } },
+                new() { Season = "2025", Round = "2", RaceName = "Chinese Grand Prix", Date = "2025-03-23", Time = "07:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "shanghai", CircuitName = "Shanghai International Circuit" } }
             ];
             return Task.FromResult(races);
         }

@@ -76,6 +76,16 @@ public sealed class MigrationReconciliationServiceTests
         var nonZero = pickDiffs.Where(x => x.DeltaPoints != 0).ToList();
         Assert.NotEmpty(nonZero);
         Assert.All(nonZero, x => Assert.False(string.IsNullOrWhiteSpace(x.Explanation)));
+
+        var philipAusRaceDiff = await dbContext.MigrationImportRaceDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
+        Assert.Contains("Contributors:", philipAusRaceDiff.Explanation);
+        Assert.Contains("AUS-1 10->5 (-5)", philipAusRaceDiff.Explanation);
+        Assert.Contains("AUS-DNF 5->0 (-5)", philipAusRaceDiff.Explanation);
+
+        var andyAusRaceDiff = await dbContext.MigrationImportRaceDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Andy");
+        Assert.Contains("AUS-2 5->10 (5)", andyAusRaceDiff.Explanation);
     }
 
     [Fact]

@@ -55,6 +55,9 @@ public sealed class MigrationRaceRoundMapperTests
         Assert.Equal(1, mappings[0].Round);
         Assert.Equal(2, mappings[1].Round);
         Assert.Equal(3, mappings[2].Round);
+        Assert.Equal("albert_park", mappings[0].MappedCircuitId);
+        Assert.Equal("monaco", mappings[1].MappedCircuitId);
+        Assert.Equal("monza", mappings[2].MappedCircuitId);
         Assert.Contains("sequence-based mapping applied", mappings[2].Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
         var snapshots = await dbContext.MigrationImportJolpicaRaceSnapshots
@@ -111,6 +114,54 @@ public sealed class MigrationRaceRoundMapperTests
         Assert.Contains("No Jolpica race available", lastMapping.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task MapAndPersistAsync_WhenRaceCodesAreSimilar_AusAndAut_MapBySequenceWithoutAmbiguityWarning()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            CreateSelection(runId, 10, "AUS", "1", "Philip"),
+            CreateSelection(runId, 20, "AUT", "1", "Philip"));
+
+        await dbContext.SaveChangesAsync();
+
+        var mapper = new MigrationRaceRoundMapper(
+            new TestDbContextFactory(options),
+            new StubJolpicaClient(),
+            Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+            Options.Create(new MigrationImportOptions { Season = 2025 }));
+
+        var result = await mapper.MapAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(2, result.MappingCount);
+        Assert.Equal(0, result.WarningCount);
+
+        var mappings = await dbContext.MigrationImportRaceRoundMappings
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RaceSequence)
+            .ToListAsync();
+
+        Assert.Equal("AUS", mappings[0].SourceRaceCode);
+        Assert.Equal(1, mappings[0].Round);
+        Assert.Equal("albert_park", mappings[0].MappedCircuitId);
+        Assert.Equal("AUT", mappings[1].SourceRaceCode);
+        Assert.Equal(2, mappings[1].Round);
+        Assert.Equal("monaco", mappings[1].MappedCircuitId);
+        Assert.All(mappings, x => Assert.True(string.IsNullOrWhiteSpace(x.Warning)));
+    }
+
     private static MigrationImportRaceSelectionEntity CreateSelection(Guid runId, int rowNumber, string raceCode, string pickType, string subject)
     {
         return new MigrationImportRaceSelectionEntity
@@ -164,9 +215,9 @@ public sealed class MigrationRaceRoundMapperTests
         {
             IReadOnlyList<JolpicaRaceDto> races =
             [
-                new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z", Circuit = new JolpicaCircuitDto { CircuitName = "Albert Park" } },
-                new() { Season = "2025", Round = "2", RaceName = "Monaco Grand Prix", Date = "2025-05-25", Time = "13:00:00Z", Circuit = new JolpicaCircuitDto { CircuitName = "Monaco" } },
-                new() { Season = "2025", Round = "3", RaceName = "Italian Grand Prix", Date = "2025-09-07", Time = "13:00:00Z", Circuit = new JolpicaCircuitDto { CircuitName = "Monza" } }
+                new() { Season = "2025", Round = "1", RaceName = "Australian Grand Prix", Date = "2025-03-16", Time = "05:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "albert_park", CircuitName = "Albert Park" } },
+                new() { Season = "2025", Round = "2", RaceName = "Monaco Grand Prix", Date = "2025-05-25", Time = "13:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "monaco", CircuitName = "Monaco" } },
+                new() { Season = "2025", Round = "3", RaceName = "Italian Grand Prix", Date = "2025-09-07", Time = "13:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "monza", CircuitName = "Monza" } }
             ];
 
             return Task.FromResult(races);

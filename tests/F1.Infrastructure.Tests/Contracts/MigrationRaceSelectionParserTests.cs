@@ -46,7 +46,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal(8, selections.Count);
 
         var ausWinner = selections.Single(x => x.RowNumber == 2 && x.Subject == "Philip" && !x.IsActualOutcome);
-        Assert.Equal("AUS", ausWinner.RaceCode);
+        Assert.Equal("albert_park", ausWinner.RaceCode);
         Assert.Equal("1", ausWinner.PickType);
         Assert.Equal("VER", ausWinner.NormalizedValue);
 
@@ -94,7 +94,7 @@ public sealed class MigrationRaceSelectionParserTests
         var lRowActual = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "ACTUAL");
 
-        Assert.Equal("AUS", lRowActual.RaceCode);
+        Assert.Equal("albert_park", lRowActual.RaceCode);
         Assert.Equal("2", lRowActual.PickType);
         Assert.Equal("NOR", lRowActual.NormalizedValue);
         Assert.True(lRowActual.IsActualOutcome);
@@ -222,7 +222,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("verstappen", unresolved[1].RawToken);
         Assert.All(unresolved, token =>
         {
-            Assert.Equal("AUS", token.RaceCode);
+            Assert.Equal("albert_park", token.RaceCode);
             Assert.Equal("1", token.PickType);
             Assert.Equal(2, token.RowNumber);
         });
@@ -310,6 +310,163 @@ public sealed class MigrationRaceSelectionParserTests
 
         Assert.Equal("LEC", participantPick.NormalizedValue);
         Assert.Empty(await dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenLongRaceLabelsProvided_MapsMonzaAndAustriaToJolpicaCircuitIds()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePick", RawPayload = "MONZA-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePick", RawPayload = "AUSTRIA-2,NOR,NOR" });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(4, parseResult.SelectionCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
+
+        var monzaPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Philip");
+        Assert.Equal("monza", monzaPick.RaceCode);
+
+        var austriaPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Philip");
+        Assert.Equal("red_bull_ring", austriaPick.RaceCode);
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenMultiWordRaceLabelsProvided_MapsToExpectedCircuitIds()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePick", RawPayload = "ABU DHABI-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePick", RawPayload = "UNITED STATES-2,NOR,NOR" });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(4, parseResult.SelectionCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
+
+        var abuDhabiPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Philip");
+        Assert.Equal("yas_marina", abuDhabiPick.RaceCode);
+
+        var unitedStatesPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Philip");
+        Assert.Equal("americas", unitedStatesPick.RaceCode);
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenSeasonRaceCodesUsed_MapsAllToJolpicaCircuitIds()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        var raceLabels = new (string Label, string ExpectedCircuitId)[]
+        {
+            ("AUS-1", "albert_park"),
+            ("CHN-1", "shanghai"),
+            ("JPN-1", "suzuka"),
+            ("BAH-1", "bahrain"),
+            ("SAR-1", "jeddah"),
+            ("MIA-1", "miami"),
+            ("IMO-1", "imola"),
+            ("MON-1", "monaco"),
+            ("BAR-1", "catalunya"),
+            ("CAN-1", "villeneuve"),
+            ("AUT-1", "red_bull_ring"),
+            ("GBR-1", "silverstone"),
+            ("SPA-1", "spa"),
+            ("HUN-1", "hungaroring"),
+            ("NED-1", "zandvoort"),
+            ("BAK-1", "baku"),
+            ("SIN-1", "marina_bay"),
+            ("COTA-1", "americas"),
+            ("MEX-1", "rodriguez"),
+            ("BRA-1", "interlagos"),
+            ("LAS-1", "las_vegas"),
+            ("QAT-1", "losail"),
+            ("ABD-1", "yas_marina")
+        };
+
+        var rows = new List<MigrationImportRawRowEntity>
+        {
+            new() { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," }
+        };
+
+        for (var index = 0; index < raceLabels.Length; index++)
+        {
+            rows.Add(new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = index + 2,
+                SectionType = "RacePick",
+                RawPayload = $"{raceLabels[index].Label},VER,VER"
+            });
+        }
+
+        dbContext.MigrationImportRawRows.AddRange(rows);
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(raceLabels.Length * 2, parseResult.SelectionCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
+
+        for (var index = 0; index < raceLabels.Length; index++)
+        {
+            var rowNumber = index + 2;
+            var selection = await dbContext.MigrationImportRaceSelections
+                .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == rowNumber && x.Subject == "Philip");
+
+            Assert.Equal(raceLabels[index].ExpectedCircuitId, selection.RaceCode);
+        }
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()

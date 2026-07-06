@@ -32,6 +32,11 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         var headerRow = stagedRows.FirstOrDefault(x => string.Equals(x.SectionType, SectionTypeHeader, StringComparison.Ordinal));
         var participants = ResolveParticipants(headerRow?.RawPayload);
+        var mappedCircuitBySequence = await dbContext.MigrationImportRaceRoundMappings
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RaceSequence)
+            .Select(x => new { x.RaceSequence, x.MappedCircuitId })
+            .ToDictionaryAsync(x => x.RaceSequence, x => x.MappedCircuitId, cancellationToken);
 
         dbContext.MigrationImportLegacyPickScores.RemoveRange(
             dbContext.MigrationImportLegacyPickScores.Where(x => x.ImportRunId == runId));
@@ -48,6 +53,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         var legacyPickScores = new List<MigrationImportLegacyPickScoreEntity>();
         string? currentRaceCode = null;
+        var raceSequence = 0;
 
         foreach (var row in stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePoints, StringComparison.Ordinal)))
         {
@@ -61,6 +67,15 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             {
                 continue;
             }
+
+            if (string.Equals(pickType, "1", StringComparison.OrdinalIgnoreCase))
+            {
+                raceSequence++;
+            }
+
+            var mappedRaceCode = mappedCircuitBySequence.TryGetValue(raceSequence, out var mappedCircuitId) && !string.IsNullOrWhiteSpace(mappedCircuitId)
+                ? mappedCircuitId
+                : raceCode;
 
             var participantValues = columns.Skip(1).Take(participants.Count).ToArray();
             for (var index = 0; index < participants.Count; index++)
@@ -76,7 +91,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
                 {
                     ImportRunId = runId,
                     RowNumber = row.RowNumber,
-                    RaceCode = raceCode,
+                    RaceCode = mappedRaceCode,
                     PickType = pickType,
                     Subject = participants[index],
                     RawLegacyPoints = raw,
@@ -175,7 +190,11 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         return participants;
     }
 
-    private static bool TryResolveRace(string label, ref string? currentRaceCode, out string raceCode, out string pickType)
+    private static bool TryResolveRace(
+        string label,
+        ref string? currentRaceCode,
+        out string raceCode,
+        out string pickType)
     {
         raceCode = string.Empty;
         pickType = string.Empty;
@@ -222,7 +241,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             return false;
         }
 
-        raceCode = match.Groups[1].Value.ToUpperInvariant();
+        raceCode = RaceCodeNormalizer.NormalizeRaceCode(match.Groups[1].Value);
         pickType = match.Groups[2].Value.ToUpperInvariant();
         currentRaceCode = raceCode;
         return true;
@@ -265,6 +284,6 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         return fields;
     }
 
-    [GeneratedRegex("^([A-Za-z]{3})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceLabelRegex();
 }

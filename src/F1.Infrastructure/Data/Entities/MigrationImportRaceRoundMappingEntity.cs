@@ -9,6 +9,7 @@ public sealed class MigrationImportRaceRoundMappingEntity
     public string SourceRaceCode { get; set; } = string.Empty;
     public int? Season { get; set; }
     public int? Round { get; set; }
+    public string? MappedCircuitId { get; set; }
     public string? MappedRaceName { get; set; }
     public string? Warning { get; set; }
 }
