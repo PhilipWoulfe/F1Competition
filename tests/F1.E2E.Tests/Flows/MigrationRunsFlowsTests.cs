@@ -30,13 +30,9 @@ public sealed class MigrationRunsFlowsTests(ITestOutputHelper output)
             migrationRunsPage.SelectFirstRun();
             migrationRunsPage.WaitForRunDetail();
 
-            var participantRows = migrationRunsPage.GetParticipantRows();
-            var raceRows = migrationRunsPage.GetRaceRows();
-            var pickRows = migrationRunsPage.GetPickRows();
-
-            Assert.NotEmpty(participantRows);
-            Assert.NotEmpty(raceRows);
-            Assert.NotEmpty(pickRows);
+            Assert.True(migrationRunsPage.WaitForParticipantComparisonSection());
+            Assert.True(migrationRunsPage.WaitForRaceComparisonSection());
+            Assert.True(migrationRunsPage.WaitForPickComparisonSection());
 
             testPassed = true;
         }
