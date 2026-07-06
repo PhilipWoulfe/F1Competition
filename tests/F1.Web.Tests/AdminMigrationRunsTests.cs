@@ -60,10 +60,21 @@ public sealed class AdminMigrationRunsTests : BunitContext
                 new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2),
                 new AdminMigrationParticipantDelta("Alex", 500, 500, 0, "EXACT_MATCH", 5)
             ],
-            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
-            PreseasonParticipantDeltas: [],
-            PreseasonQuestionDiffs: [],
-            PreseasonReasonCategorySummaries: [],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(2, 2, 1, -20),
+            PreseasonParticipantDeltas:
+            [
+                new AdminMigrationPreseasonParticipantDelta("Morgan", 40, 20, -20, "PRESEASON_RULE_VARIANCE", 1),
+                new AdminMigrationPreseasonParticipantDelta("Taylor", 20, 20, 0, "PRESEASON_POINTS_MATCH", 1)
+            ],
+            PreseasonQuestionDiffs:
+            [
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch"),
+                new AdminMigrationPreseasonQuestionDiff(23, "PRE-023", "Who wins Bahrain?", "Taylor", 20, 20, 0, "PRESEASON_POINTS_MATCH", "Match")
+            ],
+            PreseasonReasonCategorySummaries:
+            [
+                new AdminMigrationPreseasonReasonCategorySummary("PRESEASON_RULE_VARIANCE", 1, -20)
+            ],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
@@ -98,10 +109,19 @@ public sealed class AdminMigrationRunsTests : BunitContext
             [
                 new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2)
             ],
-            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
-            PreseasonParticipantDeltas: [],
-            PreseasonQuestionDiffs: [],
-            PreseasonReasonCategorySummaries: [],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(1, 1, 1, -20),
+            PreseasonParticipantDeltas:
+            [
+                new AdminMigrationPreseasonParticipantDelta("Morgan", 40, 20, -20, "PRESEASON_RULE_VARIANCE", 1)
+            ],
+            PreseasonQuestionDiffs:
+            [
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch")
+            ],
+            PreseasonReasonCategorySummaries:
+            [
+                new AdminMigrationPreseasonReasonCategorySummary("PRESEASON_RULE_VARIANCE", 1, -20)
+            ],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
@@ -138,16 +158,22 @@ public sealed class AdminMigrationRunsTests : BunitContext
 
         cut.WaitForAssertion(() => Assert.Contains("Run Detail", cut.Markup));
         Assert.Contains("Participant Comparisons", cut.Markup);
+        Assert.Contains("Expected vs Actual Review", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
         Assert.Contains("Unexpected: 3", cut.Markup);
+        Assert.Contains("Question Diffs", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#participant-comparisons\"", cut.Markup);
+        Assert.Contains("href=\"/admin/migration-runs#preseason-comparisons\"", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#race-comparisons\"", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#pick-comparisons\"", cut.Markup);
         Assert.Contains("Reconciliation Export", cut.Markup);
+        Assert.Contains("Preseason question diffs CSV", cut.Markup);
+        Assert.Contains("Preseason participant diffs CSV", cut.Markup);
         Assert.Contains("Pick diffs CSV", cut.Markup);
         Assert.Contains("Podium mismatch", cut.Markup);
         Assert.Contains("Wrong slot", cut.Markup);
+        Assert.Contains("Who wins the constructors title?", cut.Markup);
 
         cut.Find("#detail-participant-filter").Change("Philip");
         cut.WaitForAssertion(() => Assert.DoesNotContain("No variance", cut.Markup));
@@ -169,6 +195,17 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.Find("#detail-non-zero-only").Change(false);
         cut.Find("#detail-expected-status").Change("unexpected");
         cut.WaitForAssertion(() => Assert.DoesNotContain("Wrong slot", cut.Markup));
+
+        cut.Find("#preseason-participant-filter").Change("Morgan");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Morgan", cut.Markup);
+            Assert.DoesNotContain("Taylor", cut.Markup);
+        });
+
+        cut.Find("#preseason-participant-filter").Change(string.Empty);
+        cut.Find("#preseason-non-zero-only").Change(true);
+        cut.WaitForAssertion(() => Assert.DoesNotContain("PRESEASON_POINTS_MATCH", cut.Markup));
     }
 
     [Fact]

@@ -108,6 +108,105 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task ExportRunDiffsAsync_WhenPreseasonExportRequested_ReturnsOrderedRows()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 6, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 6, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.AddRange(
+                new MigrationImportPreseasonQuestionDiffEntity
+                {
+                    Id = 20,
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "Zed",
+                    ImportedPoints = 20,
+                    CalculatedPoints = 0,
+                    DeltaPoints = -20,
+                    ReasonCode = "PRESEASON_RULE_VARIANCE",
+                    Explanation = "z"
+                },
+                new MigrationImportPreseasonQuestionDiffEntity
+                {
+                    Id = 10,
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Amy",
+                    ImportedPoints = 20,
+                    CalculatedPoints = 20,
+                    DeltaPoints = 0,
+                    ReasonCode = "PRESEASON_POINTS_MATCH",
+                    Explanation = "a"
+                });
+
+            dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
+                new MigrationImportPreseasonParticipantDeltaSummaryEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    Subject = "Zed",
+                    ImportedTotalPoints = 20,
+                    CalculatedTotalPoints = 0,
+                    NetDeltaPoints = -20,
+                    TopReasonCode = "PRESEASON_RULE_VARIANCE",
+                    TopReasonCount = 1
+                },
+                new MigrationImportPreseasonParticipantDeltaSummaryEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    Subject = "Amy",
+                    ImportedTotalPoints = 20,
+                    CalculatedTotalPoints = 20,
+                    NetDeltaPoints = 0,
+                    TopReasonCode = "PRESEASON_POINTS_MATCH",
+                    TopReasonCount = 1
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var questionExport = await service.ExportRunDiffsAsync(runId, "preseason-question-diffs", "json", "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(questionExport);
+        Assert.True(questionExport!.Success);
+        var questionRows = JsonSerializer.Deserialize<AdminMigrationPreseasonQuestionDiffDto[]>(
+            questionExport.Payload,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(questionRows);
+        Assert.Equal(new[] { 22, 23 }, questionRows!.Select(x => x.RowNumber).ToArray());
+
+        var participantExport = await service.ExportRunDiffsAsync(runId, "preseason-participant-diffs", "json", "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(participantExport);
+        Assert.True(participantExport!.Success);
+        var participantRows = JsonSerializer.Deserialize<AdminMigrationPreseasonParticipantDeltaDto[]>(
+            participantExport.Payload,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(participantRows);
+        Assert.Equal(new[] { "Amy", "Zed" }, participantRows!.Select(x => x.Subject).ToArray());
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_ProjectsExpectedVarianceMetadata()
     {
         var runId = Guid.NewGuid();
