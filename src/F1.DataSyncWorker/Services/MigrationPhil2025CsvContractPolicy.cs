@@ -114,6 +114,26 @@ public static class MigrationPhil2025CsvContractPolicy
             };
         }
 
+        if (row.SectionType == MigrationImportSectionTypes.RacePick)
+        {
+            return row with
+            {
+                SectionType = MigrationImportSectionTypes.Unclassified,
+                ClassificationReason =
+                    $"{ContractReasonPrefix} race selections are only allowed on rows {RaceSelectionStartRow}-{RaceSelectionEndRow}."
+            };
+        }
+
+        if (row.SectionType == MigrationImportSectionTypes.RacePoints)
+        {
+            return row with
+            {
+                SectionType = MigrationImportSectionTypes.Unclassified,
+                ClassificationReason =
+                    $"{ContractReasonPrefix} race points are only allowed on rows {RacePointsStartRow}-{RacePointsEndRow}."
+            };
+        }
+
         return row;
     }
 }

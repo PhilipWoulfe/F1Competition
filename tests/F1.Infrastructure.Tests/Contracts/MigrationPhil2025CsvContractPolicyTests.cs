@@ -34,6 +34,34 @@ public sealed class MigrationPhil2025CsvContractPolicyTests
     }
 
     [Fact]
+    public void Apply_WhenRacePickOutsideRaceSelectionWindow_MarksUnclassified()
+    {
+        var input = new StagedImportRow(
+            RowNumber: 236,
+            SectionType: MigrationImportSectionTypes.RacePick,
+            RawPayload: "AUS-1,VER");
+
+        var result = MigrationPhil2025CsvContractPolicy.Apply(input);
+
+        Assert.Equal(MigrationImportSectionTypes.Unclassified, result.SectionType);
+        Assert.Contains("only allowed on rows 43-138", result.ClassificationReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Apply_WhenRacePointsOutsideRacePointsWindow_MarksUnclassified()
+    {
+        var input = new StagedImportRow(
+            RowNumber: 42,
+            SectionType: MigrationImportSectionTypes.RacePoints,
+            RawPayload: "AUS-1,20");
+
+        var result = MigrationPhil2025CsvContractPolicy.Apply(input);
+
+        Assert.Equal(MigrationImportSectionTypes.Unclassified, result.SectionType);
+        Assert.Contains("only allowed on rows 140-235", result.ClassificationReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void AppliesTo_WhenPhilSourceFileName_ReturnsTrue()
     {
         Assert.True(MigrationPhil2025CsvContractPolicy.AppliesTo("/tmp/PhilMigratedSelectionsAndScores.csv"));

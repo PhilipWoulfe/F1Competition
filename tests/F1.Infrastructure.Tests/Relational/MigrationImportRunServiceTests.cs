@@ -379,7 +379,13 @@ public sealed class MigrationImportRunServiceTests
         // Row 140 race points (in scope).
         rows.Add("AUS-1,10,,");
 
-        // Row 141 totals.
+        // Rows 141-235 filler race points rows to preserve Phil contract row windows.
+        for (var row = 141; row <= 235; row++)
+        {
+            rows.Add($"R{row}-1,0,,");
+        }
+
+        // Row 236 totals.
         rows.Add("Result,10,,");
 
         var sourceFilePath = await CreateTempCsvAsync(string.Join(Environment.NewLine, rows), MigrationPhil2025CsvContractPolicy.SourceFileName);
