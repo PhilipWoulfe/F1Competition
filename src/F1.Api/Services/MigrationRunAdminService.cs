@@ -105,6 +105,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) })
                 .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
 
+            var unexpectedDeltas = await _dbContext.MigrationImportPickDiffs
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId) && !x.IsExpectedVariance && x.DeltaPoints != 0)
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.DeltaPoints) })
+                .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
+
             var items = pagedRuns
                 .Select(run => new AdminMigrationRunListItemDto(
                     run.Id,
@@ -119,6 +126,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     pickDiffCounts.GetValueOrDefault(run.Id, 0),
                     raceDiffCounts.GetValueOrDefault(run.Id, 0),
                     totalDeltas.GetValueOrDefault(run.Id, 0),
+                    unexpectedDeltas.GetValueOrDefault(run.Id, 0),
                     run.ErrorMessage))
                 .ToArray();
 
@@ -357,7 +365,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var pickDiffs = FilterExpectedVariance(allPickDiffs, expectedStatus).ToArray();
         var raceDiffs = FilterExpectedVariance(allRaceDiffs, expectedStatus).ToArray();
         var unexpectedTotalDeltaPoints = allPickDiffs
-            .Where(x => !x.IsExpectedVariance)
+            .Where(x => !x.IsExpectedVariance && x.DeltaPoints != 0)
             .Sum(x => x.DeltaPoints);
 
         var participantDeltas = raceDiffs
@@ -614,12 +622,18 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
         return rows.Where(row =>
         {
-            var isExpectedVariance = row switch
+            var (isExpectedVariance, deltaPoints) = row switch
             {
-                AdminMigrationPickDiffDto pickDiff => pickDiff.IsExpectedVariance,
-                AdminMigrationRaceDiffDto raceDiff => raceDiff.IsExpectedVariance,
-                _ => false
+                AdminMigrationPickDiffDto pickDiff => (pickDiff.IsExpectedVariance, pickDiff.DeltaPoints),
+                AdminMigrationRaceDiffDto raceDiff => (raceDiff.IsExpectedVariance, raceDiff.DeltaPoints),
+                _ => (false, 0)
             };
+
+            // Zero-delta rows are not variances and should not appear in expected/unexpected-only views.
+            if (deltaPoints == 0)
+            {
+                return false;
+            }
 
             return includeExpected.Value == isExpectedVariance;
         });

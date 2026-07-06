@@ -245,7 +245,41 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             return sourceFilePath;
         }
 
-        return Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
+        var trimmedPath = sourceFilePath.Trim();
+        var directCandidate = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        if (File.Exists(directCandidate))
+        {
+            return directCandidate;
+        }
+
+        var baseDirectoryCandidate = Path.GetFullPath(trimmedPath, AppContext.BaseDirectory);
+        if (File.Exists(baseDirectoryCandidate))
+        {
+            return baseDirectoryCandidate;
+        }
+
+        foreach (var root in EnumerateAncestorDirectories(Directory.GetCurrentDirectory())
+                     .Concat(EnumerateAncestorDirectories(AppContext.BaseDirectory))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var candidate = Path.GetFullPath(trimmedPath, root);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return directCandidate;
+    }
+
+    private static IEnumerable<string> EnumerateAncestorDirectories(string startPath)
+    {
+        var current = Path.GetFullPath(startPath);
+        while (!string.IsNullOrWhiteSpace(current))
+        {
+            yield return current;
+            current = Path.GetDirectoryName(current) ?? string.Empty;
+        }
     }
 
     private async Task<int> RewriteSelectionRaceCodesToMappedCircuitIdsAsync(Guid runId, CancellationToken cancellationToken)

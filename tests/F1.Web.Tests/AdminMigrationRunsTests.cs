@@ -32,6 +32,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
                     PickDiffCount: 100,
                     RaceDiffCount: 20,
                     TotalDeltaPoints: -4,
+                    UnexpectedTotalDeltaPoints: 3,
                     ErrorMessage: null)
             ]);
 
@@ -217,6 +218,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
                     PickDiffCount: 100,
                     RaceDiffCount: 20,
                     TotalDeltaPoints: -4,
+                    UnexpectedTotalDeltaPoints: -4,
                     ErrorMessage: null)
             ]);
 
