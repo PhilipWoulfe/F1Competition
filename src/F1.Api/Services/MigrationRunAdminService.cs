@@ -331,8 +331,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var raceDiffs = await _dbContext.MigrationImportRaceDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
+            .OrderBy(x => x.Id)
             .Select(x => new AdminMigrationRaceDiffDto(
                 x.RaceCode,
                 x.Subject,
@@ -346,10 +345,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var pickDiffs = await _dbContext.MigrationImportPickDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.PickType == "1" ? 1 : x.PickType == "2" ? 2 : x.PickType == "3" ? 3 : x.PickType == "DNF" ? 4 : 5)
-            .ThenBy(x => x.PickType)
+            .OrderBy(x => x.Id)
             .Select(x => new AdminMigrationPickDiffDto(
                 x.RaceCode,
                 x.PickType,
@@ -505,10 +501,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var rows = await _dbContext.MigrationImportPickDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.PickType == "1" ? 1 : x.PickType == "2" ? 2 : x.PickType == "3" ? 3 : x.PickType == "DNF" ? 4 : 5)
-            .ThenBy(x => x.PickType)
+            .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.RaceCode,
