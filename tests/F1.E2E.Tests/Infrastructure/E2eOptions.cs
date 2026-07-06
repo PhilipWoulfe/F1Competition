@@ -13,6 +13,7 @@ internal class E2eOptions
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(20);
     public string? CfClientId { get; init; }
     public string? CfClientSecret { get; init; }
+    public string? PostgresConnectionString { get; init; }
 
     public static E2eOptions FromEnvironment()
     {
@@ -55,6 +56,7 @@ internal class E2eOptions
         var season = ParseInt(GetSetting("E2E_SEASON"), 2026);
         var round = ParseInt(GetSetting("E2E_ROUND"), 1);
         var headless = ParseBool(GetSetting("E2E_HEADLESS"), true);
+        var postgresConnectionString = BuildPostgresConnectionString(GetSetting);
 
         return new E2eOptions
         {
@@ -68,7 +70,8 @@ internal class E2eOptions
             Headless = headless,
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
             CfClientId = GetSetting("E2E_CF_CLIENT_ID"),
-            CfClientSecret = GetSetting("E2E_CF_CLIENT_SECRET")
+            CfClientSecret = GetSetting("E2E_CF_CLIENT_SECRET"),
+            PostgresConnectionString = postgresConnectionString
         };
     }
 
@@ -107,6 +110,45 @@ internal class E2eOptions
         }
 
         return $"selection/{CompetitionSlug}/{Season}/round/{Round}";
+    }
+
+    private static string? BuildPostgresConnectionString(Func<string, string?> getSetting)
+    {
+        var explicitConnectionString = getSetting("E2E_POSTGRES_CONNECTION_STRING");
+        if (!string.IsNullOrWhiteSpace(explicitConnectionString))
+        {
+            return explicitConnectionString;
+        }
+
+        var database = getSetting("POSTGRES_DB");
+        var username = getSetting("POSTGRES_USER");
+        var password = getSetting("POSTGRES_PASSWORD");
+
+        if (string.IsNullOrWhiteSpace(database) ||
+            string.IsNullOrWhiteSpace(username) ||
+            string.IsNullOrWhiteSpace(password))
+        {
+            return null;
+        }
+
+        var host = getSetting("POSTGRES_HOST");
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            host = "localhost";
+        }
+
+        var port = ParseIntAllowZero(getSetting("POSTGRES_PORT"), 5432);
+        if (port <= 0)
+        {
+            port = 5432;
+        }
+
+        return $"Host={host};Port={port};Database={database};Username={username};Password={password}";
+    }
+
+    private static int ParseIntAllowZero(string? raw, int fallback)
+    {
+        return int.TryParse(raw, out var parsed) ? parsed : fallback;
     }
 
     private static Dictionary<string, string> LoadLocalDotEnv()

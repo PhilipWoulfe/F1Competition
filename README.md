@@ -328,6 +328,8 @@ Optional E2E tuning:
 - `E2E_ROUND`: defaults to `1`.
 - `E2E_RACE_ID`: optional explicit canonical race ID override. When unset, E2E resolves race ID via `/races/context/{competitionSlug}/{season}/round/{round}`.
 - `E2E_STEP_TRACE_PATH`: optional override for always-on Selenium step logs. Defaults to `TestResults/e2e/step-traces`.
+- `E2E_POSTGRES_CONNECTION_STRING`: optional explicit connection string used by deterministic migration-runs E2E fixture seeding.
+- `POSTGRES_HOST`: optional host override for migration-runs fixture seeding when `E2E_POSTGRES_CONNECTION_STRING` is not set. Defaults to `localhost`.
 
 Test-only service-token fallback controls (use only when Cloudflare service-token JWTs omit email claims):
 
@@ -395,6 +397,7 @@ Create a local `.env` (for example by copying `.env.example`) and point it at th
 
 - `E2E_BASE_URL=http://localhost:5001`
 - `E2E_API_BASE_URL=http://localhost:5000`
+- `E2E_POSTGRES_CONNECTION_STRING=Host=localhost;Port=5432;Database=f1competition;Username=f1;Password=f1`
 
 If you want the browser flows to execute locally, start the local stack first, then run the E2E project test command directly.
 

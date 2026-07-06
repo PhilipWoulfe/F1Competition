@@ -131,18 +131,28 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 return null;
             }
 
-        var unresolvedTokenSummary = await _dbContext.MigrationImportUnresolvedTokens
+        var unresolvedTokenSummaryRows = await _dbContext.MigrationImportUnresolvedTokens
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
             .GroupBy(x => x.RawToken)
-            .Select(group => new AdminMigrationUnresolvedTokenSummaryDto(
-                group.Key,
-                group.Count(),
-                group.Min(item => item.RowNumber),
-                group.Min(item => item.CreatedAtUtc)))
+            .Select(group => new
+            {
+                RawToken = group.Key,
+                OccurrenceCount = group.Count(),
+                FirstRowNumber = group.Min(item => item.RowNumber),
+                FirstCreatedAtUtc = group.Min(item => item.CreatedAtUtc)
+            })
             .OrderByDescending(x => x.OccurrenceCount)
             .ThenBy(x => x.RawToken)
             .ToArrayAsync(cancellationToken);
+
+        var unresolvedTokenSummary = unresolvedTokenSummaryRows
+            .Select(x => new AdminMigrationUnresolvedTokenSummaryDto(
+                x.RawToken,
+                x.OccurrenceCount,
+                x.FirstRowNumber,
+                x.FirstCreatedAtUtc))
+            .ToArray();
 
         var participantDeltas = await _dbContext.MigrationImportParticipantDeltaSummaries
             .AsNoTracking()
