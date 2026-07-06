@@ -109,6 +109,7 @@ The solution uses **Cloudflare Tunnels** to securely expose the services without
 ### 1. Prerequisites
 - **.NET 8 SDK**
 - **Docker & Docker Compose**
+- **PostgreSQL 16** – provisioned automatically via Docker Compose (`postgres:16`). No manual installation needed for Docker-based runs; for bare-metal `dotnet run` you need a local PostgreSQL 16 instance.
 - **entr** (for live test-watching on Linux/WSL):
   ```bash
   sudo apt-get update && sudo apt-get install entr
