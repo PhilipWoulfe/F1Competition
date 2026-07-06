@@ -5,6 +5,13 @@ namespace F1.DataSyncWorker.Services;
 public static class MigrationPhil2025CsvContractPolicy
 {
     public const string SourceFileName = "PhilMigratedSelectionsAndScores.csv";
+
+    public const int ParticipantStartColumnIndex = 1; // Column B
+    public const int ParticipantEndColumnIndex = 10; // Column K
+    public const int ActualAnswerColumnIndex = 11; // Column L
+    public const int PreseasonPointsPolicyRow = 2;
+    public const int PreseasonPointsPolicyColumnIndex = 12; // Column M (M2)
+
     public static readonly string[] ParticipantColumns =
     [
         "Philip",
@@ -48,7 +55,7 @@ public static class MigrationPhil2025CsvContractPolicy
             return row with
             {
                 SectionType = MigrationImportSectionTypes.Unclassified,
-                ClassificationReason = $"{ContractReasonPrefix} row 1 must be a header row."
+                ClassificationReason = BuildValidationReason(row.RowNumber, "must be a header row.")
             };
         }
 
@@ -59,11 +66,21 @@ public static class MigrationPhil2025CsvContractPolicy
                 return row;
             }
 
+            if (row.SectionType == MigrationImportSectionTypes.SeasonQuestionPrediction)
+            {
+                return row with
+                {
+                    ClassificationReason =
+                        $"{ContractReasonPrefix} row {row.RowNumber} is within preseason question window {PreseasonQuestionStartRow}-{PreseasonQuestionEndRow}."
+                };
+            }
+
             return row with
             {
-                SectionType = MigrationImportSectionTypes.SeasonQuestionPrediction,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} rows {PreseasonQuestionStartRow}-{PreseasonQuestionEndRow} are preseason questions and excluded from race scoring."
+                SectionType = MigrationImportSectionTypes.Unclassified,
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"must be a preseason question row ({PreseasonQuestionStartRow}-{PreseasonQuestionEndRow}) but was classified as {row.SectionType}.")
             };
         }
 
@@ -74,11 +91,23 @@ public static class MigrationPhil2025CsvContractPolicy
                 return row;
             }
 
+            if (row.SectionType == MigrationImportSectionTypes.SeasonQuestionPoints ||
+                row.SectionType == MigrationImportSectionTypes.RacePoints)
+            {
+                return row with
+                {
+                    SectionType = MigrationImportSectionTypes.SeasonQuestionPoints,
+                    ClassificationReason =
+                        $"{ContractReasonPrefix} row {row.RowNumber} is within preseason tally window {PreseasonPointsStartRow}-{PreseasonPointsEndRow} and excluded from race scoring."
+                };
+            }
+
             return row with
             {
-                SectionType = MigrationImportSectionTypes.SeasonQuestionPoints,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} rows {PreseasonPointsStartRow}-{PreseasonPointsEndRow} are preseason point tallies and excluded from race scoring."
+                SectionType = MigrationImportSectionTypes.Unclassified,
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"must be a preseason points row ({PreseasonPointsStartRow}-{PreseasonPointsEndRow}) but was classified as {row.SectionType}.")
             };
         }
 
@@ -93,8 +122,9 @@ public static class MigrationPhil2025CsvContractPolicy
             return row with
             {
                 SectionType = MigrationImportSectionTypes.Unclassified,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} rows {RaceSelectionStartRow}-{RaceSelectionEndRow} must contain race selections."
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"must contain race selections within rows {RaceSelectionStartRow}-{RaceSelectionEndRow}.")
             };
         }
 
@@ -109,8 +139,9 @@ public static class MigrationPhil2025CsvContractPolicy
             return row with
             {
                 SectionType = MigrationImportSectionTypes.Unclassified,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} rows {RacePointsStartRow}-{RacePointsEndRow} must contain race points."
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"must contain race points within rows {RacePointsStartRow}-{RacePointsEndRow}.")
             };
         }
 
@@ -119,8 +150,9 @@ public static class MigrationPhil2025CsvContractPolicy
             return row with
             {
                 SectionType = MigrationImportSectionTypes.Unclassified,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} race selections are only allowed on rows {RaceSelectionStartRow}-{RaceSelectionEndRow}."
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"race selections are only allowed on rows {RaceSelectionStartRow}-{RaceSelectionEndRow}.")
             };
         }
 
@@ -129,11 +161,17 @@ public static class MigrationPhil2025CsvContractPolicy
             return row with
             {
                 SectionType = MigrationImportSectionTypes.Unclassified,
-                ClassificationReason =
-                    $"{ContractReasonPrefix} race points are only allowed on rows {RacePointsStartRow}-{RacePointsEndRow}."
+                ClassificationReason = BuildValidationReason(
+                    row.RowNumber,
+                    $"race points are only allowed on rows {RacePointsStartRow}-{RacePointsEndRow}.")
             };
         }
 
         return row;
+    }
+
+    private static string BuildValidationReason(int rowNumber, string reason)
+    {
+        return $"{ContractReasonPrefix} row {rowNumber} {reason}";
     }
 }

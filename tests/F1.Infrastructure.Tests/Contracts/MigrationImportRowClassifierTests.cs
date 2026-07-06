@@ -51,4 +51,15 @@ public sealed class MigrationImportRowClassifierTests
         Assert.Equal("Unclassified", result.SectionType);
         Assert.False(string.IsNullOrWhiteSpace(result.ClassificationReason));
     }
+
+    [Fact]
+    public void Classify_WhenCalledRepeatedlyWithSameInput_IsDeterministic()
+    {
+        const string rawLine = "The WDC will drive for the WCC winning team?,Y,N";
+
+        var first = _classifier.Classify(5, rawLine);
+        var second = _classifier.Classify(5, rawLine);
+
+        Assert.Equal(first, second);
+    }
 }
