@@ -24,4 +24,11 @@
     <ProjectReference Include="..\F1.Core\F1.Core.csproj" />
     <ProjectReference Include="..\F1.Infrastructure\F1.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv"
+          Link="data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
