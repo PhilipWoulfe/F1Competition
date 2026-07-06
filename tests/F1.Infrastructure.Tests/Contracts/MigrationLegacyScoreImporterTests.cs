@@ -324,6 +324,59 @@ public sealed class MigrationLegacyScoreImporterTests
         Assert.Equal("red_bull_ring", legacyScores[4].RaceCode);
     }
 
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPhilContractDryRunHasSecondAusBlock_MapsToAustriaBySequenceFallback()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePoints", RawPayload = "AUS-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePoints", RawPayload = "CHN-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 4, SectionType = "RacePoints", RawPayload = "JPN-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 5, SectionType = "RacePoints", RawPayload = "BAH-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 6, SectionType = "RacePoints", RawPayload = "SAR-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 7, SectionType = "RacePoints", RawPayload = "MIA-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 8, SectionType = "RacePoints", RawPayload = "IMO-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 9, SectionType = "RacePoints", RawPayload = "MON-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 10, SectionType = "RacePoints", RawPayload = "BAR-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 11, SectionType = "RacePoints", RawPayload = "CAN-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 12, SectionType = "RacePoints", RawPayload = "AUS-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 13, SectionType = "RacePoints", RawPayload = "AUS-2,5" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 14, SectionType = "TotalsMeta", RawPayload = "Result,115" });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        var result = await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(12, result.LegacyPickScoreCount);
+
+        var firstAus = await dbContext.MigrationImportLegacyPickScores
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.PickType == "1" && x.Subject == "Philip");
+        Assert.Equal("albert_park", firstAus.RaceCode);
+
+        var secondAusWinner = await dbContext.MigrationImportLegacyPickScores
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 12 && x.PickType == "1" && x.Subject == "Philip");
+        Assert.Equal("red_bull_ring", secondAusWinner.RaceCode);
+
+        var secondAusSecondPlace = await dbContext.MigrationImportLegacyPickScores
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 13 && x.PickType == "2" && x.Subject == "Philip");
+        Assert.Equal("red_bull_ring", secondAusSecondPlace.RaceCode);
+    }
+
     private static DbContextOptions<F1DbContext> CreateOptions()
     {
         return new DbContextOptionsBuilder<F1DbContext>()

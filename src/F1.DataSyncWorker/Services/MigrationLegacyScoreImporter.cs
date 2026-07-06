@@ -23,6 +23,13 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
+        var sourceFilePath = await dbContext.MigrationImportRuns
+            .Where(x => x.Id == runId)
+            .Select(x => x.SourceFilePath)
+            .SingleOrDefaultAsync(cancellationToken);
+        var usePhil2025SequenceMapping = !string.IsNullOrWhiteSpace(sourceFilePath) &&
+            MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
+
         var stagedRows = await dbContext.MigrationImportRawRows
             .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.RowNumber)
@@ -52,6 +59,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         var legacyPickScores = new List<MigrationImportLegacyPickScoreEntity>();
         string? currentRaceCode = null;
+        string? currentCanonicalRaceCode = null;
         var raceSequence = 0;
 
         foreach (var row in stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePoints, StringComparison.Ordinal)))
@@ -70,11 +78,19 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             if (string.Equals(pickType, "1", StringComparison.OrdinalIgnoreCase))
             {
                 raceSequence++;
+
+                currentCanonicalRaceCode = usePhil2025SequenceMapping
+                    ? MigrationPhil2025RaceSequenceMapper.TryResolveCircuitId(raceSequence) ?? raceCode
+                    : raceCode;
             }
+
+            var fallbackRaceCode = usePhil2025SequenceMapping
+                ? currentCanonicalRaceCode ?? raceCode
+                : raceCode;
 
             var mappedRaceCode = mappedCircuitBySequence.TryGetValue(raceSequence, out var mappedCircuitId) && !string.IsNullOrWhiteSpace(mappedCircuitId)
                 ? mappedCircuitId
-                : raceCode;
+                : fallbackRaceCode;
 
             var participantValues = columns.Skip(1).Take(participants.Count).ToArray();
             for (var index = 0; index < participants.Count; index++)

@@ -469,6 +469,59 @@ public sealed class MigrationRaceSelectionParserTests
         }
     }
 
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenPhilContractUsesSecondAusBlock_MapsToAustriaBySequence()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePick", RawPayload = "AUS-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePick", RawPayload = "CHN-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 4, SectionType = "RacePick", RawPayload = "JPN-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 5, SectionType = "RacePick", RawPayload = "BAH-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 6, SectionType = "RacePick", RawPayload = "SAR-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 7, SectionType = "RacePick", RawPayload = "MIA-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 8, SectionType = "RacePick", RawPayload = "IMO-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 9, SectionType = "RacePick", RawPayload = "MON-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 10, SectionType = "RacePick", RawPayload = "BAR-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 11, SectionType = "RacePick", RawPayload = "CAN-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 12, SectionType = "RacePick", RawPayload = "AUS-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 13, SectionType = "RacePick", RawPayload = "AUS-2,NOR,NOR" });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(24, parseResult.SelectionCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
+
+        var firstAusPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Philip");
+        Assert.Equal("albert_park", firstAusPick.RaceCode);
+
+        var secondAusWinner = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 12 && x.Subject == "Philip");
+        Assert.Equal("red_bull_ring", secondAusWinner.RaceCode);
+
+        var secondAusSecondPlace = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 13 && x.Subject == "Philip");
+        Assert.Equal("red_bull_ring", secondAusSecondPlace.RaceCode);
+    }
+
     private static DbContextOptions<F1DbContext> CreateOptions()
     {
         return new DbContextOptionsBuilder<F1DbContext>()
