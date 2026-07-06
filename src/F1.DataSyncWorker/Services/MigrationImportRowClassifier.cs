@@ -6,14 +6,14 @@ namespace F1.DataSyncWorker.Services;
 
 public sealed partial class MigrationImportRowClassifier : IMigrationImportRowClassifier
 {
-    private const string SectionBlank = "Blank";
-    private const string SectionHeader = "Header";
-    private const string SectionSeasonQuestionPrediction = "SeasonQuestionPrediction";
-    private const string SectionSeasonQuestionPoints = "SeasonQuestionPoints";
-    private const string SectionRacePick = "RacePick";
-    private const string SectionRacePoints = "RacePoints";
-    private const string SectionTotalsMeta = "TotalsMeta";
-    private const string SectionUnclassified = "Unclassified";
+    private const string SectionBlank = MigrationImportSectionTypes.Blank;
+    private const string SectionHeader = MigrationImportSectionTypes.Header;
+    private const string SectionSeasonQuestionPrediction = MigrationImportSectionTypes.SeasonQuestionPrediction;
+    private const string SectionSeasonQuestionPoints = MigrationImportSectionTypes.SeasonQuestionPoints;
+    private const string SectionRacePick = MigrationImportSectionTypes.RacePick;
+    private const string SectionRacePoints = MigrationImportSectionTypes.RacePoints;
+    private const string SectionTotalsMeta = MigrationImportSectionTypes.TotalsMeta;
+    private const string SectionUnclassified = MigrationImportSectionTypes.Unclassified;
     private const string DnfNormalizationReason = "Mapped special label to DNF pick type.";
 
     public StagedImportRow Classify(int rowNumber, string rawLine)
