@@ -288,7 +288,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "race-picks");
 
         var explanation = string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal)
-            ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource})."
+            ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({FormatSourceReference(importedRows, participantColumn, "race-points")}; {calculatedSource})."
             : $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
 
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";

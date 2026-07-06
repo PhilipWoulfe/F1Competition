@@ -89,6 +89,10 @@ public sealed class MigrationReconciliationServiceTests
         Assert.Contains("race-points row 1, column B", philipFirstPick.Explanation);
         Assert.Contains("race-picks row 1, column B", philipFirstPick.Explanation);
 
+        var philipSecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "2");
+        Assert.Contains("race-points row 2, column B", philipSecondPick.Explanation);
+        Assert.Contains("race-picks row 2, column B", philipSecondPick.Explanation);
+
         var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
         Assert.Contains("race-points row 5, column C", andySecondPick.Explanation);
         Assert.Contains("race-picks row 5, column C", andySecondPick.Explanation);
@@ -97,7 +101,8 @@ public sealed class MigrationReconciliationServiceTests
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
         Assert.Contains("Contributors:", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-1 10->5 (-5)", philipAusRaceDiff.Explanation);
-        Assert.Contains("column B", philipAusRaceDiff.Explanation);
+        Assert.Contains("imported race-points row 1, column B", philipAusRaceDiff.Explanation);
+        Assert.Contains("calculated race-picks row 1, column B", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-DNF 5->0 (-5)", philipAusRaceDiff.Explanation);
 
         var andyAusRaceDiff = await dbContext.MigrationImportRaceDiffs
