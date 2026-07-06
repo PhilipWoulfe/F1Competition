@@ -75,6 +75,10 @@ public sealed class AdminMigrationRunsTests : BunitContext
         apiMock
             .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(detailResponse);
+        apiMock
+            .Setup(x => x.GetRunDiffExportUrl(runId, It.IsAny<string>(), It.IsAny<string>()))
+            .Returns<Guid, string, string>((id, exportType, format) =>
+                $"admin/migration-runs/{id}/exports/{exportType}?format={format}");
 
         Services.AddSingleton(apiMock.Object);
 
@@ -90,6 +94,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
+        Assert.Contains("Reconciliation Export", cut.Markup);
+        Assert.Contains("Pick diffs CSV", cut.Markup);
         Assert.Contains("Podium mismatch", cut.Markup);
         Assert.Contains("Wrong slot", cut.Markup);
 

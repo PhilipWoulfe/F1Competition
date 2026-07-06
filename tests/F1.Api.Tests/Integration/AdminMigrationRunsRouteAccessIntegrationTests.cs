@@ -61,6 +61,14 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
         service
             .Setup(x => x.GetRunsAsync(It.IsAny<MigrationRunListQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AdminMigrationRunListResponseDto(1, 25, 0, []));
+        service
+            .Setup(x => x.ExportRunDiffsAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((MigrationRunDiffExportResponse?)null);
 
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -99,6 +107,36 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
                 services.AddScoped(_ => service.Object);
             });
         }).CreateClient();
+    }
+
+    [Fact]
+    public async Task MigrationRunExportRoute_WhenAnonymous_ShouldReturnUnauthorized()
+    {
+        var client = CreateClient(mockEmail: null, mockGroups: null);
+
+        var response = await client.GetAsync($"/admin/migration-runs/{Guid.NewGuid()}/exports/pick-diffs?format=csv");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunExportRoute_WhenAuthenticatedNonAdmin_ShouldReturnForbidden()
+    {
+        var client = CreateClient(mockEmail: "user@example.com", mockGroups: ["F1 Users"]);
+
+        var response = await client.GetAsync($"/admin/migration-runs/{Guid.NewGuid()}/exports/pick-diffs?format=csv");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunExportRoute_WhenAuthenticatedAdminAndRunMissing_ShouldReturnNotFound()
+    {
+        var client = CreateClient(mockEmail: "admin@example.com", mockGroups: ["F1 Admins"]);
+
+        var response = await client.GetAsync($"/admin/migration-runs/{Guid.NewGuid()}/exports/pick-diffs?format=csv");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     private sealed class IntegrationTestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>

@@ -13,4 +13,6 @@ public interface IMigrationRunsApiService
         CancellationToken cancellationToken = default);
 
     Task<AdminMigrationRunDetailResponse?> GetRunDetailAsync(Guid runId, CancellationToken cancellationToken = default);
+
+    string GetRunDiffExportUrl(Guid runId, string exportType, string format);
 }

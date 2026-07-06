@@ -81,7 +81,7 @@ public sealed class MigrationRunsControllerTests
     public async Task GetRunDetail_WhenAdminAndRunMissing_ReturnsNotFound()
     {
         var service = new Mock<IMigrationRunAdminService>();
-        service.Setup(x => x.GetRunDetailAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+        service.Setup(x => x.GetRunDetailAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((AdminMigrationRunDetailResponseDto?)null);
 
         var controller = new MigrationRunsController(service.Object)
@@ -121,7 +121,7 @@ public sealed class MigrationRunsControllerTests
             RaceDiffs: [],
             PickDiffs: []);
 
-        service.Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()))
+        service.Setup(x => x.GetRunDetailAsync(runId, "admin@example.com", It.IsAny<CancellationToken>()))
             .ReturnsAsync(detail);
 
         var controller = new MigrationRunsController(service.Object)
@@ -137,7 +137,87 @@ public sealed class MigrationRunsControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<AdminMigrationRunDetailResponseDto>(okResult.Value);
         Assert.Equal(runId, payload.RunId);
-        service.Verify(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.GetRunDetailAsync(runId, "admin@example.com", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExportRunDiffs_WhenServiceReturnsPayload_ReturnsFileResult()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunDiffExportResponse(
+                Success: true,
+                Error: null,
+                FileName: $"migration-run-{runId}-pick-diffs.csv",
+                ContentType: "text/csv",
+                Payload: [1, 2, 3]));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.ExportRunDiffs(runId, "pick-diffs", "csv");
+
+        var fileResult = Assert.IsType<FileContentResult>(result);
+        Assert.Equal("text/csv", fileResult.ContentType);
+        Assert.Equal($"migration-run-{runId}-pick-diffs.csv", fileResult.FileDownloadName);
+    }
+
+    [Fact]
+    public async Task ExportRunDiffs_WhenRequestInvalid_ReturnsBadRequest()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.ExportRunDiffsAsync(runId, "bad-export", "xml", "admin@example.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunDiffExportResponse(
+                Success: false,
+                Error: "format must be either csv or json.",
+                FileName: string.Empty,
+                ContentType: "text/plain",
+                Payload: []));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.ExportRunDiffs(runId, "bad-export", "xml");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        var details = Assert.IsType<ProblemDetails>(badRequest.Value);
+        Assert.Equal("format must be either csv or json.", details.Detail);
+    }
+
+    [Fact]
+    public async Task ExportRunDiffs_WhenRunMissing_ReturnsNotFound()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((MigrationRunDiffExportResponse?)null);
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.ExportRunDiffs(runId, "pick-diffs", "csv");
+
+        Assert.IsType<NotFoundResult>(result);
     }
 
     private static HttpContext CreateHttpContext(bool isAdmin)
