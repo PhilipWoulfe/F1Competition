@@ -65,7 +65,10 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
             SourceFileChecksum = checksum,
             IsDryRun = isDryRun,
             Status = StatusStarted,
-            StartedAtUtc = DateTime.UtcNow
+            StartedAtUtc = DateTime.UtcNow,
+            PreseasonParseStatus = "NotDetected",
+            PreseasonScoringStatus = "NotDetected",
+            PreseasonIsolationGuardPassed = true
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -102,17 +105,31 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task CompleteRunAsync(Guid runId, int rawRowCount, CancellationToken cancellationToken)
+    public async Task CompleteRunAsync(
+        Guid runId,
+        int rawRowCount,
+        CancellationToken cancellationToken,
+        MigrationImportRunCompletionMetadata? metadata = null)
     {
-        await UpdateRunAsync(runId, StatusCompleted, rawRowCount, errorMessage: null, cancellationToken);
+        await UpdateRunAsync(runId, StatusCompleted, rawRowCount, errorMessage: null, cancellationToken, metadata);
     }
 
-    public async Task FailRunAsync(Guid runId, string errorMessage, CancellationToken cancellationToken)
+    public async Task FailRunAsync(
+        Guid runId,
+        string errorMessage,
+        CancellationToken cancellationToken,
+        MigrationImportRunCompletionMetadata? metadata = null)
     {
-        await UpdateRunAsync(runId, StatusFailed, rawRowCount: null, errorMessage, cancellationToken);
+        await UpdateRunAsync(runId, StatusFailed, rawRowCount: null, errorMessage, cancellationToken, metadata);
     }
 
-    private async Task UpdateRunAsync(Guid runId, string status, int? rawRowCount, string? errorMessage, CancellationToken cancellationToken)
+    private async Task UpdateRunAsync(
+        Guid runId,
+        string status,
+        int? rawRowCount,
+        string? errorMessage,
+        CancellationToken cancellationToken,
+        MigrationImportRunCompletionMetadata? metadata)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         var run = await dbContext.MigrationImportRuns.FirstOrDefaultAsync(x => x.Id == runId, cancellationToken)
@@ -125,6 +142,21 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
         if (rawRowCount.HasValue)
         {
             run.RawRowCount = rawRowCount.Value;
+        }
+
+        if (metadata is not null)
+        {
+            run.UnresolvedTokenCount = metadata.UnresolvedTokenCount;
+            run.MappingWarningCount = metadata.MappingWarningCount;
+            run.PreseasonParseStatus = Truncate(metadata.PreseasonParseStatus, 32) ?? "NotDetected";
+            run.PreseasonScoringStatus = Truncate(metadata.PreseasonScoringStatus, 32) ?? "NotDetected";
+            run.PreseasonWarningCount = metadata.PreseasonWarningCount;
+            run.PreseasonErrorCount = metadata.PreseasonErrorCount;
+            run.PreseasonAnswerCount = metadata.PreseasonAnswerCount;
+            run.PreseasonScoredQuestionCount = metadata.PreseasonScoredQuestionCount;
+            run.PreseasonQuestionDiffCount = metadata.PreseasonQuestionDiffCount;
+            run.PreseasonTotalDeltaPoints = metadata.PreseasonTotalDeltaPoints;
+            run.PreseasonIsolationGuardPassed = metadata.PreseasonIsolationGuardPassed;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

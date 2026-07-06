@@ -3,6 +3,7 @@ using F1.DataSyncWorker.Services;
 using F1.DataSyncWorker.Clients;
 using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
+using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -72,10 +73,17 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal("Completed", runs[0].Status);
             Assert.Equal(15, runs[0].RawRowCount);
             Assert.NotNull(runs[0].FinishedAtUtc);
+            Assert.Equal("NotDetected", runs[0].PreseasonParseStatus);
+            Assert.Equal("NotDetected", runs[0].PreseasonScoringStatus);
+            Assert.Equal(0, runs[0].PreseasonWarningCount);
+            Assert.Equal(0, runs[0].PreseasonErrorCount);
+            Assert.True(runs[0].PreseasonIsolationGuardPassed);
 
             Assert.Equal("Failed", runs[1].Status);
             Assert.Equal("simulated failure", runs[1].ErrorMessage);
             Assert.NotNull(runs[1].FinishedAtUtc);
+            Assert.Equal("NotDetected", runs[1].PreseasonParseStatus);
+            Assert.Equal("NotDetected", runs[1].PreseasonScoringStatus);
         }
         finally
         {
@@ -136,6 +144,11 @@ public sealed class MigrationImportRunServiceTests
             Assert.True(run.IsDryRun);
             Assert.Equal("Completed", run.Status);
             Assert.Equal(3, run.RawRowCount);
+            Assert.Equal("NotDetected", run.PreseasonParseStatus);
+            Assert.Equal("NotDetected", run.PreseasonScoringStatus);
+            Assert.Equal(0, run.PreseasonWarningCount);
+            Assert.Equal(0, run.PreseasonErrorCount);
+            Assert.True(run.PreseasonIsolationGuardPassed);
 
             var stagedRows = await verificationContext.MigrationImportRawRows.AsNoTracking().OrderBy(x => x.RowNumber).ToListAsync();
             Assert.Equal(3, stagedRows.Count);
@@ -194,6 +207,10 @@ public sealed class MigrationImportRunServiceTests
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.Equal("Failed", run.Status);
             Assert.NotNull(run.ErrorMessage);
+            Assert.Equal("Failed", run.PreseasonParseStatus);
+            Assert.Equal("Failed", run.PreseasonScoringStatus);
+            Assert.Equal(1, run.PreseasonErrorCount);
+            Assert.False(run.PreseasonIsolationGuardPassed);
 
             var unresolved = await verificationContext.MigrationImportUnresolvedTokens
                 .AsNoTracking()
@@ -251,6 +268,7 @@ public sealed class MigrationImportRunServiceTests
             await using var verificationContext = CreateContext();
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.Equal("Completed", run.Status);
+            Assert.Equal(1, run.UnresolvedTokenCount);
 
             var unresolved = await verificationContext.MigrationImportUnresolvedTokens
                 .AsNoTracking()
@@ -318,6 +336,8 @@ public sealed class MigrationImportRunServiceTests
             await using var verificationContext = CreateContext();
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.Equal("Completed", run.Status);
+            Assert.Equal("NotDetected", run.PreseasonParseStatus);
+            Assert.Equal("NotDetected", run.PreseasonScoringStatus);
 
             var participantSelections = await verificationContext.MigrationImportRaceSelections
                 .Where(x => x.ImportRunId == run.Id && x.Subject == "Philip")
@@ -428,6 +448,12 @@ public sealed class MigrationImportRunServiceTests
             await using var verificationContext = CreateContext();
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.Equal("Completed", run.Status);
+            Assert.Equal("CompletedWithWarnings", run.PreseasonParseStatus);
+            Assert.Equal("CompletedWithWarnings", run.PreseasonScoringStatus);
+            Assert.True(run.PreseasonAnswerCount > 0);
+            Assert.True(run.PreseasonScoredQuestionCount > 0);
+            Assert.True(run.PreseasonQuestionDiffCount > 0);
+            Assert.True(run.PreseasonIsolationGuardPassed);
 
             var preseasonStaged = await verificationContext.MigrationImportRawRows
                 .AsNoTracking()
@@ -443,6 +469,68 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal(140, legacyScores[0].RowNumber);
             Assert.Equal(10, legacyScores[0].LegacyPoints);
             Assert.DoesNotContain(legacyScores, x => x.LegacyPoints == 20);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenLegacyImporterWritesPreseasonRowAsRacePoints_FailsIsolationGuard()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var rows = new List<string> { "Question,Philip,," };
+        for (var row = 2; row <= 21; row++)
+        {
+            rows.Add($"Pre-Q-{row},Y,,");
+        }
+        rows.Add("AUS-1,20,,");
+
+        var sourceFilePath = await CreateTempCsvAsync(string.Join(Environment.NewLine, rows), MigrationPhil2025CsvContractPolicy.SourceFileName);
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new ContaminatingLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunOnceAsync(CancellationToken.None));
+            Assert.Contains("Preseason isolation guard failed", exception.Message);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Failed", run.Status);
+            Assert.Equal("Failed", run.PreseasonParseStatus);
+            Assert.Equal("Failed", run.PreseasonScoringStatus);
+            Assert.Equal(1, run.PreseasonErrorCount);
+            Assert.False(run.PreseasonIsolationGuardPassed);
         }
         finally
         {
@@ -514,6 +602,38 @@ public sealed class MigrationImportRunServiceTests
                 new() { Season = "2025", Round = "2", RaceName = "Chinese Grand Prix", Date = "2025-03-23", Time = "07:00:00Z", Circuit = new JolpicaCircuitDto { CircuitId = "shanghai", CircuitName = "Shanghai International Circuit" } }
             ];
             return Task.FromResult(races);
+        }
+    }
+
+    private sealed class ContaminatingLegacyScoreImporter : IMigrationLegacyScoreImporter
+    {
+        private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
+
+        public ContaminatingLegacyScoreImporter(IDbContextFactory<F1DbContext> dbContextFactory)
+        {
+            _dbContextFactory = dbContextFactory;
+        }
+
+        public async Task<MigrationLegacyScoreImportResult> ImportAndPersistAsync(Guid runId, CancellationToken cancellationToken)
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                RaceCode = "AUS",
+                PickType = "1",
+                Subject = "Philip",
+                RawLegacyPoints = "20",
+                LegacyPoints = 20
+            });
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return new MigrationLegacyScoreImportResult(
+                LegacyPickScoreCount: 1,
+                ImportedTotalCount: 0,
+                CalculatedTotalCount: 0);
         }
     }
 }

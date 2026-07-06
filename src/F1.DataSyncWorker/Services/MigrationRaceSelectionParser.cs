@@ -68,7 +68,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
-            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
+            return new MigrationRaceSelectionParseResult(
+                SelectionCount: 0,
+                UnresolvedTokenCount: 0,
+                PreseasonAnswerCount: preseasonAnswers.Count);
         }
 
         var raceRows = stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePick, StringComparison.Ordinal));
@@ -168,7 +171,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         if (selections.Count == 0 && preseasonAnswers.Count == 0)
         {
-            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
+            return new MigrationRaceSelectionParseResult(
+                SelectionCount: 0,
+                UnresolvedTokenCount: 0,
+                PreseasonAnswerCount: preseasonAnswers.Count);
         }
 
         dbContext.MigrationImportRaceSelections.RemoveRange(
@@ -192,7 +198,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         return new MigrationRaceSelectionParseResult(
             SelectionCount: selections.Count,
-            UnresolvedTokenCount: unresolvedTokens.Count);
+            UnresolvedTokenCount: unresolvedTokens.Count,
+            PreseasonAnswerCount: preseasonAnswers.Count);
     }
 
     private static List<MigrationImportPreseasonAnswerEntity> ParsePreseasonQuestionAnswers(

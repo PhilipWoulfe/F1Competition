@@ -135,6 +135,8 @@ public class F1DbContext : DbContext
             entity.Property(x => x.SourceFilePath).HasMaxLength(512).IsRequired();
             entity.Property(x => x.SourceFileChecksum).HasMaxLength(128).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PreseasonParseStatus).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.PreseasonScoringStatus).HasMaxLength(32).IsRequired();
             entity.Property(x => x.ErrorMessage).HasMaxLength(4000);
             entity.HasIndex(x => x.SourceFileChecksum);
             entity.HasIndex(x => x.StartedAtUtc);

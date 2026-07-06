@@ -141,9 +141,22 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
             var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
             var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
+            await EnsurePreseasonRaceIsolationAsync(run.RunId, cancellationToken);
             var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
 
-            await _runService.CompleteRunAsync(run.RunId, rawRows.StagedRowCount, cancellationToken);
+            var runMetadata = await BuildRunCompletionMetadataAsync(
+                run.RunId,
+                parseResult,
+                scoreResult,
+                reconciliationResult,
+                mappingResult.WarningCount,
+                cancellationToken);
+
+            await _runService.CompleteRunAsync(
+                run.RunId,
+                rawRows.StagedRowCount,
+                cancellationToken,
+                runMetadata);
 
             _logger.LogInformation(
                 "Migration import summary. RunId={RunId}, Season={Season}, DryRun={DryRun}, Source={SourceFilePath}, RowsParsed={RowsParsed}, RowsRejected={RowsRejected}, UnresolvedTokens={UnresolvedTokens}, TotalDelta={TotalDelta}",
@@ -155,6 +168,19 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 rawRows.RejectedRowCount,
                 parseResult.UnresolvedTokenCount,
                 reconciliationResult.TotalDelta);
+
+            _logger.LogInformation(
+                "Migration import preseason summary. RunId={RunId}, ParseStatus={PreseasonParseStatus}, ScoringStatus={PreseasonScoringStatus}, WarningCount={PreseasonWarningCount}, ErrorCount={PreseasonErrorCount}, ParsedAnswers={PreseasonAnswerCount}, ScoredQuestions={PreseasonScoredQuestionCount}, QuestionDiffs={PreseasonQuestionDiffCount}, PreseasonTotalDelta={PreseasonTotalDelta}, IsolationGuardPassed={PreseasonIsolationGuardPassed}",
+                run.RunId,
+                runMetadata.PreseasonParseStatus,
+                runMetadata.PreseasonScoringStatus,
+                runMetadata.PreseasonWarningCount,
+                runMetadata.PreseasonErrorCount,
+                runMetadata.PreseasonAnswerCount,
+                runMetadata.PreseasonScoredQuestionCount,
+                runMetadata.PreseasonQuestionDiffCount,
+                runMetadata.PreseasonTotalDeltaPoints,
+                runMetadata.PreseasonIsolationGuardPassed);
 
             _logger.LogInformation(
                 "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, SelectionRaceCodesRewritten={SelectionRaceCodesRewritten}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, PickDiffs={PickDiffs}, RaceDiffs={RaceDiffs}, ParticipantDeltaSummaries={ParticipantDeltaSummaries}, ReasonSummaries={ReasonSummaries}, NetDelta={NetDelta}, Checksum={Checksum}",
@@ -179,10 +205,99 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
         catch (Exception ex)
         {
-            await _runService.FailRunAsync(run.RunId, ex.Message, cancellationToken);
+            await _runService.FailRunAsync(
+                run.RunId,
+                ex.Message,
+                cancellationToken,
+                new MigrationImportRunCompletionMetadata(
+                    PreseasonParseStatus: "Failed",
+                    PreseasonScoringStatus: "Failed",
+                    PreseasonErrorCount: 1,
+                    PreseasonIsolationGuardPassed: false));
             _logger.LogError(ex, "Migration import run failed. RunId={RunId}", run.RunId);
             throw;
         }
+    }
+
+    private async Task EnsurePreseasonRaceIsolationAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var preseasonRowNumbers = await dbContext.MigrationImportRawRows
+            .Where(x =>
+                x.ImportRunId == runId &&
+                (x.SectionType == MigrationImportSectionTypes.SeasonQuestionPrediction ||
+                 x.SectionType == MigrationImportSectionTypes.SeasonQuestionPoints))
+            .Select(x => x.RowNumber)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (preseasonRowNumbers.Count == 0)
+        {
+            return;
+        }
+
+        var contaminatedRacePoints = await dbContext.MigrationImportLegacyPickScores
+            .Where(x => x.ImportRunId == runId && preseasonRowNumbers.Contains(x.RowNumber))
+            .OrderBy(x => x.RowNumber)
+            .Select(x => x.RowNumber)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        if (contaminatedRacePoints.Length == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Preseason isolation guard failed: race-point imports reference preseason rows ({string.Join(',', contaminatedRacePoints)}). This indicates preseason tallies leaked into race-only totals.");
+    }
+
+    private async Task<MigrationImportRunCompletionMetadata> BuildRunCompletionMetadataAsync(
+        Guid runId,
+        MigrationRaceSelectionParseResult parseResult,
+        MigrationScoreRecalculationResult scoreResult,
+        MigrationReconciliationResult reconciliationResult,
+        int mappingWarningCount,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var preseasonPolicyWarningCount = await dbContext.MigrationImportPreseasonPolicies
+            .Where(x => x.ImportRunId == runId && !x.PointsPerQuestion.HasValue)
+            .CountAsync(cancellationToken);
+
+        var preseasonTallyWarningCount = await dbContext.MigrationImportPreseasonImportedTallies
+            .Where(x => x.ImportRunId == runId && !x.ImportedPoints.HasValue)
+            .CountAsync(cancellationToken);
+
+        var preseasonWarningCount = preseasonPolicyWarningCount + preseasonTallyWarningCount + scoreResult.PreseasonScoringWarningCount;
+        var preseasonDetected = parseResult.PreseasonAnswerCount > 0;
+        var preseasonParseStatus = !preseasonDetected
+            ? "NotDetected"
+            : (preseasonPolicyWarningCount + preseasonTallyWarningCount) > 0
+                ? "CompletedWithWarnings"
+                : "Completed";
+        var preseasonScoringStatus = !preseasonDetected
+            ? "NotDetected"
+            : scoreResult.PreseasonScoredQuestionCount == 0
+                ? "Skipped"
+                : scoreResult.PreseasonScoringWarningCount > 0
+                    ? "CompletedWithWarnings"
+                    : "Completed";
+
+        return new MigrationImportRunCompletionMetadata(
+            UnresolvedTokenCount: parseResult.UnresolvedTokenCount,
+            MappingWarningCount: mappingWarningCount,
+            PreseasonParseStatus: preseasonParseStatus,
+            PreseasonScoringStatus: preseasonScoringStatus,
+            PreseasonWarningCount: preseasonWarningCount,
+            PreseasonErrorCount: 0,
+            PreseasonAnswerCount: parseResult.PreseasonAnswerCount,
+            PreseasonScoredQuestionCount: scoreResult.PreseasonScoredQuestionCount,
+            PreseasonQuestionDiffCount: reconciliationResult.PreseasonQuestionDiffCount,
+            PreseasonTotalDeltaPoints: reconciliationResult.PreseasonTotalDelta,
+            PreseasonIsolationGuardPassed: true);
     }
 
     private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)

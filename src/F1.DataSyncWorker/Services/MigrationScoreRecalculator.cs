@@ -54,7 +54,12 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         if (selections.Count == 0 && preseasonAnswers.Count == 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
-            return new MigrationScoreRecalculationResult(ScoredPickCount: 0, TotalPoints: 0);
+            return new MigrationScoreRecalculationResult(
+                ScoredPickCount: 0,
+                TotalPoints: 0,
+                PreseasonScoredQuestionCount: 0,
+                PreseasonTotalPoints: 0,
+                PreseasonScoringWarningCount: 0);
         }
 
         var calculatedScores = new List<MigrationImportCalculatedScoreEntity>();
@@ -120,9 +125,16 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var preseasonScoringWarningCount = preseasonCalculatedScores.Count(x =>
+            string.Equals(x.ReasonCode, "PRESEASON_POLICY_MISSING", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(x.ReasonCode, "PRESEASON_ACTUAL_MISSING", StringComparison.OrdinalIgnoreCase));
+
         return new MigrationScoreRecalculationResult(
             ScoredPickCount: calculatedScores.Count,
-            TotalPoints: calculatedScores.Sum(x => x.Points));
+            TotalPoints: calculatedScores.Sum(x => x.Points),
+            PreseasonScoredQuestionCount: preseasonCalculatedScores.Count,
+            PreseasonTotalPoints: preseasonCalculatedScores.Sum(x => x.Points),
+            PreseasonScoringWarningCount: preseasonScoringWarningCount);
     }
 
     private static List<MigrationImportPreseasonCalculatedScoreEntity> CalculatePreseasonScores(
