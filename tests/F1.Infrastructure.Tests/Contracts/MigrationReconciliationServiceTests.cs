@@ -86,10 +86,12 @@ public sealed class MigrationReconciliationServiceTests
         Assert.All(nonZero, x => Assert.False(string.IsNullOrWhiteSpace(x.Explanation)));
 
         var philipFirstPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
-        Assert.Contains("row 1, column B", philipFirstPick.Explanation);
+        Assert.Contains("race-points row 1, column B", philipFirstPick.Explanation);
+        Assert.Contains("race-picks row 1, column B", philipFirstPick.Explanation);
 
         var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
-        Assert.Contains("row 5, column C", andySecondPick.Explanation);
+        Assert.Contains("race-points row 5, column C", andySecondPick.Explanation);
+        Assert.Contains("race-picks row 5, column C", andySecondPick.Explanation);
 
         var philipAusRaceDiff = await dbContext.MigrationImportRaceDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");

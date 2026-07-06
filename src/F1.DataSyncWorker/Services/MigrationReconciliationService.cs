@@ -272,8 +272,8 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         IReadOnlyList<int> calculatedRows,
         string? participantColumn)
     {
-        var importedSource = FormatSourceReference(importedRows, participantColumn);
-        var calculatedSource = FormatSourceReference(calculatedRows, participantColumn);
+        var importedSource = FormatSourceReference(importedRows, participantColumn, "race-points");
+        var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "race-picks");
 
         var explanation = string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal)
             ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource})."
@@ -304,7 +304,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 var calculatedRows = calculatedRowsByKey.GetValueOrDefault(key, []);
                 participantColumnBySubject.TryGetValue(x.Subject, out var participantColumn);
 
-                return $"{raceCode}-{x.PickType} {x.ImportedPoints?.ToString() ?? "missing"}->{x.CalculatedPoints?.ToString() ?? "missing"} ({x.DeltaPoints}) [{x.ReasonCode}] [imported {FormatSourceReference(importedRows, participantColumn)}; calculated {FormatSourceReference(calculatedRows, participantColumn)}]";
+                return $"{raceCode}-{x.PickType} {x.ImportedPoints?.ToString() ?? "missing"}->{x.CalculatedPoints?.ToString() ?? "missing"} ({x.DeltaPoints}) [{x.ReasonCode}] [imported {FormatSourceReference(importedRows, participantColumn, "race-points")}; calculated {FormatSourceReference(calculatedRows, participantColumn, "race-picks")}]";
             })
             .ToList();
 
@@ -316,7 +316,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
-    private static string FormatSourceReference(IReadOnlyList<int> rows, string? column)
+    private static string FormatSourceReference(IReadOnlyList<int> rows, string? column, string sourceSection)
     {
         var rowText = rows.Count switch
         {
@@ -329,7 +329,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             ? "column ?"
             : $"column {column}";
 
-        return $"{rowText}, {columnText}";
+        return $"{sourceSection} {rowText}, {columnText}";
     }
 
     private static async Task<Dictionary<string, string>> ResolveParticipantColumnsBySubjectAsync(

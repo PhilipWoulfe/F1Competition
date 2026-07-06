@@ -12,6 +12,8 @@ public sealed class MigrationImportRowClassifierTests
     [InlineData("The WDC will drive for the WCC winning team?,20,0", "SeasonQuestionPoints")]
     [InlineData("AUS-1,NOR,PIA", "RacePick")]
     [InlineData("AUS-1,10,5", "RacePoints")]
+    [InlineData("COTA-1,VER,NOR", "RacePick")]
+    [InlineData("COTA-1,10,5", "RacePoints")]
     [InlineData("DNF,NOR,PIA", "RacePick")]
     [InlineData("BAK-UP-BAK-UP-WHAT-YOU-GONNA-DO-NOW?,COL,LAW", "RacePick")]
     [InlineData("Result,590,550", "TotalsMeta")]

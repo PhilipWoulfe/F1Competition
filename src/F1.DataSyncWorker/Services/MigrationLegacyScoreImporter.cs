@@ -237,8 +237,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             return true;
         }
 
-        if (normalizedLabel.Equals("BAH-HUMBUG", StringComparison.OrdinalIgnoreCase) ||
-            normalizedLabel.StartsWith("BAK-", StringComparison.OrdinalIgnoreCase))
+        if (normalizedLabel.Equals("BAH-HUMBUG", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(currentRaceCode))
             {

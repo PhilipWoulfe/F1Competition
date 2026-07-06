@@ -143,7 +143,7 @@ public sealed partial class MigrationImportRowClassifier : IMigrationImportRowCl
         return values.All(string.IsNullOrWhiteSpace);
     }
 
-    [GeneratedRegex("^[A-Za-z]{3}-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^[A-Za-z][A-Za-z\\s]{2,}-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceRowRegex();
 
     [GeneratedRegex("^[A-Za-z]{3}-.+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
