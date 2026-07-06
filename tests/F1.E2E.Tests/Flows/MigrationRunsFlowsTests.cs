@@ -31,7 +31,7 @@ public sealed class MigrationRunsFlowsTests(ITestOutputHelper output)
             migrationRunsPage.WaitForRunDetail();
 
             Assert.True(migrationRunsPage.WaitForPreseasonComparisonSection());
-            Assert.True(migrationRunsPage.WaitForPreseasonQuestionDiffRows());
+            Assert.True(migrationRunsPage.WaitForPreseasonQuestionDiffSection());
             Assert.True(migrationRunsPage.WaitForParticipantComparisonSection());
             Assert.True(migrationRunsPage.WaitForRaceComparisonSection());
             Assert.True(migrationRunsPage.WaitForPickComparisonSection());

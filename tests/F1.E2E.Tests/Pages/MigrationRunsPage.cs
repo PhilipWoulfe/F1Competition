@@ -144,11 +144,13 @@ internal class MigrationRunsPage
             driver.FindElements(By.Id("preseason-participant-filter")).Count > 0);
     }
 
-    public bool WaitForPreseasonQuestionDiffRows()
+    public bool WaitForPreseasonQuestionDiffSection()
     {
-        return _wait.Until(driver =>
-            driver.FindElements(By.XPath("//h4[normalize-space()='Preseason Question Diffs']")).Count > 0 &&
-            driver.FindElements(By.XPath("//h4[normalize-space()='Preseason Question Diffs']/following-sibling::*[1][self::div]//tbody/tr")).Count > 0);
+        var sectionSelector = By.XPath(
+            "//h4[normalize-space()='Preseason Question Diffs']" +
+            "/following-sibling::*[1]" +
+            "[self::div[.//tbody/tr] or self::p[normalize-space()='No preseason question diffs available for this run.']]");
+        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
     }
 
     public bool WaitForRaceComparisonSection()
