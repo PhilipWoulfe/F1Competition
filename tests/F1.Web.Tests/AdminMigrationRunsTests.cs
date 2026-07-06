@@ -166,10 +166,12 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Pick Comparisons", cut.Markup);
         Assert.Contains("Unexpected: 3", cut.Markup);
         Assert.Contains("Question Diffs", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#participant-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#preseason-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#race-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#pick-comparisons\"", cut.Markup);
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Overview", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Preseason", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Participants", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Diffs", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Pick Diffs", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Exports", StringComparison.Ordinal));
         Assert.Contains("Reconciliation Export", cut.Markup);
         Assert.Contains("Preseason question diffs CSV", cut.Markup);
         Assert.Contains("Preseason participant diffs CSV", cut.Markup);
