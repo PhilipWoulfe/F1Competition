@@ -416,6 +416,12 @@ jobs:
           E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
           E2E_CF_CLIENT_ID: ${{ secrets.E2E_CF_CLIENT_ID }}
           E2E_CF_CLIENT_SECRET: ${{ secrets.E2E_CF_CLIENT_SECRET }}
+          E2E_POSTGRES_CONNECTION_STRING: ${{ secrets.E2E_POSTGRES_CONNECTION_STRING || vars.E2E_POSTGRES_CONNECTION_STRING }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST || vars.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT || vars.POSTGRES_PORT }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || vars.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || vars.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || vars.POSTGRES_PASSWORD }}
           E2E_RACE_ID: ${{ vars.E2E_RACE_ID }}
           E2E_COMPETITION_SLUG: ${{ vars.E2E_COMPETITION_SLUG }}
           E2E_SEASON: ${{ vars.E2E_SEASON }}
