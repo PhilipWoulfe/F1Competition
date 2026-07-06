@@ -149,8 +149,6 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
     private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)
     {
-        const string RejectedSection = "Unclassified";
-
         await using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
 
@@ -172,7 +170,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             rowNumber++;
             var stagedRow = _rowClassifier.Classify(rowNumber, line);
             batch.Add(stagedRow);
-            if (string.Equals(stagedRow.SectionType, RejectedSection, StringComparison.Ordinal))
+            if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
             {
                 rejectedCount++;
             }
