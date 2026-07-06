@@ -70,6 +70,14 @@ internal class MigrationRunsPage
         _driver.FindElement(selector).Click();
     }
 
+    public void SelectFirstRun()
+    {
+        _trace("Selecting first migration run from list");
+        var selector = By.XPath("//table//tbody/tr//button[normalize-space()='View']");
+        _wait.Until(driver => driver.FindElements(selector).Count > 0);
+        _driver.FindElements(selector)[0].Click();
+    }
+
     public void WaitForRunDetail()
     {
         _trace("Waiting for run detail section...");
