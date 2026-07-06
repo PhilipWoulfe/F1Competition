@@ -90,3 +90,7 @@ The preseason suite must continue validating all of the following:
 - Integration: worker persistence and admin API preseason payload projection.
 - E2E: migration run detail shows preseason section and question-level table rows.
 - Coverage reports are generated for API, Web, and Infrastructure preseason paths.
+
+## Related Runbook
+
+- `docs/runbooks/preseason-migration-signoff.md`

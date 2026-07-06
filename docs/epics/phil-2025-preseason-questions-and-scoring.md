@@ -154,6 +154,9 @@ Test notes:
 ### Story P10: Document preseason runbook and sign-off checklist
 As a team, we want preseason runbook steps so execution and approval are consistent.
 
+Implementation reference:
+- Runbook and checklist: `docs/runbooks/preseason-migration-signoff.md`
+
 Acceptance criteria:
 - Runbook documents prerequisites, command usage, and validation steps for preseason data.
 - Sign-off checklist includes M2 policy verification, question-level diff review, and preseason-vs-race separation check.

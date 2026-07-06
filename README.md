@@ -227,6 +227,10 @@ Expected variance ruleset promotion and audit:
 
 When using Docker Compose, keep using `.env` `MIGRATION_IMPORT_*` variables because compose maps those to `MigrationImport__*` for the worker container.
 
+Preseason migration runbook and sign-off checklist:
+
+- `docs/runbooks/preseason-migration-signoff.md`
+
 Example one-shot dry-run:
 
 ```bash
