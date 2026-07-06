@@ -38,6 +38,7 @@ public sealed class MigrationRunsControllerTests
                         PickDiffCount: 120,
                         RaceDiffCount: 24,
                         TotalDeltaPoints: -9,
+                        UnexpectedTotalDeltaPoints: -7,
                         ErrorMessage: null)
                 ]));
 

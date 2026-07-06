@@ -19,6 +19,7 @@ public sealed record AdminMigrationRunListItem(
     int PickDiffCount,
     int RaceDiffCount,
     int TotalDeltaPoints,
+    int UnexpectedTotalDeltaPoints,
     string? ErrorMessage);
 
 public sealed record AdminMigrationRunDetailResponse(

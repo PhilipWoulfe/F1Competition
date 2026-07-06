@@ -99,6 +99,7 @@
                     <option value="started">Started</option>
                     <option value="status">Status</option>
                     <option value="delta">Total Delta</option>
+                    <option value="unexpected-delta">Unexpected Delta</option>
                     <option value="unresolved">Unresolved Tokens</option>
                 </select>
             </div>
@@ -145,6 +146,7 @@ else
                     <th>Mode</th>
                     <th>Unresolved</th>
                     <th>Total Delta</th>
+                    <th>Unexpected Delta</th>
                     <th></th>
                 </tr>
             </thead>
@@ -159,6 +161,7 @@ else
                         <td>@(item.IsDryRun ? "Dry-run" : "Write")</td>
                         <td>@item.UnresolvedTokenCount</td>
                         <td>@item.TotalDeltaPoints</td>
+                        <td>@item.UnexpectedTotalDeltaPoints</td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRunAsync(item.RunId)">View</button>
                         </td>
@@ -344,14 +347,7 @@ else if (selectedRunDetail is not null)
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
                             <td>
-                                @if (row.IsExpectedVariance)
-                                {
-                                    <span class="badge text-bg-success">Expected</span>
-                                }
-                                else
-                                {
-                                    <span class="badge text-bg-warning">Unexpected</span>
-                                }
+                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
                             </td>
                             <td>
                                 @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
@@ -410,14 +406,7 @@ else if (selectedRunDetail is not null)
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
                             <td>
-                                @if (row.IsExpectedVariance)
-                                {
-                                    <span class="badge text-bg-success">Expected</span>
-                                }
-                                else
-                                {
-                                    <span class="badge text-bg-warning">Unexpected</span>
-                                }
+                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
                             </td>
                             <td>
                                 @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
@@ -696,6 +685,9 @@ else if (selectedRunDetail is not null)
             "delta" => descending
                 ? runList.Items.OrderByDescending(x => x.TotalDeltaPoints).ThenByDescending(x => x.StartedAtUtc)
                 : runList.Items.OrderBy(x => x.TotalDeltaPoints).ThenBy(x => x.StartedAtUtc),
+            "unexpected-delta" => descending
+                ? runList.Items.OrderByDescending(x => x.UnexpectedTotalDeltaPoints).ThenByDescending(x => x.StartedAtUtc)
+                : runList.Items.OrderBy(x => x.UnexpectedTotalDeltaPoints).ThenBy(x => x.StartedAtUtc),
             "unresolved" => descending
                 ? runList.Items.OrderByDescending(x => x.UnresolvedTokenCount).ThenByDescending(x => x.StartedAtUtc)
                 : runList.Items.OrderBy(x => x.UnresolvedTokenCount).ThenBy(x => x.StartedAtUtc),
@@ -755,6 +747,26 @@ else if (selectedRunDetail is not null)
 
         return !string.IsNullOrWhiteSpace(value) &&
                value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetVarianceStatusText(bool isExpectedVariance, int deltaPoints)
+    {
+        if (deltaPoints == 0)
+        {
+            return "No variance";
+        }
+
+        return isExpectedVariance ? "Expected" : "Unexpected";
+    }
+
+    private static string GetVarianceBadgeClass(bool isExpectedVariance, int deltaPoints)
+    {
+        if (deltaPoints == 0)
+        {
+            return "badge bg-secondary";
+        }
+
+        return isExpectedVariance ? "badge bg-success" : "badge bg-warning text-dark";
     }
 
     private string GetExportUrl(string exportType, string format)

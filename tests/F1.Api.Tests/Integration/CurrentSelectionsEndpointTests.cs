@@ -49,6 +49,7 @@ public class CurrentSelectionsEndpointTests : IClassFixture<WebApplicationFactor
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     { "ConnectionStrings:Postgres", TestConnectionString },
+                    { "Database:AutoMigrate", "false" },
                     { "DevSettings:SimulateCloudflare", "true" },
                     { "DevSettings:MockEmail", "user@example.com" },
                     { "DevSettings:MockCurrentSelections", "false" }

@@ -240,12 +240,46 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
     private static string ResolveSourceFilePath(string sourceFilePath)
     {
-        if (Path.IsPathRooted(sourceFilePath))
+        var trimmedPath = sourceFilePath.Trim();
+        if (Path.IsPathRooted(trimmedPath))
         {
-            return sourceFilePath;
+            return Path.GetFullPath(trimmedPath);
         }
 
-        return Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
+        var directCandidate = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        if (File.Exists(directCandidate))
+        {
+            return directCandidate;
+        }
+
+        var baseDirectoryCandidate = Path.GetFullPath(trimmedPath, AppContext.BaseDirectory);
+        if (File.Exists(baseDirectoryCandidate))
+        {
+            return baseDirectoryCandidate;
+        }
+
+        foreach (var root in EnumerateAncestorDirectories(Directory.GetCurrentDirectory())
+                     .Concat(EnumerateAncestorDirectories(AppContext.BaseDirectory))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var candidate = Path.GetFullPath(trimmedPath, root);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return directCandidate;
+    }
+
+    private static IEnumerable<string> EnumerateAncestorDirectories(string startPath)
+    {
+        var current = Path.GetFullPath(startPath);
+        while (!string.IsNullOrWhiteSpace(current))
+        {
+            yield return current;
+            current = Path.GetDirectoryName(current) ?? string.Empty;
+        }
     }
 
     private async Task<int> RewriteSelectionRaceCodesToMappedCircuitIdsAsync(Guid runId, CancellationToken cancellationToken)
