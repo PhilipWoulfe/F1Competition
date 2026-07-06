@@ -1,0 +1,120 @@
+using F1.Api.Dtos;
+using F1.Api.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Moq;
+using System.Net;
+using System.Text.Encodings.Web;
+
+namespace F1.Api.Tests.Integration;
+
+public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private const string TestConnectionString = "Host=localhost;Port=5432;Database=f1_tests;Username=f1;Password=f1";
+
+    private readonly WebApplicationFactory<Program> _factory;
+
+    public AdminMigrationRunsRouteAccessIntegrationTests(WebApplicationFactory<Program> factory)
+    {
+        Environment.SetEnvironmentVariable("ConnectionStrings__Postgres", TestConnectionString);
+        _factory = factory;
+    }
+
+    [Fact]
+    public async Task MigrationRunsRoute_WhenAnonymous_ShouldReturnUnauthorized()
+    {
+        var client = CreateClient(mockEmail: null, mockGroups: null);
+
+        var response = await client.GetAsync("/admin/migration-runs");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunsRoute_WhenAuthenticatedNonAdmin_ShouldReturnForbidden()
+    {
+        var client = CreateClient(mockEmail: "user@example.com", mockGroups: ["F1 Users"]);
+
+        var response = await client.GetAsync("/admin/migration-runs");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunsRoute_WhenAuthenticatedAdmin_ShouldReturnOk()
+    {
+        var client = CreateClient(mockEmail: "admin@example.com", mockGroups: ["F1 Admins"]);
+
+        var response = await client.GetAsync("/admin/migration-runs");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private HttpClient CreateClient(string? mockEmail, string[]? mockGroups)
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.GetRunsAsync(It.IsAny<MigrationRunListQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunListResponseDto(1, 25, 0, []));
+
+        return _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                var values = new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:Postgres"] = TestConnectionString,
+                    ["DevSettings:SimulateCloudflare"] = "true",
+                    ["DevSettings:MockEmail"] = string.Empty,
+                    ["CloudflareAccess:AdminGroups:0"] = "F1 Admins"
+                };
+
+                if (!string.IsNullOrWhiteSpace(mockEmail))
+                {
+                    values["DevSettings:MockEmail"] = mockEmail;
+                }
+
+                if (mockGroups is not null)
+                {
+                    for (var i = 0; i < mockGroups.Length; i++)
+                    {
+                        values[$"DevSettings:MockGroups:{i}"] = mockGroups[i];
+                    }
+                }
+
+                config.AddInMemoryCollection(values);
+            });
+
+            builder.ConfigureServices(services =>
+            {
+                services.AddAuthentication("IntegrationTest")
+                    .AddScheme<AuthenticationSchemeOptions, IntegrationTestAuthHandler>("IntegrationTest", _ => { });
+
+                services.RemoveAll<IMigrationRunAdminService>();
+                services.AddScoped(_ => service.Object);
+            });
+        }).CreateClient();
+    }
+
+    private sealed class IntegrationTestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+    {
+        public IntegrationTestAuthHandler(
+            IOptionsMonitor<AuthenticationSchemeOptions> options,
+            ILoggerFactory logger,
+            UrlEncoder encoder)
+            : base(options, logger, encoder)
+        {
+        }
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            // Keep CloudflareAccessMiddleware as the source of identity in integration tests.
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+    }
+}

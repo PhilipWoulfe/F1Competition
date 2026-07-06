@@ -50,6 +50,28 @@ public class NavMenuTests : BunitContext
     }
 
     [Fact]
+    public void NavMenu_AdminLink_ShouldFollowAuthStateTransitions()
+    {
+        var auth = this.AddAuthorization();
+        auth.SetNotAuthorized();
+
+        var cut = Render<NavMenu>();
+        Assert.DoesNotContain("href=\"admin/migration-runs\"", cut.Markup);
+
+        auth.SetAuthorized("user@example.com");
+        cut.Render();
+        Assert.DoesNotContain("href=\"admin/migration-runs\"", cut.Markup);
+
+        auth.SetRoles("Admin");
+        cut.Render();
+        Assert.Contains("href=\"admin/migration-runs\"", cut.Markup);
+
+        auth.SetNotAuthorized();
+        cut.Render();
+        Assert.DoesNotContain("href=\"admin/migration-runs\"", cut.Markup);
+    }
+
+    [Fact]
     public void NavMenu_ShouldToggleCollapsedState_WhenClicked()
     {
         var auth = this.AddAuthorization();

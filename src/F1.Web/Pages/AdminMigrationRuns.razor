@@ -107,6 +107,12 @@ else
     </div>
 }
 
+@{
+    var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
+    var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
+    var filteredPickDiffs = GetFilteredPickDiffs().ToList();
+}
+
 @if (isLoadingDetail)
 {
     <p><em>Loading selected run details...</em></p>
@@ -156,8 +162,33 @@ else if (selectedRunDetail is not null)
         <a href="#pick-comparisons">Pick comparisons</a>
     </div>
 
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label" for="detail-participant-filter">Participant</label>
+                    <input id="detail-participant-filter" class="form-control" @bind="detailParticipantFilter" placeholder="Filter participant" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="detail-race-filter">Race</label>
+                    <input id="detail-race-filter" class="form-control" @bind="detailRaceFilter" placeholder="Filter race code" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="detail-reason-filter">Reason</label>
+                    <input id="detail-reason-filter" class="form-control" @bind="detailReasonFilter" placeholder="Filter reason code" />
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check">
+                        <input id="detail-non-zero-only" class="form-check-input" type="checkbox" @bind="detailNonZeroOnly" />
+                        <label class="form-check-label" for="detail-non-zero-only">Non-zero delta only</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <h3 id="participant-comparisons">Participant Comparisons</h3>
-    @if (selectedRunDetail.ParticipantDeltas.Count == 0)
+    @if (filteredParticipantDeltas.Count == 0)
     {
         <p>No participant deltas available for this run.</p>
     }
@@ -175,7 +206,7 @@ else if (selectedRunDetail is not null)
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in selectedRunDetail.ParticipantDeltas)
+                    @foreach (var row in filteredParticipantDeltas)
                     {
                         <tr>
                             <td>@row.Subject</td>
@@ -191,7 +222,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="race-comparisons">Race Comparisons</h3>
-    @if (selectedRunDetail.RaceDiffs.Count == 0)
+    @if (filteredRaceDiffs.Count == 0)
     {
         <p>No race diffs available for this run.</p>
     }
@@ -207,10 +238,11 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Explanation</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in selectedRunDetail.RaceDiffs)
+                    @foreach (var row in filteredRaceDiffs)
                     {
                         <tr>
                             <td>@row.RaceCode</td>
@@ -219,6 +251,7 @@ else if (selectedRunDetail is not null)
                             <td>@row.CalculatedPoints</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>@row.Explanation</td>
                         </tr>
                     }
                 </tbody>
@@ -227,7 +260,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="pick-comparisons">Pick Comparisons</h3>
-    @if (selectedRunDetail.PickDiffs.Count == 0)
+    @if (filteredPickDiffs.Count == 0)
     {
         <p>No pick diffs available for this run.</p>
     }
@@ -244,10 +277,11 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Explanation</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in selectedRunDetail.PickDiffs)
+                    @foreach (var row in filteredPickDiffs)
                     {
                         <tr>
                             <td>@row.RaceCode</td>
@@ -257,6 +291,7 @@ else if (selectedRunDetail is not null)
                             <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>@row.Explanation</td>
                         </tr>
                     }
                 </tbody>
@@ -279,6 +314,10 @@ else if (selectedRunDetail is not null)
 
     private string sortField = "started";
     private string sortDirection = "desc";
+    private string detailParticipantFilter = string.Empty;
+    private string detailRaceFilter = string.Empty;
+    private string detailReasonFilter = string.Empty;
+    private bool detailNonZeroOnly;
 
     private int TotalPages => runList is null || runList.TotalCount == 0
         ? 1
@@ -318,19 +357,23 @@ else if (selectedRunDetail is not null)
     {
         isLoadingDetail = true;
         errorMessage = null;
-        selectedRunId = runId;
-        selectedRunDetail = null;
 
         try
         {
-            var runDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
-            if (runDetail is null)
+            selectedRunDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+
+            if (selectedRunDetail is null)
             {
+                selectedRunId = null;
                 errorMessage = $"Migration run detail was not found for run {runId}.";
                 return;
             }
 
-            selectedRunDetail = runDetail;
+            selectedRunId = runId;
+            detailParticipantFilter = string.Empty;
+            detailRaceFilter = string.Empty;
+            detailReasonFilter = string.Empty;
+            detailNonZeroOnly = false;
         }
         catch (Exception ex)
         {
@@ -396,5 +439,57 @@ else if (selectedRunDetail is not null)
                 ? runList.Items.OrderByDescending(x => x.StartedAtUtc)
                 : runList.Items.OrderBy(x => x.StartedAtUtc)
         };
+    }
+
+    private IEnumerable<AdminMigrationParticipantDelta> GetFilteredParticipantDeltas()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationParticipantDelta>();
+        }
+
+        return selectedRunDetail.ParticipantDeltas
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => MatchesFilter(row.TopReasonCode, detailReasonFilter))
+            .Where(row => !detailNonZeroOnly || row.NetDeltaPoints != 0);
+    }
+
+    private IEnumerable<AdminMigrationRaceDiff> GetFilteredRaceDiffs()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationRaceDiff>();
+        }
+
+        return selectedRunDetail.RaceDiffs
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => MatchesFilter(row.RaceCode, detailRaceFilter))
+            .Where(row => MatchesFilter(row.ReasonCode, detailReasonFilter))
+            .Where(row => !detailNonZeroOnly || row.DeltaPoints != 0);
+    }
+
+    private IEnumerable<AdminMigrationPickDiff> GetFilteredPickDiffs()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationPickDiff>();
+        }
+
+        return selectedRunDetail.PickDiffs
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => MatchesFilter(row.RaceCode, detailRaceFilter))
+            .Where(row => MatchesFilter(row.ReasonCode, detailReasonFilter))
+            .Where(row => !detailNonZeroOnly || row.DeltaPoints != 0);
+    }
+
+    private static bool MatchesFilter(string? value, string filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(value) &&
+               value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }

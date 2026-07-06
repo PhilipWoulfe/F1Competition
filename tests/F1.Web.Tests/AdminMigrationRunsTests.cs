@@ -54,15 +54,18 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             ParticipantDeltas:
             [
-                new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2)
+                new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2),
+                new AdminMigrationParticipantDelta("Alex", 500, 500, 0, "EXACT_MATCH", 5)
             ],
             RaceDiffs:
             [
-                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
+                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
+                new AdminMigrationRaceDiff("monza", "Alex", 20, 20, 0, "EXACT_MATCH", "No variance")
             ],
             PickDiffs:
             [
-                new AdminMigrationPickDiff("albert_park", "1", "Philip", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot")
+                new AdminMigrationPickDiff("albert_park", "1", "Philip", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot"),
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
         var apiMock = new Mock<IMigrationRunsApiService>();
@@ -87,6 +90,25 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
+        Assert.Contains("Podium mismatch", cut.Markup);
+        Assert.Contains("Wrong slot", cut.Markup);
+
+        cut.Find("#detail-participant-filter").Change("Philip");
+        cut.WaitForAssertion(() => Assert.DoesNotContain("No variance", cut.Markup));
+
+        cut.Find("#detail-participant-filter").Change(string.Empty);
+        cut.Find("#detail-race-filter").Change("albert");
+        cut.Find("#detail-reason-filter").Change("podium");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Podium mismatch", cut.Markup);
+            Assert.DoesNotContain("No variance", cut.Markup);
+        });
+
+        cut.Find("#detail-race-filter").Change(string.Empty);
+        cut.Find("#detail-reason-filter").Change(string.Empty);
+        cut.Find("#detail-non-zero-only").Change(true);
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Alex", cut.Markup));
     }
 
     [Fact]
