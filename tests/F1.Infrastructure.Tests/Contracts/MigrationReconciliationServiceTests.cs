@@ -89,6 +89,10 @@ public sealed class MigrationReconciliationServiceTests
         Assert.Contains("race-points row 1, column B", philipFirstPick.Explanation);
         Assert.Contains("race-picks row 1, column B", philipFirstPick.Explanation);
 
+        var philipSecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "2");
+        Assert.Contains("race-points row 2, column B", philipSecondPick.Explanation);
+        Assert.Contains("race-picks row 2, column B", philipSecondPick.Explanation);
+
         var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
         Assert.Contains("race-points row 5, column C", andySecondPick.Explanation);
         Assert.Contains("race-picks row 5, column C", andySecondPick.Explanation);
@@ -97,12 +101,86 @@ public sealed class MigrationReconciliationServiceTests
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
         Assert.Contains("Contributors:", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-1 10->5 (-5)", philipAusRaceDiff.Explanation);
-        Assert.Contains("column B", philipAusRaceDiff.Explanation);
+        Assert.Contains("imported race-points row 1, column B", philipAusRaceDiff.Explanation);
+        Assert.Contains("calculated race-picks row 1, column B", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-DNF 5->0 (-5)", philipAusRaceDiff.Explanation);
 
         var andyAusRaceDiff = await dbContext.MigrationImportRaceDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Andy");
         Assert.Contains("AUS-2 5->10 (5)", andyAusRaceDiff.Explanation);
+    }
+
+    [Fact]
+    public async Task ReconcileAndPersistAsync_WhenRuleMatches_MarksExpectedVarianceWithoutChangingAmounts()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
+        });
+
+        dbContext.MigrationImportLegacyPickScores.AddRange(
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 1, RaceCode = "AUS", PickType = "1", Subject = "Philip", LegacyPoints = 10 },
+            new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 2, RaceCode = "BHR", PickType = "1", Subject = "Andy", LegacyPoints = 5 });
+
+        dbContext.MigrationImportCalculatedScores.AddRange(
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 1, RaceCode = "AUS", PickType = "1", Subject = "Philip", Points = 5, ReasonCode = "PODIUM_TOP3_WRONG_SLOT" },
+            new MigrationImportCalculatedScoreEntity { ImportRunId = runId, RowNumber = 2, RaceCode = "BHR", PickType = "1", Subject = "Andy", Points = 10, ReasonCode = "PODIUM_EXACT" });
+
+        await dbContext.SaveChangesAsync();
+
+        var catalog = new TestExpectedVarianceRuleCatalog(
+            new MigrationExpectedVarianceRule(
+                RuleId: "phil-aus-1-expected",
+                ReasonCode: "KNOWN_LEGACY_POINTS_ERROR",
+                Subject: "Philip",
+                RaceCode: "AUS",
+                PickType: "1",
+                ImportedSourcePattern: "race-points row 1, column B",
+                CalculatedSourcePattern: "race-picks row 1, column B"));
+
+        var service = new MigrationReconciliationService(new TestDbContextFactory(options), catalog);
+        await service.ReconcileAndPersistAsync(runId, CancellationToken.None);
+
+        var expectedPick = await dbContext.MigrationImportPickDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
+
+        Assert.True(expectedPick.IsExpectedVariance);
+        Assert.Equal("KNOWN_LEGACY_POINTS_ERROR", expectedPick.ExpectedVarianceReasonCode);
+        Assert.Equal("phil-aus-1-expected", expectedPick.ExpectedVarianceRuleId);
+        Assert.Equal(10, expectedPick.ImportedPoints);
+        Assert.Equal(5, expectedPick.CalculatedPoints);
+        Assert.Equal(-5, expectedPick.DeltaPoints);
+
+        var unexpectedPick = await dbContext.MigrationImportPickDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "BHR" && x.Subject == "Andy" && x.PickType == "1");
+
+        Assert.False(unexpectedPick.IsExpectedVariance);
+        Assert.Null(unexpectedPick.ExpectedVarianceReasonCode);
+        Assert.Null(unexpectedPick.ExpectedVarianceRuleId);
+
+        var expectedRace = await dbContext.MigrationImportRaceDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
+
+        Assert.True(expectedRace.IsExpectedVariance);
+        Assert.Equal("KNOWN_LEGACY_POINTS_ERROR", expectedRace.ExpectedVarianceReasonCode);
+        Assert.Equal("phil-aus-1-expected", expectedRace.ExpectedVarianceRuleId);
     }
 
     [Fact]
@@ -296,6 +374,16 @@ public sealed class MigrationReconciliationServiceTests
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"m8-reconciliation-{Guid.NewGuid():N}")
             .Options;
+    }
+
+    private sealed class TestExpectedVarianceRuleCatalog : IMigrationExpectedVarianceRuleCatalog
+    {
+        public TestExpectedVarianceRuleCatalog(params MigrationExpectedVarianceRule[] rules)
+        {
+            Rules = rules.ToArray();
+        }
+
+        public IReadOnlyList<MigrationExpectedVarianceRule> Rules { get; }
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>

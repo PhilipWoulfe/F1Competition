@@ -13,6 +13,12 @@ public sealed class MigrationRunsController : ControllerBase
 {
     private const string UploadDirectory = "data/imports/uploads";
     private const string TempUploadDirectory = "f1-imports/uploads";
+    private static readonly HashSet<string> AllowedExpectedStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "all",
+        "expected",
+        "unexpected"
+    };
     private readonly IMigrationRunAdminService _migrationRunAdminService;
 
     public MigrationRunsController(IMigrationRunAdminService migrationRunAdminService)
@@ -37,9 +43,26 @@ public sealed class MigrationRunsController : ControllerBase
     }
 
     [HttpGet("{runId:guid}")]
-    public async Task<ActionResult<AdminMigrationRunDetailResponseDto>> GetRunDetail(Guid runId, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<AdminMigrationRunDetailResponseDto>> GetRunDetail(
+        Guid runId,
+        [FromQuery] string? expectedStatus = "all",
+        CancellationToken cancellationToken = default)
     {
-        var detail = await _migrationRunAdminService.GetRunDetailAsync(runId, ResolveActor(), cancellationToken);
+        if (!IsValidExpectedStatus(expectedStatus))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid expected status filter",
+                Detail = "expectedStatus must be one of: all, expected, unexpected.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var detail = await _migrationRunAdminService.GetRunDetailAsync(
+            runId,
+            ResolveActor(),
+            cancellationToken,
+            expectedStatus);
         if (detail is null)
         {
             return NotFound();
@@ -53,14 +76,26 @@ public sealed class MigrationRunsController : ControllerBase
         Guid runId,
         string exportType,
         [FromQuery] string format = "csv",
+        [FromQuery] string? expectedStatus = "all",
         CancellationToken cancellationToken = default)
     {
+        if (!IsValidExpectedStatus(expectedStatus))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid expected status filter",
+                Detail = "expectedStatus must be one of: all, expected, unexpected.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
         var export = await _migrationRunAdminService.ExportRunDiffsAsync(
             runId,
             exportType,
             format,
             ResolveActor(),
-            cancellationToken);
+            cancellationToken,
+            expectedStatus);
 
         if (export is null)
         {
@@ -236,5 +271,15 @@ public sealed class MigrationRunsController : ControllerBase
             ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.Identity?.Name
             ?? "unknown";
+    }
+
+    private static bool IsValidExpectedStatus(string? expectedStatus)
+    {
+        if (string.IsNullOrWhiteSpace(expectedStatus))
+        {
+            return true;
+        }
+
+        return AllowedExpectedStatuses.Contains(expectedStatus.Trim());
     }
 }

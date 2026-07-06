@@ -37,6 +37,7 @@ public sealed record AdminMigrationRunDetailResponseDto(
     int PickDiffCount,
     int RaceDiffCount,
     int TotalDeltaPoints,
+    int UnexpectedTotalDeltaPoints,
     IReadOnlyList<AdminMigrationUnresolvedTokenSummaryDto> UnresolvedTokenSummary,
     IReadOnlyList<AdminMigrationParticipantDeltaDto> ParticipantDeltas,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
@@ -63,7 +64,10 @@ public sealed record AdminMigrationRaceDiffDto(
     int CalculatedPoints,
     int DeltaPoints,
     string ReasonCode,
-    string Explanation);
+    string Explanation,
+    bool IsExpectedVariance = false,
+    string? ExpectedVarianceReasonCode = null,
+    string? ExpectedVarianceRuleId = null);
 
 public sealed record AdminMigrationPickDiffDto(
     string RaceCode,
@@ -73,7 +77,10 @@ public sealed record AdminMigrationPickDiffDto(
     int? CalculatedPoints,
     int DeltaPoints,
     string ReasonCode,
-    string Explanation);
+    string Explanation,
+    bool IsExpectedVariance = false,
+    string? ExpectedVarianceReasonCode = null,
+    string? ExpectedVarianceRuleId = null);
 
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,

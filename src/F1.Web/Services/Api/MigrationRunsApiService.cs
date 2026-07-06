@@ -43,9 +43,18 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             cancellationToken);
     }
 
-    public async Task<AdminMigrationRunDetailResponse?> GetRunDetailAsync(Guid runId, CancellationToken cancellationToken = default)
+    public async Task<AdminMigrationRunDetailResponse?> GetRunDetailAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default,
+        string? expectedStatus = null)
     {
-        using var response = await httpClient.GetAsync($"admin/migration-runs/{runId}", cancellationToken);
+        var path = $"admin/migration-runs/{runId}";
+        if (!string.IsNullOrWhiteSpace(expectedStatus) && !string.Equals(expectedStatus, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            path += $"?expectedStatus={Uri.EscapeDataString(expectedStatus)}";
+        }
+
+        using var response = await httpClient.GetAsync(path, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
@@ -82,11 +91,15 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             cancellationToken);
     }
 
-    public string GetRunDiffExportUrl(Guid runId, string exportType, string format)
+    public string GetRunDiffExportUrl(Guid runId, string exportType, string format, string? expectedStatus = null)
     {
         var safeExportType = Uri.EscapeDataString(exportType.Trim().ToLowerInvariant());
         var safeFormat = Uri.EscapeDataString(format.Trim().ToLowerInvariant());
         var relativePath = $"admin/migration-runs/{runId}/exports/{safeExportType}?format={safeFormat}";
+        if (!string.IsNullOrWhiteSpace(expectedStatus) && !string.Equals(expectedStatus, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath += $"&expectedStatus={Uri.EscapeDataString(expectedStatus)}";
+        }
         return new Uri(httpClient.BaseAddress!, relativePath).ToString();
     }
 }

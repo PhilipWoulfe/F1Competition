@@ -10,5 +10,8 @@ public sealed class MigrationImportRaceDiffEntity
     public int CalculatedPoints { get; set; }
     public int DeltaPoints { get; set; }
     public string ReasonCode { get; set; } = string.Empty;
+    public bool IsExpectedVariance { get; set; }
+    public string? ExpectedVarianceReasonCode { get; set; }
+    public string? ExpectedVarianceRuleId { get; set; }
     public string Explanation { get; set; } = string.Empty;
 }

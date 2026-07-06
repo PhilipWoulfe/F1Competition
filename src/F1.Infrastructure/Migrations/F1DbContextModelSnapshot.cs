@@ -399,6 +399,17 @@ namespace F1.Infrastructure.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("ExpectedVarianceReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ExpectedVarianceRuleId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsExpectedVariance")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("ImportRunId")
                         .HasColumnType("uuid");
 
@@ -451,6 +462,17 @@ namespace F1.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("ExpectedVarianceReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ExpectedVarianceRuleId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsExpectedVariance")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("ImportRunId")
                         .HasColumnType("uuid");

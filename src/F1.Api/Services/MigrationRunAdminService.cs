@@ -272,7 +272,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 RequestedBy: command.RequestedBy));
     }
 
-    public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, string requestedBy, CancellationToken cancellationToken)
+    public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(
+        Guid runId,
+        string requestedBy,
+        CancellationToken cancellationToken,
+        string? expectedStatus)
     {
         try
         {
@@ -315,41 +319,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.FirstCreatedAtUtc))
             .ToArray();
 
-        var participantDeltas = await _dbContext.MigrationImportParticipantDeltaSummaries
+        var allPickDiffs = await _dbContext.MigrationImportPickDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Subject)
-            .Select(x => new AdminMigrationParticipantDeltaDto(
-                x.Subject,
-                x.ImportedTotalPoints,
-                x.CalculatedTotalPoints,
-                x.NetDeltaPoints,
-                x.TopReasonCode,
-                x.TopReasonCount))
-            .ToArrayAsync(cancellationToken);
-
-        var raceDiffs = await _dbContext.MigrationImportRaceDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
-            .Select(x => new AdminMigrationRaceDiffDto(
-                x.RaceCode,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation))
-            .ToArrayAsync(cancellationToken);
-
-        var pickDiffs = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.PickType == "1" ? 1 : x.PickType == "2" ? 2 : x.PickType == "3" ? 3 : x.PickType == "DNF" ? 4 : 5)
-            .ThenBy(x => x.PickType)
+            .OrderBy(x => x.Id)
             .Select(x => new AdminMigrationPickDiffDto(
                 x.RaceCode,
                 x.PickType,
@@ -358,8 +331,56 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CalculatedPoints,
                 x.DeltaPoints,
                 x.ReasonCode,
-                x.Explanation))
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
+
+        var allRaceDiffs = await _dbContext.MigrationImportRaceDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .Select(x => new AdminMigrationRaceDiffDto(
+                x.RaceCode,
+                x.Subject,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
+            .ToArrayAsync(cancellationToken);
+
+        var pickDiffs = FilterExpectedVariance(allPickDiffs, expectedStatus).ToArray();
+        var raceDiffs = FilterExpectedVariance(allRaceDiffs, expectedStatus).ToArray();
+        var unexpectedTotalDeltaPoints = allPickDiffs
+            .Where(x => !x.IsExpectedVariance)
+            .Sum(x => x.DeltaPoints);
+
+        var participantDeltas = raceDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var topReasonGroup = pickDiffs
+                    .Where(x => string.Equals(x.Subject, group.Key, StringComparison.OrdinalIgnoreCase) && x.DeltaPoints != 0)
+                    .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(x => x.Count())
+                    .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+
+                return new AdminMigrationParticipantDeltaDto(
+                    group.Key,
+                    group.Sum(x => x.ImportedPoints),
+                    group.Sum(x => x.CalculatedPoints),
+                    group.Sum(x => x.DeltaPoints),
+                    topReasonGroup?.Key,
+                    topReasonGroup?.Count() ?? 0);
+            })
+            .ToArray();
 
             return new AdminMigrationRunDetailResponseDto(
                 RunId: run.Id,
@@ -374,7 +395,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
                 PickDiffCount: pickDiffs.Length,
                 RaceDiffCount: raceDiffs.Length,
-                TotalDeltaPoints: participantDeltas.Sum(x => x.NetDeltaPoints),
+                TotalDeltaPoints: allPickDiffs.Sum(x => x.DeltaPoints),
+                UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
                 UnresolvedTokenSummary: unresolvedTokenSummary,
                 ParticipantDeltas: participantDeltas,
                 RaceDiffs: raceDiffs,
@@ -394,7 +416,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         string exportType,
         string format,
         string requestedBy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedStatus)
     {
         var runExists = await _dbContext.MigrationImportRuns
             .AsNoTracking()
@@ -420,8 +443,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
         return normalizedExportType switch
         {
-            "participant-diffs" => await ExportParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
-            "pick-diffs" => await ExportPickDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
+            "participant-diffs" => await ExportParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
+            "pick-diffs" => await ExportPickDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
             _ => new MigrationRunDiffExportResponse(
                 Success: false,
                 Error: "exportType must be participant-diffs or pick-diffs.",
@@ -435,22 +458,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         Guid runId,
         string format,
         string requestedBy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedStatus)
     {
-        var rows = await _dbContext.MigrationImportParticipantDeltaSummaries
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Subject)
-            .Select(x => new
-            {
-                x.Subject,
-                x.ImportedTotalPoints,
-                x.CalculatedTotalPoints,
-                x.NetDeltaPoints,
-                x.TopReasonCode,
-                x.TopReasonCount
-            })
-            .ToArrayAsync(cancellationToken);
+        var rows = await BuildParticipantDiffRowsAsync(runId, expectedStatus, cancellationToken);
 
         var extension = format == "json" ? "json" : "csv";
         var fileName = $"migration-run-{runId}-participant-diffs.{extension}";
@@ -500,17 +511,14 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         Guid runId,
         string format,
         string requestedBy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedStatus)
     {
         var rows = await _dbContext.MigrationImportPickDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RaceCode)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.PickType == "1" ? 1 : x.PickType == "2" ? 2 : x.PickType == "3" ? 3 : x.PickType == "DNF" ? 4 : 5)
-            .ThenBy(x => x.PickType)
-            .Select(x => new
-            {
+            .OrderBy(x => x.Id)
+            .Select(x => new AdminMigrationPickDiffDto(
                 x.RaceCode,
                 x.PickType,
                 x.Subject,
@@ -518,9 +526,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CalculatedPoints,
                 x.DeltaPoints,
                 x.ReasonCode,
-                x.Explanation
-            })
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
+
+        rows = FilterExpectedVariance(rows, expectedStatus).ToArray();
 
         var extension = format == "json" ? "json" : "csv";
         var fileName = $"migration-run-{runId}-pick-diffs.{extension}";
@@ -546,7 +558,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
+        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.RaceCode)).Append(',')
@@ -556,6 +568,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
                 .Append(EscapeCsv(row.ReasonCode)).Append(',')
+                .Append(row.IsExpectedVariance.ToString()).Append(',')
+                .Append(EscapeCsv(row.ExpectedVarianceReasonCode)).Append(',')
+                .Append(EscapeCsv(row.ExpectedVarianceRuleId)).Append(',')
                 .Append(EscapeCsv(row.Explanation))
                 .AppendLine();
         }
@@ -566,6 +581,93 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             FileName: fileName,
             ContentType: "text/csv",
             Payload: Encoding.UTF8.GetBytes(csv.ToString()));
+    }
+
+    private static bool? ResolveExpectedVarianceFilter(string? expectedStatus)
+    {
+        if (string.IsNullOrWhiteSpace(expectedStatus) || string.Equals(expectedStatus, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (string.Equals(expectedStatus, "expected", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(expectedStatus, "unexpected", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<T> FilterExpectedVariance<T>(IEnumerable<T> rows, string? expectedStatus)
+        where T : class
+    {
+        var includeExpected = ResolveExpectedVarianceFilter(expectedStatus);
+        if (includeExpected is null)
+        {
+            return rows;
+        }
+
+        return rows.Where(row =>
+        {
+            var isExpectedVariance = row switch
+            {
+                AdminMigrationPickDiffDto pickDiff => pickDiff.IsExpectedVariance,
+                AdminMigrationRaceDiffDto raceDiff => raceDiff.IsExpectedVariance,
+                _ => false
+            };
+
+            return includeExpected.Value == isExpectedVariance;
+        });
+    }
+
+    private async Task<AdminMigrationParticipantDeltaDto[]> BuildParticipantDiffRowsAsync(Guid runId, string? expectedStatus, CancellationToken cancellationToken)
+    {
+        var pickDiffs = await _dbContext.MigrationImportPickDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .Select(x => new AdminMigrationPickDiffDto(
+                x.RaceCode,
+                x.PickType,
+                x.Subject,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
+            .ToArrayAsync(cancellationToken);
+
+        var filteredPickDiffs = FilterExpectedVariance(pickDiffs, expectedStatus);
+
+        return filteredPickDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var topReasonGroup = group
+                    .Where(x => x.DeltaPoints != 0)
+                    .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(x => x.Count())
+                    .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+
+                return new AdminMigrationParticipantDeltaDto(
+                    group.Key,
+                    group.Sum(x => x.ImportedPoints ?? 0),
+                    group.Sum(x => x.CalculatedPoints ?? 0),
+                    group.Sum(x => x.DeltaPoints),
+                    topReasonGroup?.Key,
+                    topReasonGroup?.Count() ?? 0);
+            })
+            .ToArray();
     }
 
     private static string EscapeCsv(string? value)

@@ -118,7 +118,8 @@ public sealed class MigrationImportRunServiceTests
                     Enabled = true,
                     SourceFilePath = sourceFilePath,
                     DryRun = true
-                }));
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
 
             await orchestrator.RunOnceAsync(CancellationToken.None);
 
@@ -184,7 +185,8 @@ public sealed class MigrationImportRunServiceTests
                     SourceFilePath = sourceFilePath,
                     DryRun = true,
                     UnresolvedTokenFailThreshold = 1
-                }));
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunOnceAsync(CancellationToken.None));
 
@@ -241,7 +243,8 @@ public sealed class MigrationImportRunServiceTests
                     SourceFilePath = sourceFilePath,
                     DryRun = true,
                     UnresolvedTokenFailThreshold = 2
-                }));
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
 
             await orchestrator.RunOnceAsync(CancellationToken.None);
 
@@ -307,7 +310,8 @@ public sealed class MigrationImportRunServiceTests
                     SourceFilePath = sourceFilePath,
                     DryRun = false,
                     Season = 2025
-                }));
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
 
             await orchestrator.RunOnceAsync(CancellationToken.None);
 
@@ -416,7 +420,8 @@ public sealed class MigrationImportRunServiceTests
                     SourceFilePath = sourceFilePath,
                     DryRun = true,
                     Season = 2025
-                }));
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
 
             await orchestrator.RunOnceAsync(CancellationToken.None);
 

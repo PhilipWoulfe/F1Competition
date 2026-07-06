@@ -32,14 +32,19 @@ public interface IMigrationRunAdminService
 {
     Task<AdminMigrationRunListResponseDto> GetRunsAsync(MigrationRunListQuery query, CancellationToken cancellationToken);
 
-    Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, string requestedBy, CancellationToken cancellationToken);
+    Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(
+        Guid runId,
+        string requestedBy,
+        CancellationToken cancellationToken = default,
+        string? expectedStatus = null);
 
     Task<MigrationRunDiffExportResponse?> ExportRunDiffsAsync(
         Guid runId,
         string exportType,
         string format,
         string requestedBy,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken = default,
+        string? expectedStatus = null);
 
     Task<MigrationRunKickoffResult> KickoffRunAsync(
         MigrationRunKickoffCommand command,

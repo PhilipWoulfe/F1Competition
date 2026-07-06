@@ -15,10 +15,19 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
     };
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
+    private readonly MigrationExpectedVarianceClassifier _expectedVarianceClassifier;
 
     public MigrationReconciliationService(IDbContextFactory<F1DbContext> dbContextFactory)
+        : this(dbContextFactory, MigrationExpectedVarianceRuleCatalog.Empty)
+    {
+    }
+
+    public MigrationReconciliationService(
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IMigrationExpectedVarianceRuleCatalog expectedVarianceRuleCatalog)
     {
         _dbContextFactory = dbContextFactory;
+        _expectedVarianceClassifier = new MigrationExpectedVarianceClassifier(expectedVarianceRuleCatalog);
     }
 
     public async Task<MigrationReconciliationResult> ReconcileAndPersistAsync(Guid runId, CancellationToken cancellationToken)
@@ -107,8 +116,18 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             var importedRows = legacyRowsByKey.GetValueOrDefault(key, []);
             var calculatedRows = calculatedRowsByKey.GetValueOrDefault(key, []);
             participantColumnBySubject.TryGetValue(key.Subject, out var participantColumn);
+            var importedSource = FormatSourceReference(importedRows, participantColumn, "race-points");
+            var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "race-picks");
 
             var reasonCode = ResolveReasonCode(key.PickType, imported, calculatedValue, delta);
+            var expectedVariance = delta == 0
+                ? new MigrationExpectedVarianceClassification(false, null, null)
+                : _expectedVarianceClassifier.Classify(new MigrationExpectedVarianceContext(
+                    key.Subject,
+                    key.RaceCode,
+                    key.PickType,
+                    importedSource,
+                    calculatedSource));
             var explanation = BuildPickExplanation(
                 key,
                 imported,
@@ -129,6 +148,9 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 CalculatedPoints = calculatedValue,
                 DeltaPoints = delta,
                 ReasonCode = reasonCode,
+                IsExpectedVariance = expectedVariance.IsExpected,
+                ExpectedVarianceReasonCode = expectedVariance.ReasonCode,
+                ExpectedVarianceRuleId = expectedVariance.RuleId,
                 Explanation = explanation
             });
         }
@@ -143,6 +165,14 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 var importedPoints = group.Sum(x => x.ImportedPoints ?? 0);
                 var calculatedPoints = group.Sum(x => x.CalculatedPoints ?? 0);
                 var delta = calculatedPoints - importedPoints;
+                var nonZeroContributors = group.Where(x => x.DeltaPoints != 0).ToList();
+                var isExpectedVariance = nonZeroContributors.Count > 0 && nonZeroContributors.All(x => x.IsExpectedVariance);
+                var expectedVarianceReasonCode = isExpectedVariance
+                    ? nonZeroContributors.Select(x => x.ExpectedVarianceReasonCode).FirstOrDefault(reasonCode => !string.IsNullOrWhiteSpace(reasonCode))
+                    : null;
+                var expectedVarianceRuleId = isExpectedVariance
+                    ? nonZeroContributors.Select(x => x.ExpectedVarianceRuleId).FirstOrDefault(ruleId => !string.IsNullOrWhiteSpace(ruleId))
+                    : null;
 
                 var topReason = group
                     .Where(x => x.DeltaPoints != 0)
@@ -161,6 +191,9 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                     CalculatedPoints = calculatedPoints,
                     DeltaPoints = delta,
                     ReasonCode = topReason,
+                    IsExpectedVariance = isExpectedVariance,
+                    ExpectedVarianceReasonCode = expectedVarianceReasonCode,
+                    ExpectedVarianceRuleId = expectedVarianceRuleId,
                     Explanation = BuildRaceExplanation(
                         group.Key.RaceCode,
                         group.Key.Subject,
@@ -288,7 +321,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "race-picks");
 
         var explanation = string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal)
-            ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource})."
+            ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({FormatSourceReference(importedRows, participantColumn, "race-points")}; {calculatedSource})."
             : $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
 
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";

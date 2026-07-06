@@ -219,6 +219,7 @@ else if (selectedRunDetail is not null)
                 <div class="card-body">
                     <div class="text-muted small">Total Delta</div>
                     <div class="fs-4">@selectedRunDetail.TotalDeltaPoints</div>
+                    <div class="text-muted small">Unexpected: @selectedRunDetail.UnexpectedTotalDeltaPoints</div>
                 </div>
             </div>
         </div>
@@ -263,6 +264,14 @@ else if (selectedRunDetail is not null)
                         <input id="detail-non-zero-only" class="form-check-input" type="checkbox" @bind="detailNonZeroOnly" />
                         <label class="form-check-label" for="detail-non-zero-only">Non-zero delta only</label>
                     </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="detail-expected-status">Expected status</label>
+                    <select id="detail-expected-status" class="form-select" value="@detailExpectedStatusFilter" @onchange="OnExpectedStatusFilterChanged">
+                        <option value="all">All variances</option>
+                        <option value="expected">Expected only</option>
+                        <option value="unexpected">Unexpected only</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -319,6 +328,8 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Variance Status</th>
+                        <th>Expected Rule</th>
                         <th>Explanation</th>
                     </tr>
                 </thead>
@@ -332,6 +343,30 @@ else if (selectedRunDetail is not null)
                             <td>@row.CalculatedPoints</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>
+                                @if (row.IsExpectedVariance)
+                                {
+                                    <span class="badge text-bg-success">Expected</span>
+                                }
+                                else
+                                {
+                                    <span class="badge text-bg-warning">Unexpected</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                {
+                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                    {
+                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </td>
                             <td>@row.Explanation</td>
                         </tr>
                     }
@@ -358,6 +393,8 @@ else if (selectedRunDetail is not null)
                         <th>Calculated</th>
                         <th>Delta</th>
                         <th>Reason</th>
+                        <th>Variance Status</th>
+                        <th>Expected Rule</th>
                         <th>Explanation</th>
                     </tr>
                 </thead>
@@ -372,6 +409,30 @@ else if (selectedRunDetail is not null)
                             <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                             <td>@row.DeltaPoints</td>
                             <td>@row.ReasonCode</td>
+                            <td>
+                                @if (row.IsExpectedVariance)
+                                {
+                                    <span class="badge text-bg-success">Expected</span>
+                                }
+                                else
+                                {
+                                    <span class="badge text-bg-warning">Unexpected</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                {
+                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                    {
+                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </td>
                             <td>@row.Explanation</td>
                         </tr>
                     }
@@ -407,6 +468,7 @@ else if (selectedRunDetail is not null)
     private string detailParticipantFilter = string.Empty;
     private string detailRaceFilter = string.Empty;
     private string detailReasonFilter = string.Empty;
+    private string detailExpectedStatusFilter = "all";
     private bool detailNonZeroOnly;
 
     private int TotalPages => runList is null || runList.TotalCount == 0
@@ -524,7 +586,7 @@ else if (selectedRunDetail is not null)
 
         try
         {
-            selectedRunDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+            selectedRunDetail = await LoadRunDetailAsync(runId);
 
             if (selectedRunDetail is null)
             {
@@ -555,6 +617,44 @@ else if (selectedRunDetail is not null)
         selectedRunId = null;
         selectedRunDetail = null;
         await LoadRunsAsync();
+    }
+
+    private async Task OnExpectedStatusFilterChanged(ChangeEventArgs args)
+    {
+        detailExpectedStatusFilter = args.Value?.ToString() ?? "all";
+
+        if (selectedRunId.HasValue)
+        {
+            await ReloadSelectedRunDetailAsync(selectedRunId.Value);
+        }
+    }
+
+    private async Task ReloadSelectedRunDetailAsync(Guid runId)
+    {
+        isLoadingDetail = true;
+        errorMessage = null;
+
+        try
+        {
+            selectedRunDetail = await LoadRunDetailAsync(runId);
+
+            if (selectedRunDetail is null)
+            {
+                selectedRunId = null;
+                errorMessage = $"Migration run detail was not found for run {runId}.";
+                return;
+            }
+
+            selectedRunId = runId;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load run detail: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDetail = false;
+        }
     }
 
     private async Task PreviousPageAsync()
@@ -664,6 +764,13 @@ else if (selectedRunDetail is not null)
             return "#";
         }
 
-        return MigrationRunsApi.GetRunDiffExportUrl(selectedRunId.Value, exportType, format);
+        return MigrationRunsApi.GetRunDiffExportUrl(selectedRunId.Value, exportType, format, detailExpectedStatusFilter);
+    }
+
+    private async Task<AdminMigrationRunDetailResponse?> LoadRunDetailAsync(Guid runId)
+    {
+        return string.Equals(detailExpectedStatusFilter, "all", StringComparison.OrdinalIgnoreCase)
+            ? await MigrationRunsApi.GetRunDetailAsync(runId)
+            : await MigrationRunsApi.GetRunDetailAsync(runId, expectedStatus: detailExpectedStatusFilter);
     }
 }

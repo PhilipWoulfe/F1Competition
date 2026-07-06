@@ -30,5 +30,9 @@
           Link="data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="Never" />
+    <None Include="../../data/imports/phil-2025/expected-variance-rules.json"
+          Link="data/imports/phil-2025/expected-variance-rules.json"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="Never" />
   </ItemGroup>
 </Project>
