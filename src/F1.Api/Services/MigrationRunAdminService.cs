@@ -1,6 +1,8 @@
 using F1.Api.Dtos;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace F1.Api.Services;
 
@@ -11,10 +13,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private const int MaxPageSize = 100;
 
     private readonly F1DbContext _dbContext;
+    private readonly ILogger<MigrationRunAdminService> _logger;
 
-    public MigrationRunAdminService(F1DbContext dbContext)
+    public MigrationRunAdminService(F1DbContext dbContext, ILogger<MigrationRunAdminService> logger)
     {
         _dbContext = dbContext;
+        _logger = logger;
     }
 
     public async Task<AdminMigrationRunListResponseDto> GetRunsAsync(MigrationRunListQuery query, CancellationToken cancellationToken)
@@ -24,95 +28,108 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             ? DefaultPageSize
             : Math.Min(query.PageSize, MaxPageSize);
 
-        var runsQuery = _dbContext.MigrationImportRuns.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(query.Status))
+        try
         {
-            var normalizedStatus = query.Status.Trim();
-            runsQuery = runsQuery.Where(x => x.Status == normalizedStatus);
-        }
+            var runsQuery = _dbContext.MigrationImportRuns.AsNoTracking();
 
-        if (query.StartedFromUtc.HasValue)
+            if (!string.IsNullOrWhiteSpace(query.Status))
+            {
+                var normalizedStatus = query.Status.Trim();
+                runsQuery = runsQuery.Where(x => x.Status == normalizedStatus);
+            }
+
+            if (query.StartedFromUtc.HasValue)
+            {
+                runsQuery = runsQuery.Where(x => x.StartedAtUtc >= query.StartedFromUtc.Value);
+            }
+
+            if (query.StartedToUtc.HasValue)
+            {
+                runsQuery = runsQuery.Where(x => x.StartedAtUtc <= query.StartedToUtc.Value);
+            }
+
+            var totalCount = await runsQuery.CountAsync(cancellationToken);
+            var pagedRuns = await runsQuery
+                .OrderByDescending(x => x.StartedAtUtc)
+                .ThenByDescending(x => x.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToArrayAsync(cancellationToken);
+
+            if (pagedRuns.Length == 0)
+            {
+                return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, []);
+            }
+
+            var runIds = pagedRuns.Select(run => run.Id).ToArray();
+
+            var unresolvedCounts = await _dbContext.MigrationImportUnresolvedTokens
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
+
+            var pickDiffCounts = await _dbContext.MigrationImportPickDiffs
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
+
+            var raceDiffCounts = await _dbContext.MigrationImportRaceDiffs
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
+
+            var totalDeltas = await _dbContext.MigrationImportParticipantDeltaSummaries
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) })
+                .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
+
+            var items = pagedRuns
+                .Select(run => new AdminMigrationRunListItemDto(
+                    run.Id,
+                    run.Status,
+                    run.IsDryRun,
+                    run.SourceFilePath,
+                    run.SourceFileChecksum,
+                    run.StartedAtUtc,
+                    run.FinishedAtUtc,
+                    run.RawRowCount,
+                    unresolvedCounts.GetValueOrDefault(run.Id, 0),
+                    pickDiffCounts.GetValueOrDefault(run.Id, 0),
+                    raceDiffCounts.GetValueOrDefault(run.Id, 0),
+                    totalDeltas.GetValueOrDefault(run.Id, 0),
+                    run.ErrorMessage))
+                .ToArray();
+
+            return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, items);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
         {
-            runsQuery = runsQuery.Where(x => x.StartedAtUtc >= query.StartedFromUtc.Value);
+            _logger.LogWarning(ex,
+                "Migration run tables are not fully available yet. Returning an empty run list instead of failing.");
+            return new AdminMigrationRunListResponseDto(page, pageSize, 0, []);
         }
-
-        if (query.StartedToUtc.HasValue)
-        {
-            runsQuery = runsQuery.Where(x => x.StartedAtUtc <= query.StartedToUtc.Value);
-        }
-
-        var totalCount = await runsQuery.CountAsync(cancellationToken);
-        var pagedRunsQuery = runsQuery
-            .OrderByDescending(x => x.StartedAtUtc)
-            .ThenByDescending(x => x.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize);
-
-        var unresolvedCountsQuery = _dbContext.MigrationImportUnresolvedTokens
-            .AsNoTracking()
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() });
-
-        var pickDiffCountsQuery = _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() });
-
-        var raceDiffCountsQuery = _dbContext.MigrationImportRaceDiffs
-            .AsNoTracking()
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() });
-
-        var totalDeltaQuery = _dbContext.MigrationImportParticipantDeltaSummaries
-            .AsNoTracking()
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) });
-
-        var items = await (
-            from run in pagedRunsQuery
-            join unresolved in unresolvedCountsQuery on run.Id equals unresolved.RunId into unresolvedJoin
-            from unresolved in unresolvedJoin.DefaultIfEmpty()
-            join pickDiff in pickDiffCountsQuery on run.Id equals pickDiff.RunId into pickDiffJoin
-            from pickDiff in pickDiffJoin.DefaultIfEmpty()
-            join raceDiff in raceDiffCountsQuery on run.Id equals raceDiff.RunId into raceDiffJoin
-            from raceDiff in raceDiffJoin.DefaultIfEmpty()
-            join totalDelta in totalDeltaQuery on run.Id equals totalDelta.RunId into totalDeltaJoin
-            from totalDelta in totalDeltaJoin.DefaultIfEmpty()
-            select new AdminMigrationRunListItemDto(
-                run.Id,
-                run.Status,
-                run.IsDryRun,
-                run.SourceFilePath,
-                run.SourceFileChecksum,
-                run.StartedAtUtc,
-                run.FinishedAtUtc,
-                run.RawRowCount,
-                unresolved != null ? unresolved.Count : 0,
-                pickDiff != null ? pickDiff.Count : 0,
-                raceDiff != null ? raceDiff.Count : 0,
-                totalDelta != null ? totalDelta.TotalDelta : 0,
-                run.ErrorMessage))
-            .ToArrayAsync(cancellationToken);
-
-        if (items.Length == 0)
-        {
-            return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, []);
-        }
-
-        return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, items);
     }
 
     public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, CancellationToken cancellationToken)
     {
-        var run = await _dbContext.MigrationImportRuns
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
-
-        if (run is null)
+        try
         {
-            return null;
-        }
+            var run = await _dbContext.MigrationImportRuns
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+
+            if (run is null)
+            {
+                return null;
+            }
 
         var unresolvedTokenSummary = await _dbContext.MigrationImportUnresolvedTokens
             .AsNoTracking()
@@ -173,23 +190,31 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.Explanation))
             .ToArrayAsync(cancellationToken);
 
-        return new AdminMigrationRunDetailResponseDto(
-            RunId: run.Id,
-            Status: run.Status,
-            IsDryRun: run.IsDryRun,
-            SourceFilePath: run.SourceFilePath,
-            SourceFileChecksum: run.SourceFileChecksum,
-            StartedAtUtc: run.StartedAtUtc,
-            FinishedAtUtc: run.FinishedAtUtc,
-            RawRowCount: run.RawRowCount,
-            ErrorMessage: run.ErrorMessage,
-            UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
-            PickDiffCount: pickDiffs.Length,
-            RaceDiffCount: raceDiffs.Length,
-            TotalDeltaPoints: participantDeltas.Sum(x => x.NetDeltaPoints),
-            UnresolvedTokenSummary: unresolvedTokenSummary,
-            ParticipantDeltas: participantDeltas,
-            RaceDiffs: raceDiffs,
-            PickDiffs: pickDiffs);
+            return new AdminMigrationRunDetailResponseDto(
+                RunId: run.Id,
+                Status: run.Status,
+                IsDryRun: run.IsDryRun,
+                SourceFilePath: run.SourceFilePath,
+                SourceFileChecksum: run.SourceFileChecksum,
+                StartedAtUtc: run.StartedAtUtc,
+                FinishedAtUtc: run.FinishedAtUtc,
+                RawRowCount: run.RawRowCount,
+                ErrorMessage: run.ErrorMessage,
+                UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
+                PickDiffCount: pickDiffs.Length,
+                RaceDiffCount: raceDiffs.Length,
+                TotalDeltaPoints: participantDeltas.Sum(x => x.NetDeltaPoints),
+                UnresolvedTokenSummary: unresolvedTokenSummary,
+                ParticipantDeltas: participantDeltas,
+                RaceDiffs: raceDiffs,
+                PickDiffs: pickDiffs);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
+        {
+            _logger.LogWarning(ex,
+                "Migration run tables are not fully available yet. Returning null for run detail request {RunId}.",
+                runId);
+            return null;
+        }
     }
 }
