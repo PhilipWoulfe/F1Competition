@@ -137,6 +137,20 @@ internal class MigrationRunsPage
         return WaitForComparisonSection("participant-comparisons", "No participant deltas available for this run.");
     }
 
+    public bool WaitForPreseasonComparisonSection()
+    {
+        return _wait.Until(driver =>
+            driver.FindElements(By.Id("preseason-comparisons")).Count > 0 &&
+            driver.FindElements(By.Id("preseason-participant-filter")).Count > 0);
+    }
+
+    public bool WaitForPreseasonQuestionDiffRows()
+    {
+        return _wait.Until(driver =>
+            driver.FindElements(By.XPath("//h4[normalize-space()='Preseason Question Diffs']")).Count > 0 &&
+            driver.FindElements(By.XPath("//h4[normalize-space()='Preseason Question Diffs']/following-sibling::*[1][self::div]//tbody/tr")).Count > 0);
+    }
+
     public bool WaitForRaceComparisonSection()
     {
         return WaitForComparisonSection("race-comparisons", "No race diffs available for this run.");

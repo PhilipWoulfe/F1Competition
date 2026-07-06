@@ -108,6 +108,7 @@ jobs:
         run: |
           dotnet restore tests/F1.Api.Tests/F1.Api.Tests.csproj
           dotnet restore tests/F1.Web.Tests/F1.Web.Tests.csproj
+          dotnet restore tests/F1.Infrastructure.Tests/F1.Infrastructure.Tests.csproj
 
       - name: Run API Unit Tests with Coverage
         env:
@@ -132,4 +133,19 @@ jobs:
             --collect:"XPlat Code Coverage" \
             --settings coverlet.web.runsettings \
             --results-directory ./coverage/web-coverage
+
+      - name: Run Preseason Integration Gate with Coverage
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          DOTNET_ENVIRONMENT: Development
+          Database__AutoMigrate: false
+        run: |
+          dotnet test tests/F1.Infrastructure.Tests/F1.Infrastructure.Tests.csproj \
+            --configuration Debug \
+            --nologo \
+            --verbosity minimal \
+            --filter "FullyQualifiedName~MigrationPhil2025CsvContractPolicyTests|FullyQualifiedName~MigrationRaceSelectionParserTests|FullyQualifiedName~MigrationScoreRecalculatorTests|FullyQualifiedName~MigrationImportRunServiceTests" \
+            --collect:"XPlat Code Coverage" \
+            --settings coverlet.runsettings \
+            --results-directory ./coverage/infra-coverage
 

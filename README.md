@@ -413,6 +413,19 @@ Create a local `.env` (for example by copying `.env.example`) and point it at th
 
 If you want the browser flows to execute locally, start the local stack first, then run the E2E project test command directly.
 
+### 4.3.1 Preseason Quick Validation Filters
+
+For preseason-focused checks, run the fast filter matrix documented in:
+
+- `docs/testing/preseason-test-strategy.md`
+
+The matrix includes:
+
+- Worker contract/scoring/lifecycle tests with infrastructure coverage output.
+- Admin API preseason payload tests with API coverage output.
+- Admin web preseason review tests with web coverage output.
+- E2E migration runs preseason review flow filter.
+
 ### 4.4 Deployment Environment Tag Settings
 
 Set deployment host `.env` files to match the image promotion flow:
