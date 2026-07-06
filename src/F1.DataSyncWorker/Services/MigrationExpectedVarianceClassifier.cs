@@ -51,6 +51,6 @@ public sealed class MigrationExpectedVarianceClassifier
         return Regex.IsMatch(
             actual,
             $"^{escaped}$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 }

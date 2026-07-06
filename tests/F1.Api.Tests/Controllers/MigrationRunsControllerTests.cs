@@ -184,6 +184,27 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
+    public async Task GetRunDetail_WhenExpectedStatusInvalid_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.GetRunDetail(Guid.NewGuid(), expectedStatus: "oops");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var details = Assert.IsType<ProblemDetails>(badRequest.Value);
+        Assert.Equal("Invalid expected status filter", details.Title);
+        Assert.Equal("expectedStatus must be one of: all, expected, unexpected.", details.Detail);
+        service.Verify(x => x.GetRunDetailAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ExportRunDiffs_WhenServiceReturnsPayload_ReturnsFileResult()
     {
         var runId = Guid.NewGuid();
@@ -261,6 +282,33 @@ public sealed class MigrationRunsControllerTests
         var result = await controller.ExportRunDiffs(runId, "pick-diffs", "csv");
 
         Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task ExportRunDiffs_WhenExpectedStatusInvalid_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.ExportRunDiffs(Guid.NewGuid(), "pick-diffs", "csv", expectedStatus: "oops");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        var details = Assert.IsType<ProblemDetails>(badRequest.Value);
+        Assert.Equal("Invalid expected status filter", details.Title);
+        Assert.Equal("expectedStatus must be one of: all, expected, unexpected.", details.Detail);
+        service.Verify(x => x.ExportRunDiffsAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>(),
+            It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]

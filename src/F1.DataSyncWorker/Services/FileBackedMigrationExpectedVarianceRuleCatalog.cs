@@ -21,6 +21,7 @@ public sealed class FileBackedMigrationExpectedVarianceRuleCatalog : IMigrationE
     {
         var config = options.Value;
         ActiveEnvironment = hostEnvironment.EnvironmentName;
+        var contentRootPath = hostEnvironment.ContentRootPath;
 
         if (!config.Enabled)
         {
@@ -29,7 +30,7 @@ public sealed class FileBackedMigrationExpectedVarianceRuleCatalog : IMigrationE
             RuleSetId = "none";
             RuleSetVersion = "none";
             RuleSetChecksum = "none";
-            RuleSource = ResolvePath(config.RuleManifestPath);
+            RuleSource = ResolvePath(config.RuleManifestPath, contentRootPath);
             logger.LogInformation(
                 "Expected variance catalog disabled. Environment={Environment}, ManifestPath={ManifestPath}",
                 ActiveEnvironment,
@@ -37,7 +38,7 @@ public sealed class FileBackedMigrationExpectedVarianceRuleCatalog : IMigrationE
             return;
         }
 
-        var manifestPath = ResolvePath(config.RuleManifestPath);
+        var manifestPath = ResolvePath(config.RuleManifestPath, contentRootPath);
         RuleSource = manifestPath;
         IsEnabled = true;
 
@@ -130,14 +131,30 @@ public sealed class FileBackedMigrationExpectedVarianceRuleCatalog : IMigrationE
             string.Equals(env.Trim(), activeEnvironment, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string ResolvePath(string path)
+    private static string ResolvePath(string path, string? contentRootPath)
     {
         if (Path.IsPathRooted(path))
         {
             return path;
         }
 
-        return Path.GetFullPath(path, Directory.GetCurrentDirectory());
+        var trimmedPath = path.Trim();
+        var contentRootCandidate = !string.IsNullOrWhiteSpace(contentRootPath)
+            ? Path.GetFullPath(trimmedPath, contentRootPath)
+            : null;
+
+        if (!string.IsNullOrWhiteSpace(contentRootCandidate) && File.Exists(contentRootCandidate))
+        {
+            return contentRootCandidate;
+        }
+
+        var baseDirectoryCandidate = Path.GetFullPath(trimmedPath, AppContext.BaseDirectory);
+        if (File.Exists(baseDirectoryCandidate))
+        {
+            return baseDirectoryCandidate;
+        }
+
+        return contentRootCandidate ?? baseDirectoryCandidate;
     }
 
     private static string ComputeSha256(string value)

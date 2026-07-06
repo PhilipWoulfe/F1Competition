@@ -96,6 +96,58 @@ public sealed class FileBackedMigrationExpectedVarianceRuleCatalogTests
         Assert.Equal(0, catalog.ActiveRuleCount);
     }
 
+    [Fact]
+    public async Task Constructor_WhenRelativeManifestPath_ResolvesFromContentRoot()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"expected-variance-root-{Guid.NewGuid():N}");
+        var nestedDir = Path.Combine(tempRoot, "config");
+        var manifestPath = Path.Combine(nestedDir, "rules.json");
+        var manifest = """
+        {
+          "ruleSetId": "relative-manifest",
+          "ruleSetVersion": "1",
+          "rules": [
+            {
+              "ruleId": "rule-1",
+              "reasonCode": "KNOWN_LEGACY_POINTS_ERROR"
+            }
+          ]
+        }
+        """;
+
+        try
+        {
+            Directory.CreateDirectory(nestedDir);
+            await File.WriteAllTextAsync(manifestPath, manifest);
+
+            var options = Options.Create(new MigrationExpectedVarianceOptions
+            {
+                Enabled = true,
+                RuleManifestPath = "config/rules.json"
+            });
+
+            var environment = new TestHostEnvironment("Development")
+            {
+                ContentRootPath = tempRoot
+            };
+
+            var catalog = new FileBackedMigrationExpectedVarianceRuleCatalog(
+                options,
+                environment,
+                NullLogger<FileBackedMigrationExpectedVarianceRuleCatalog>.Instance);
+
+            Assert.Equal(manifestPath, catalog.RuleSource);
+            Assert.Equal(1, catalog.ActiveRuleCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private sealed class TestHostEnvironment : IHostEnvironment
     {
         public TestHostEnvironment(string environmentName)
