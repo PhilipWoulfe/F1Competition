@@ -390,6 +390,54 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             })
             .ToArray();
 
+        var preseasonQuestionDiffs = await _dbContext.MigrationImportPreseasonQuestionDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.QuestionKey)
+            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
+                x.RowNumber,
+                x.QuestionKey,
+                x.QuestionText,
+                x.Subject,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonParticipantDeltas = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Subject)
+            .Select(x => new AdminMigrationPreseasonParticipantDeltaDto(
+                x.Subject,
+                x.ImportedTotalPoints,
+                x.CalculatedTotalPoints,
+                x.NetDeltaPoints,
+                x.TopReasonCode,
+                x.TopReasonCount))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonReasonCategorySummaries = await _dbContext.MigrationImportPreseasonReasonCategorySummaries
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.OccurrenceCount)
+            .ThenBy(x => x.ReasonCode)
+            .Select(x => new AdminMigrationPreseasonReasonCategorySummaryDto(
+                x.ReasonCode,
+                x.OccurrenceCount,
+                x.TotalDeltaPoints))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonSummary = new AdminMigrationPreseasonSummaryDto(
+            QuestionDiffCount: preseasonQuestionDiffs.Length,
+            ParticipantDeltaCount: preseasonParticipantDeltas.Length,
+            ReasonCategoryCount: preseasonReasonCategorySummaries.Length,
+            TotalDeltaPoints: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
+
             return new AdminMigrationRunDetailResponseDto(
                 RunId: run.Id,
                 Status: run.Status,
@@ -407,6 +455,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
                 UnresolvedTokenSummary: unresolvedTokenSummary,
                 ParticipantDeltas: participantDeltas,
+                PreseasonSummary: preseasonSummary,
+                PreseasonParticipantDeltas: preseasonParticipantDeltas,
+                PreseasonQuestionDiffs: preseasonQuestionDiffs,
+                PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
                 RaceDiffs: raceDiffs,
                 PickDiffs: pickDiffs);
         }

@@ -60,6 +60,10 @@ public sealed class AdminMigrationRunsTests : BunitContext
                 new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2),
                 new AdminMigrationParticipantDelta("Alex", 500, 500, 0, "EXACT_MATCH", 5)
             ],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
+            PreseasonParticipantDeltas: [],
+            PreseasonQuestionDiffs: [],
+            PreseasonReasonCategorySummaries: [],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
@@ -94,6 +98,10 @@ public sealed class AdminMigrationRunsTests : BunitContext
             [
                 new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2)
             ],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
+            PreseasonParticipantDeltas: [],
+            PreseasonQuestionDiffs: [],
+            PreseasonReasonCategorySummaries: [],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")

@@ -39,6 +39,10 @@ public sealed record AdminMigrationRunDetailResponse(
     int UnexpectedTotalDeltaPoints,
     IReadOnlyList<AdminMigrationUnresolvedTokenSummary> UnresolvedTokenSummary,
     IReadOnlyList<AdminMigrationParticipantDelta> ParticipantDeltas,
+    AdminMigrationPreseasonSummary PreseasonSummary,
+    IReadOnlyList<AdminMigrationPreseasonParticipantDelta> PreseasonParticipantDeltas,
+    IReadOnlyList<AdminMigrationPreseasonQuestionDiff> PreseasonQuestionDiffs,
+    IReadOnlyList<AdminMigrationPreseasonReasonCategorySummary> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiff> RaceDiffs,
     IReadOnlyList<AdminMigrationPickDiff> PickDiffs);
 
@@ -55,6 +59,36 @@ public sealed record AdminMigrationParticipantDelta(
     int NetDeltaPoints,
     string? TopReasonCode,
     int TopReasonCount);
+
+public sealed record AdminMigrationPreseasonSummary(
+    int QuestionDiffCount,
+    int ParticipantDeltaCount,
+    int ReasonCategoryCount,
+    int TotalDeltaPoints);
+
+public sealed record AdminMigrationPreseasonParticipantDelta(
+    string Subject,
+    int ImportedTotalPoints,
+    int CalculatedTotalPoints,
+    int NetDeltaPoints,
+    string? TopReasonCode,
+    int TopReasonCount);
+
+public sealed record AdminMigrationPreseasonQuestionDiff(
+    int RowNumber,
+    string QuestionKey,
+    string QuestionText,
+    string Subject,
+    int? ImportedPoints,
+    int? CalculatedPoints,
+    int DeltaPoints,
+    string ReasonCode,
+    string Explanation);
+
+public sealed record AdminMigrationPreseasonReasonCategorySummary(
+    string ReasonCode,
+    int OccurrenceCount,
+    int TotalDeltaPoints);
 
 public sealed record AdminMigrationRaceDiff(
     string RaceCode,
