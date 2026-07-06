@@ -275,12 +275,11 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         var importedSource = FormatSourceReference(importedRows, participantColumn);
         var calculatedSource = FormatSourceReference(calculatedRows, participantColumn);
 
-        if (string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal))
-        {
-            return $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource}).";
-        }
+        var explanation = string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal)
+            ? $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource})."
+            : $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
 
-        return $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
     private static string BuildRaceExplanation(
@@ -352,7 +351,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             return map;
         }
 
-        var columns = ParseCsvLine(headerRow);
+        var columns = CsvLineParser.Parse(headerRow);
         var participantCount = 0;
 
         for (var index = 1; index < columns.Count; index++)
@@ -373,43 +372,6 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         }
 
         return map;
-    }
-
-    private static List<string> ParseCsvLine(string line)
-    {
-        var fields = new List<string>();
-        var current = new System.Text.StringBuilder();
-        var inQuotes = false;
-
-        for (var index = 0; index < line.Length; index++)
-        {
-            var character = line[index];
-
-            if (character == '"')
-            {
-                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
-                {
-                    current.Append('"');
-                    index++;
-                    continue;
-                }
-
-                inQuotes = !inQuotes;
-                continue;
-            }
-
-            if (character == ',' && !inQuotes)
-            {
-                fields.Add(current.ToString());
-                current.Clear();
-                continue;
-            }
-
-            current.Append(character);
-        }
-
-        fields.Add(current.ToString());
-        return fields;
     }
 
     private static string ToExcelColumnName(int columnNumber)

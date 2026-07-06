@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
@@ -57,7 +56,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         foreach (var row in stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePoints, StringComparison.Ordinal)))
         {
-            var columns = ParseCsvLine(row.RawPayload);
+            var columns = CsvLineParser.Parse(row.RawPayload);
             if (columns.Count == 0)
             {
                 continue;
@@ -103,7 +102,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         var importedTotalsBySubject = new Dictionary<string, MigrationImportImportedTotalEntity>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeTotalsMeta, StringComparison.Ordinal)))
         {
-            var columns = ParseCsvLine(row.RawPayload);
+            var columns = CsvLineParser.Parse(row.RawPayload);
             if (columns.Count == 0 || !columns[0].Trim().Equals("Result", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -169,7 +168,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             return [];
         }
 
-        var columns = ParseCsvLine(headerPayload);
+        var columns = CsvLineParser.Parse(headerPayload);
         if (columns.Count < 2)
         {
             return [];
@@ -245,43 +244,6 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         pickType = match.Groups[2].Value.ToUpperInvariant();
         currentRaceCode = raceCode;
         return true;
-    }
-
-    private static List<string> ParseCsvLine(string line)
-    {
-        var fields = new List<string>();
-        var current = new StringBuilder();
-        var inQuotes = false;
-
-        for (var index = 0; index < line.Length; index++)
-        {
-            var character = line[index];
-
-            if (character == '"')
-            {
-                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
-                {
-                    current.Append('"');
-                    index++;
-                    continue;
-                }
-
-                inQuotes = !inQuotes;
-                continue;
-            }
-
-            if (character == ',' && !inQuotes)
-            {
-                fields.Add(current.ToString());
-                current.Clear();
-                continue;
-            }
-
-            current.Append(character);
-        }
-
-        fields.Add(current.ToString());
-        return fields;
     }
 
     [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
