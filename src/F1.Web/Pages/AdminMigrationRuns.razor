@@ -107,6 +107,12 @@ else
     </div>
 }
 
+@{
+    var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
+    var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
+    var filteredPickDiffs = GetFilteredPickDiffs().ToList();
+}
+
 @if (isLoadingDetail)
 {
     <p><em>Loading selected run details...</em></p>
@@ -182,7 +188,7 @@ else if (selectedRunDetail is not null)
     </div>
 
     <h3 id="participant-comparisons">Participant Comparisons</h3>
-    @if (!GetFilteredParticipantDeltas().Any())
+    @if (!filteredParticipantDeltas.Any())
     {
         <p>No participant deltas available for this run.</p>
     }
@@ -200,7 +206,7 @@ else if (selectedRunDetail is not null)
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in GetFilteredParticipantDeltas())
+                    @foreach (var row in filteredParticipantDeltas)
                     {
                         <tr>
                             <td>@row.Subject</td>
@@ -216,7 +222,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="race-comparisons">Race Comparisons</h3>
-    @if (!GetFilteredRaceDiffs().Any())
+    @if (!filteredRaceDiffs.Any())
     {
         <p>No race diffs available for this run.</p>
     }
@@ -236,7 +242,7 @@ else if (selectedRunDetail is not null)
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in GetFilteredRaceDiffs())
+                    @foreach (var row in filteredRaceDiffs)
                     {
                         <tr>
                             <td>@row.RaceCode</td>
@@ -254,7 +260,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="pick-comparisons">Pick Comparisons</h3>
-    @if (!GetFilteredPickDiffs().Any())
+    @if (!filteredPickDiffs.Any())
     {
         <p>No pick diffs available for this run.</p>
     }
@@ -275,7 +281,7 @@ else if (selectedRunDetail is not null)
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in GetFilteredPickDiffs())
+                    @foreach (var row in filteredPickDiffs)
                     {
                         <tr>
                             <td>@row.RaceCode</td>
@@ -354,8 +360,16 @@ else if (selectedRunDetail is not null)
 
         try
         {
-            selectedRunId = runId;
             selectedRunDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+
+            if (selectedRunDetail is null)
+            {
+                selectedRunId = null;
+                errorMessage = $"Migration run detail was not found for run {runId}.";
+                return;
+            }
+
+            selectedRunId = runId;
             detailParticipantFilter = string.Empty;
             detailRaceFilter = string.Empty;
             detailReasonFilter = string.Empty;
