@@ -24,6 +24,14 @@ public sealed class MigrationReconciliationServiceTests
             StartedAtUtc = DateTime.UtcNow
         });
 
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
+        });
+
         dbContext.MigrationImportLegacyPickScores.AddRange(
             new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 1, RaceCode = "AUS", PickType = "1", Subject = "Philip", LegacyPoints = 10 },
             new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 2, RaceCode = "AUS", PickType = "2", Subject = "Philip", LegacyPoints = 10 },
@@ -77,10 +85,17 @@ public sealed class MigrationReconciliationServiceTests
         Assert.NotEmpty(nonZero);
         Assert.All(nonZero, x => Assert.False(string.IsNullOrWhiteSpace(x.Explanation)));
 
+        var philipFirstPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
+        Assert.Contains("row 1, column B", philipFirstPick.Explanation);
+
+        var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
+        Assert.Contains("row 5, column C", andySecondPick.Explanation);
+
         var philipAusRaceDiff = await dbContext.MigrationImportRaceDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
         Assert.Contains("Contributors:", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-1 10->5 (-5)", philipAusRaceDiff.Explanation);
+        Assert.Contains("column B", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-DNF 5->0 (-5)", philipAusRaceDiff.Explanation);
 
         var andyAusRaceDiff = await dbContext.MigrationImportRaceDiffs
@@ -103,6 +118,14 @@ public sealed class MigrationReconciliationServiceTests
             IsDryRun = true,
             Status = "Started",
             StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
         });
 
         dbContext.MigrationImportLegacyPickScores.AddRange(

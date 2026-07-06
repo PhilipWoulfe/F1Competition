@@ -51,12 +51,28 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 x => x.Any(y => y.LegacyPoints is null) ? (int?)null : x.Sum(y => y.LegacyPoints ?? 0),
                 PickDiffKeyComparer.Instance);
 
+        var legacyRowsByKey = legacy
+            .GroupBy(x => new PickDiffKey(x.RaceCode, x.PickType, x.Subject), PickDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
+                PickDiffKeyComparer.Instance);
+
         var calculatedByKey = calculated
             .GroupBy(x => new PickDiffKey(x.RaceCode, x.PickType, x.Subject), PickDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
                 x => x.Sum(y => y.Points),
                 PickDiffKeyComparer.Instance);
+
+        var calculatedRowsByKey = calculated
+            .GroupBy(x => new PickDiffKey(x.RaceCode, x.PickType, x.Subject), PickDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
+                PickDiffKeyComparer.Instance);
+
+        var participantColumnBySubject = await ResolveParticipantColumnsBySubjectAsync(dbContext, runId, cancellationToken);
 
         var allKeys = legacyByKey.Keys
             .Concat(calculatedByKey.Keys)
@@ -77,8 +93,20 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             int? calculatedValue = hasCalculated ? calculatedPoints : null;
             var delta = (calculatedValue ?? 0) - (imported ?? 0);
 
+            var importedRows = legacyRowsByKey.GetValueOrDefault(key, []);
+            var calculatedRows = calculatedRowsByKey.GetValueOrDefault(key, []);
+            participantColumnBySubject.TryGetValue(key.Subject, out var participantColumn);
+
             var reasonCode = ResolveReasonCode(key.PickType, imported, calculatedValue, delta);
-            var explanation = BuildPickExplanation(key, imported, calculatedValue, delta, reasonCode);
+            var explanation = BuildPickExplanation(
+                key,
+                imported,
+                calculatedValue,
+                delta,
+                reasonCode,
+                importedRows,
+                calculatedRows,
+                participantColumn);
 
             pickDiffs.Add(new MigrationImportPickDiffEntity
             {
@@ -121,7 +149,16 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                     CalculatedPoints = calculatedPoints,
                     DeltaPoints = delta,
                     ReasonCode = topReason,
-                    Explanation = BuildRaceExplanation(group.Key.RaceCode, group.Key.Subject, importedPoints, calculatedPoints, delta, group)
+                    Explanation = BuildRaceExplanation(
+                        group.Key.RaceCode,
+                        group.Key.Subject,
+                        importedPoints,
+                        calculatedPoints,
+                        delta,
+                        group,
+                        legacyRowsByKey,
+                        calculatedRowsByKey,
+                        participantColumnBySubject)
                 };
             })
             .ToList();
@@ -225,14 +262,25 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         return "RULE_VARIANCE";
     }
 
-    private static string BuildPickExplanation(PickDiffKey key, int? imported, int? calculated, int delta, string reasonCode)
+    private static string BuildPickExplanation(
+        PickDiffKey key,
+        int? imported,
+        int? calculated,
+        int delta,
+        string reasonCode,
+        IReadOnlyList<int> importedRows,
+        IReadOnlyList<int> calculatedRows,
+        string? participantColumn)
     {
+        var importedSource = FormatSourceReference(importedRows, participantColumn);
+        var calculatedSource = FormatSourceReference(calculatedRows, participantColumn);
+
         if (string.Equals(reasonCode, "POINTS_MATCH", StringComparison.Ordinal))
         {
-            return $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0}.";
+            return $"{key.Subject} {key.RaceCode}-{key.PickType} imported and calculated points match at {calculated ?? imported ?? 0} ({calculatedSource}).";
         }
 
-        return $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"}, calculated {calculated?.ToString() ?? "missing"}, delta {delta}. Reason: {reasonCode}.";
+        return $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
     }
 
     private static string BuildRaceExplanation(
@@ -241,13 +289,24 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         int importedPoints,
         int calculatedPoints,
         int delta,
-        IEnumerable<MigrationImportPickDiffEntity> pickDiffs)
+        IEnumerable<MigrationImportPickDiffEntity> pickDiffs,
+        IReadOnlyDictionary<PickDiffKey, int[]> legacyRowsByKey,
+        IReadOnlyDictionary<PickDiffKey, int[]> calculatedRowsByKey,
+        IReadOnlyDictionary<string, string> participantColumnBySubject)
     {
         var contributors = pickDiffs
             .Where(x => x.DeltaPoints != 0)
             .OrderBy(x => PickTypeOrder(x.PickType))
             .ThenBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
-            .Select(x => $"{raceCode}-{x.PickType} {x.ImportedPoints?.ToString() ?? "missing"}->{x.CalculatedPoints?.ToString() ?? "missing"} ({x.DeltaPoints}) [{x.ReasonCode}]")
+            .Select(x =>
+            {
+                var key = new PickDiffKey(x.RaceCode, x.PickType, x.Subject);
+                var importedRows = legacyRowsByKey.GetValueOrDefault(key, []);
+                var calculatedRows = calculatedRowsByKey.GetValueOrDefault(key, []);
+                participantColumnBySubject.TryGetValue(x.Subject, out var participantColumn);
+
+                return $"{raceCode}-{x.PickType} {x.ImportedPoints?.ToString() ?? "missing"}->{x.CalculatedPoints?.ToString() ?? "missing"} ({x.DeltaPoints}) [{x.ReasonCode}] [imported {FormatSourceReference(importedRows, participantColumn)}; calculated {FormatSourceReference(calculatedRows, participantColumn)}]";
+            })
             .ToList();
 
         var suffix = contributors.Count == 0
@@ -256,6 +315,121 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
 
         var explanation = $"{subject} {raceCode} imported {importedPoints}, calculated {calculatedPoints}, delta {delta}. {suffix}";
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static string FormatSourceReference(IReadOnlyList<int> rows, string? column)
+    {
+        var rowText = rows.Count switch
+        {
+            0 => "row n/a",
+            1 => $"row {rows[0]}",
+            _ => $"rows {string.Join(",", rows)}"
+        };
+
+        var columnText = string.IsNullOrWhiteSpace(column)
+            ? "column ?"
+            : $"column {column}";
+
+        return $"{rowText}, {columnText}";
+    }
+
+    private static async Task<Dictionary<string, string>> ResolveParticipantColumnsBySubjectAsync(
+        F1DbContext dbContext,
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var headerRow = await dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.SectionType == MigrationImportSectionTypes.Header)
+            .OrderBy(x => x.RowNumber)
+            .Select(x => x.RawPayload)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(headerRow))
+        {
+            return map;
+        }
+
+        var columns = ParseCsvLine(headerRow);
+        var participantCount = 0;
+
+        for (var index = 1; index < columns.Count; index++)
+        {
+            var participant = columns[index].Trim();
+            if (participant.Length == 0)
+            {
+                break;
+            }
+
+            participantCount++;
+            map[participant] = ToExcelColumnName(index + 1);
+        }
+
+        if (participantCount > 0)
+        {
+            map["ACTUAL"] = ToExcelColumnName(participantCount + 2);
+        }
+
+        return map;
+    }
+
+    private static List<string> ParseCsvLine(string line)
+    {
+        var fields = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var character = line[index];
+
+            if (character == '"')
+            {
+                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
+                {
+                    current.Append('"');
+                    index++;
+                    continue;
+                }
+
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (character == ',' && !inQuotes)
+            {
+                fields.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+
+            current.Append(character);
+        }
+
+        fields.Add(current.ToString());
+        return fields;
+    }
+
+    private static string ToExcelColumnName(int columnNumber)
+    {
+        if (columnNumber <= 0)
+        {
+            return "?";
+        }
+
+        var chars = new Stack<char>();
+        var current = columnNumber;
+
+        while (current > 0)
+        {
+            current--;
+            chars.Push((char)('A' + (current % 26)));
+            current /= 26;
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static int PickTypeOrder(string pickType)
