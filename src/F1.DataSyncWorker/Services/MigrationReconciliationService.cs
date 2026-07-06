@@ -42,6 +42,12 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             dbContext.MigrationImportParticipantDeltaSummaries.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportReasonCategorySummaries.RemoveRange(
             dbContext.MigrationImportReasonCategorySummaries.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonQuestionDiffs.RemoveRange(
+            dbContext.MigrationImportPreseasonQuestionDiffs.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonParticipantDeltaSummaries.RemoveRange(
+            dbContext.MigrationImportPreseasonParticipantDeltaSummaries.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonReasonCategorySummaries.RemoveRange(
+            dbContext.MigrationImportPreseasonReasonCategorySummaries.Where(x => x.ImportRunId == runId));
 
         var legacy = await dbContext.MigrationImportLegacyPickScores
             .Where(x => x.ImportRunId == runId)
@@ -49,6 +55,16 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             .ToListAsync(cancellationToken);
 
         var calculated = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var preseasonImported = await dbContext.MigrationImportPreseasonImportedTallies
+            .Where(x => x.ImportRunId == runId)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var preseasonCalculated = await dbContext.MigrationImportPreseasonCalculatedScores
             .Where(x => x.ImportRunId == runId)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
@@ -247,6 +263,130 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             })
             .ToList();
 
+        var preseasonImportedByKey = preseasonImported
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Any(y => y.ImportedPoints is null) ? (int?)null : x.Sum(y => y.ImportedPoints ?? 0),
+                PreseasonQuestionDiffKeyComparer.Instance);
+
+        var preseasonImportedRowsByKey = preseasonImported
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
+                PreseasonQuestionDiffKeyComparer.Instance);
+
+        var preseasonCalculatedByKey = preseasonCalculated
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Sum(y => y.Points),
+                PreseasonQuestionDiffKeyComparer.Instance);
+
+        var preseasonCalculatedRowsByKey = preseasonCalculated
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
+                PreseasonQuestionDiffKeyComparer.Instance);
+
+        var preseasonQuestionTextByKey = preseasonImported
+            .Select(x => new { x.RowNumber, x.QuestionKey, x.QuestionText })
+            .Concat(preseasonCalculated.Select(x => new { x.RowNumber, x.QuestionKey, x.QuestionText }))
+            .GroupBy(x => (x.RowNumber, x.QuestionKey))
+            .ToDictionary(
+                x => (x.Key.RowNumber, x.Key.QuestionKey),
+                x => x.Select(y => y.QuestionText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? x.Key.QuestionKey);
+
+        var allPreseasonKeys = preseasonImportedByKey.Keys
+            .Concat(preseasonCalculatedByKey.Keys)
+            .Distinct(PreseasonQuestionDiffKeyComparer.Instance)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var preseasonQuestionDiffs = new List<MigrationImportPreseasonQuestionDiffEntity>(allPreseasonKeys.Count);
+        foreach (var key in allPreseasonKeys)
+        {
+            var hasImported = preseasonImportedByKey.TryGetValue(key, out var importedPoints);
+            var hasCalculated = preseasonCalculatedByKey.TryGetValue(key, out var calculatedPoints);
+
+            int? imported = hasImported ? importedPoints : null;
+            int? calculatedValue = hasCalculated ? calculatedPoints : null;
+            var delta = (calculatedValue ?? 0) - (imported ?? 0);
+
+            var importedRows = preseasonImportedRowsByKey.GetValueOrDefault(key, []);
+            var calculatedRows = preseasonCalculatedRowsByKey.GetValueOrDefault(key, []);
+            participantColumnBySubject.TryGetValue(key.Subject, out var participantColumn);
+
+            var questionText = preseasonQuestionTextByKey.GetValueOrDefault((key.RowNumber, key.QuestionKey), key.QuestionKey);
+            var reasonCode = ResolvePreseasonReasonCode(imported, calculatedValue, delta);
+            var explanation = BuildPreseasonQuestionExplanation(
+                key,
+                questionText,
+                imported,
+                calculatedValue,
+                delta,
+                reasonCode,
+                importedRows,
+                calculatedRows,
+                participantColumn);
+
+            preseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
+            {
+                ImportRunId = runId,
+                RowNumber = key.RowNumber,
+                QuestionKey = key.QuestionKey,
+                QuestionText = questionText,
+                Subject = key.Subject,
+                ImportedPoints = imported,
+                CalculatedPoints = calculatedValue,
+                DeltaPoints = delta,
+                ReasonCode = reasonCode,
+                Explanation = explanation
+            });
+        }
+
+        var preseasonParticipantSummaries = preseasonQuestionDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var topReasonGroup = group
+                    .Where(x => x.DeltaPoints != 0)
+                    .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(x => x.Count())
+                    .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+
+                return new MigrationImportPreseasonParticipantDeltaSummaryEntity
+                {
+                    ImportRunId = runId,
+                    Subject = group.Key,
+                    ImportedTotalPoints = group.Sum(x => x.ImportedPoints ?? 0),
+                    CalculatedTotalPoints = group.Sum(x => x.CalculatedPoints ?? 0),
+                    NetDeltaPoints = group.Sum(x => x.DeltaPoints),
+                    TopReasonCode = topReasonGroup?.Key,
+                    TopReasonCount = topReasonGroup?.Count() ?? 0
+                };
+            })
+            .ToList();
+
+        var preseasonReasonSummaries = preseasonQuestionDiffs
+            .Where(x => x.DeltaPoints != 0)
+            .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(x => x.Count())
+            .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new MigrationImportPreseasonReasonCategorySummaryEntity
+            {
+                ImportRunId = runId,
+                ReasonCode = group.Key,
+                OccurrenceCount = group.Count(),
+                TotalDeltaPoints = group.Sum(x => x.DeltaPoints)
+            })
+            .ToList();
+
         if (pickDiffs.Count > 0)
         {
             await dbContext.MigrationImportPickDiffs.AddRangeAsync(pickDiffs, cancellationToken);
@@ -267,6 +407,21 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             await dbContext.MigrationImportReasonCategorySummaries.AddRangeAsync(reasonSummaries, cancellationToken);
         }
 
+        if (preseasonQuestionDiffs.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonQuestionDiffs.AddRangeAsync(preseasonQuestionDiffs, cancellationToken);
+        }
+
+        if (preseasonParticipantSummaries.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRangeAsync(preseasonParticipantSummaries, cancellationToken);
+        }
+
+        if (preseasonReasonSummaries.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonReasonCategorySummaries.AddRangeAsync(preseasonReasonSummaries, cancellationToken);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new MigrationReconciliationResult(
@@ -274,7 +429,51 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             RaceDiffCount: raceDiffs.Count,
             ParticipantSummaryCount: participantSummaries.Count,
             ReasonSummaryCount: reasonSummaries.Count,
-            TotalDelta: pickDiffs.Sum(x => x.DeltaPoints));
+            TotalDelta: pickDiffs.Sum(x => x.DeltaPoints),
+            PreseasonQuestionDiffCount: preseasonQuestionDiffs.Count,
+            PreseasonParticipantSummaryCount: preseasonParticipantSummaries.Count,
+            PreseasonReasonSummaryCount: preseasonReasonSummaries.Count,
+            PreseasonTotalDelta: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
+    }
+
+    private static string ResolvePreseasonReasonCode(int? imported, int? calculated, int delta)
+    {
+        if (!imported.HasValue)
+        {
+            return "PRESEASON_IMPORTED_MISSING";
+        }
+
+        if (!calculated.HasValue)
+        {
+            return "PRESEASON_CALCULATED_MISSING";
+        }
+
+        if (delta == 0)
+        {
+            return "PRESEASON_POINTS_MATCH";
+        }
+
+        return "PRESEASON_RULE_VARIANCE";
+    }
+
+    private static string BuildPreseasonQuestionExplanation(
+        PreseasonQuestionDiffKey key,
+        string questionText,
+        int? imported,
+        int? calculated,
+        int delta,
+        string reasonCode,
+        IReadOnlyList<int> importedRows,
+        IReadOnlyList<int> calculatedRows,
+        string? participantColumn)
+    {
+        var importedSource = FormatSourceReference(importedRows, participantColumn, "preseason-points");
+        var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "preseason-calculated");
+
+        var explanation =
+            $"{key.Subject} {key.QuestionKey} ({questionText}) imported {imported?.ToString() ?? "missing"} ({importedSource}), calculated {calculated?.ToString() ?? "missing"} ({calculatedSource}), delta {delta}. Reason: {reasonCode}.";
+
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
     private static string ResolveReasonCode(string pickType, int? imported, int? calculated, int delta)
@@ -484,6 +683,38 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
     }
 
     private sealed record RaceDiffKey(string RaceCode, string Subject);
+
+    private sealed record PreseasonQuestionDiffKey(int RowNumber, string QuestionKey, string Subject);
+
+    private sealed class PreseasonQuestionDiffKeyComparer : IEqualityComparer<PreseasonQuestionDiffKey>
+    {
+        public static readonly PreseasonQuestionDiffKeyComparer Instance = new();
+
+        public bool Equals(PreseasonQuestionDiffKey? x, PreseasonQuestionDiffKey? y)
+        {
+            if (ReferenceEquals(x, y))
+            {
+                return true;
+            }
+
+            if (x is null || y is null)
+            {
+                return false;
+            }
+
+            return x.RowNumber == y.RowNumber
+                && string.Equals(x.QuestionKey, y.QuestionKey, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(x.Subject, y.Subject, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(PreseasonQuestionDiffKey obj)
+        {
+            return HashCode.Combine(
+                obj.RowNumber,
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.QuestionKey),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Subject));
+        }
+    }
 
     private sealed class RaceDiffKeyComparer : IEqualityComparer<RaceDiffKey>
     {

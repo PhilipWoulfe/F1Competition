@@ -27,4 +27,8 @@ public sealed record MigrationReconciliationResult(
     int RaceDiffCount,
     int ParticipantSummaryCount,
     int ReasonSummaryCount,
-    int TotalDelta);
+    int TotalDelta,
+    int PreseasonQuestionDiffCount = 0,
+    int PreseasonParticipantSummaryCount = 0,
+    int PreseasonReasonSummaryCount = 0,
+    int PreseasonTotalDelta = 0);

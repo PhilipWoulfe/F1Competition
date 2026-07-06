@@ -29,6 +29,9 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportLegacyPickScoreEntity> MigrationImportLegacyPickScores => Set<MigrationImportLegacyPickScoreEntity>();
     public DbSet<MigrationImportImportedTotalEntity> MigrationImportImportedTotals => Set<MigrationImportImportedTotalEntity>();
     public DbSet<MigrationImportCalculatedTotalEntity> MigrationImportCalculatedTotals => Set<MigrationImportCalculatedTotalEntity>();
+    public DbSet<MigrationImportPreseasonQuestionDiffEntity> MigrationImportPreseasonQuestionDiffs => Set<MigrationImportPreseasonQuestionDiffEntity>();
+    public DbSet<MigrationImportPreseasonParticipantDeltaSummaryEntity> MigrationImportPreseasonParticipantDeltaSummaries => Set<MigrationImportPreseasonParticipantDeltaSummaryEntity>();
+    public DbSet<MigrationImportPreseasonReasonCategorySummaryEntity> MigrationImportPreseasonReasonCategorySummaries => Set<MigrationImportPreseasonReasonCategorySummaryEntity>();
     public DbSet<MigrationImportPickDiffEntity> MigrationImportPickDiffs => Set<MigrationImportPickDiffEntity>();
     public DbSet<MigrationImportRaceDiffEntity> MigrationImportRaceDiffs => Set<MigrationImportRaceDiffEntity>();
     public DbSet<MigrationImportParticipantDeltaSummaryEntity> MigrationImportParticipantDeltaSummaries => Set<MigrationImportParticipantDeltaSummaryEntity>();
@@ -317,6 +320,53 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportPreseasonQuestionDiffEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportPreseasonQuestionDiffs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.QuestionKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.QuestionText).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Explanation).HasMaxLength(1024).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber, x.QuestionKey, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportPreseasonParticipantDeltaSummaryEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportPreseasonParticipantDeltaSummaries");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.TopReasonCode).HasMaxLength(64);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.Subject }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportPreseasonReasonCategorySummaryEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportPreseasonReasonCategorySummaries");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.ReasonCode }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportPickDiffEntity>(entity =>
