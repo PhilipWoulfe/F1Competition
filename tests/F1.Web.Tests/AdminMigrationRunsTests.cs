@@ -153,6 +153,9 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("Completed", cut.Markup));
         Assert.Contains("Migration Runs", cut.Markup);
         Assert.Contains(runId.ToString(), cut.Markup);
+        Assert.Contains(cut.FindAll("span.badge.bg-success"), element => element.TextContent.Contains("Completed", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("span.badge.bg-secondary"), element => element.TextContent.Contains("Dry-run", StringComparison.Ordinal));
+        Assert.True(cut.FindAll("span.badge.bg-warning.text-dark").Count >= 2);
 
         cut.Find("button.btn.btn-sm.btn-outline-primary").Click();
 

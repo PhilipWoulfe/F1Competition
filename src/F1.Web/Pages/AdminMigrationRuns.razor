@@ -159,11 +159,33 @@
                                 <td><code>@item.RunId</code></td>
                                 <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>@(item.FinishedAtUtc.HasValue ? item.FinishedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") : "-")</td>
-                                <td>@item.Status</td>
-                                <td>@(item.IsDryRun ? "Dry-run" : "Write")</td>
-                                <td>@item.UnresolvedTokenCount</td>
+                                <td>
+                                    <span class="@GetRunStatusBadgeClass(item.Status)">@item.Status</span>
+                                </td>
+                                <td>
+                                    <span class="@GetRunModeBadgeClass(item.IsDryRun)">@(item.IsDryRun ? "Dry-run" : "Write")</span>
+                                </td>
+                                <td>
+                                    @if (item.UnresolvedTokenCount > 0)
+                                    {
+                                        <span class="@GetUnresolvedTokenBadgeClass(item.UnresolvedTokenCount)">@item.UnresolvedTokenCount</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
+                                    }
+                                </td>
                                 <td>@item.TotalDeltaPoints</td>
-                                <td>@item.UnexpectedTotalDeltaPoints</td>
+                                <td>
+                                    @if (item.UnexpectedTotalDeltaPoints != 0)
+                                    {
+                                        <span class="badge bg-warning text-dark">@item.UnexpectedTotalDeltaPoints</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
+                                    }
+                                </td>
                                 <td>
                                     <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRunAsync(item.RunId)">View</button>
                                 </td>
@@ -949,6 +971,46 @@
         }
 
         return isExpectedVariance ? "badge bg-success" : "badge bg-warning text-dark";
+    }
+
+    private static string GetRunStatusBadgeClass(string? status)
+    {
+        if (string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-success";
+        }
+
+        if (string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-danger";
+        }
+
+        if (string.Equals(status, "Started", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-primary";
+        }
+
+        if (string.Equals(status, "Queued", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-secondary";
+        }
+
+        return "badge bg-secondary";
+    }
+
+    private static string GetRunModeBadgeClass(bool isDryRun)
+    {
+        return isDryRun ? "badge bg-secondary" : "badge bg-info text-dark";
+    }
+
+    private static string GetUnresolvedTokenBadgeClass(int unresolvedTokenCount)
+    {
+        if (unresolvedTokenCount > 5)
+        {
+            return "badge bg-danger";
+        }
+
+        return "badge bg-warning text-dark";
     }
 
     private string GetExportUrl(string exportType, string format)
