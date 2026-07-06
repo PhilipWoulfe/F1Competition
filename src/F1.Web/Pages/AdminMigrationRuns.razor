@@ -1,13 +1,18 @@
 @page "/admin/migration-runs"
 @using F1.Web.Models
 @using F1.Web.Services.Api
+@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Forms
 @attribute [Authorize(Roles = "Admin")]
 @inject IMigrationRunsApiService MigrationRunsApi
+@inject NavigationManager NavigationManager
 
 <PageTitle>Migration Runs</PageTitle>
 
-<h1>Migration Runs</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Migration Runs</h1>
+    <button type="button" class="btn btn-outline-primary" @onclick="ToggleKickoffPanel">@(showKickoffPanel ? "Hide kickoff" : "New run")</button>
+</div>
 
 @if (!string.IsNullOrWhiteSpace(errorMessage))
 {
@@ -21,66 +26,69 @@
 
 <div class="row g-3">
     <div class="col-12 col-md-4">
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5">Start Migration Run</h2>
-                <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-3">
-                        <label class="form-label" for="kickoff-source-kind">Source Type</label>
-                        <select id="kickoff-source-kind" class="form-select" @bind="kickoffSourceKind">
-                            <option value="path">Server path</option>
-                            <option value="upload">Upload CSV</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label" for="kickoff-mode">Mode</label>
-                        <select id="kickoff-mode" class="form-select" @bind="kickoffMode">
-                            <option value="dry-run">Dry-run</option>
-                            <option value="write">Write</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6 d-grid">
-                        <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
-                    </div>
-                </div>
-
-                @if (IsUploadKickoff)
-                {
-                    <div class="mt-3">
-                        <label class="form-label" for="kickoff-upload-file">CSV File</label>
-                        <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" />
-                        @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
-                        {
-                            <div class="form-text">Selected: @kickoffUploadFileName</div>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <div class="mt-3">
-                        <label class="form-label" for="kickoff-source-path">Source File Path</label>
-                        <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
-                    </div>
-                }
-
-                @if (showKickoffConfirmation)
-                {
-                    <div class="alert alert-warning mt-3 mb-0" role="alert">
-                        <h3 class="h6">Confirm Migration Kickoff</h3>
-                        <p class="mb-2">
-                            You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
-                            <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
-                        </p>
-                        <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-danger" @onclick="ConfirmKickoffAsync" disabled="@isKickoffSubmitting">Confirm Start</button>
-                            <button class="btn btn-outline-secondary" @onclick="CancelKickoffConfirmation" disabled="@isKickoffSubmitting">Cancel</button>
+        @if (showKickoffPanel)
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Start Migration Run</h2>
+                    <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="kickoff-source-kind">Source Type</label>
+                            <select id="kickoff-source-kind" class="form-select" @bind="kickoffSourceKind">
+                                <option value="path">Server path</option>
+                                <option value="upload">Upload CSV</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="kickoff-mode">Mode</label>
+                            <select id="kickoff-mode" class="form-select" @bind="kickoffMode">
+                                <option value="dry-run">Dry-run</option>
+                                <option value="write">Write</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-grid">
+                            <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
                         </div>
                     </div>
-                }
+
+                    @if (IsUploadKickoff)
+                    {
+                        <div class="mt-3">
+                            <label class="form-label" for="kickoff-upload-file">CSV File</label>
+                            <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" />
+                            @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
+                            {
+                                <div class="form-text">Selected: @kickoffUploadFileName</div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mt-3">
+                            <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                            <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
+                        </div>
+                    }
+
+                    @if (showKickoffConfirmation)
+                    {
+                        <div class="alert alert-warning mt-3 mb-0" role="alert">
+                            <h3 class="h6">Confirm Migration Kickoff</h3>
+                            <p class="mb-2">
+                                You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
+                                <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
+                            </p>
+                            <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-danger" @onclick="ConfirmKickoffAsync" disabled="@isKickoffSubmitting">Confirm Start</button>
+                                <button class="btn btn-outline-secondary" @onclick="CancelKickoffConfirmation" disabled="@isKickoffSubmitting">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
-        </div>
+        }
 
         <div class="card mb-3">
             <div class="card-body">
@@ -653,19 +661,39 @@
                 </div>
 
                 <div class="@GetTabPaneClass("exports")">
-                    <div class="card mb-3">
+                    <div class="card mb-3" data-testid="exports-signoff-card">
                         <div class="card-body">
-                            <h3 class="h5">Reconciliation Export</h3>
-                            <p class="text-muted mb-3">Download run-level reconciliation output for sign-off. Viewing details and export actions are audit logged with run id and timestamp.</p>
+                            <h3 class="h5">Sign-off Package</h3>
+                            <p class="text-muted mb-3">Download the core artifacts used to approve and archive a migration run.</p>
                             <div class="d-flex flex-wrap gap-2">
                                 <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
                                 <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
                                 <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "csv")" target="_blank" rel="noopener noreferrer">Pick diffs CSV</a>
                                 <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "json")" target="_blank" rel="noopener noreferrer">Pick diffs JSON</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3" data-testid="exports-preseason-card">
+                        <div class="card-body">
+                            <h3 class="h5">Preseason Reconciliation</h3>
+                            <p class="text-muted mb-3">Use these exports to validate preseason question scoring and participant total reconciliation.</p>
+                            <div class="d-flex flex-wrap gap-2">
                                 <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-question-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason question diffs CSV</a>
                                 <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-question-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason question diffs JSON</a>
                                 <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason participant diffs CSV</a>
                                 <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason participant diffs JSON</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3" data-testid="exports-race-card">
+                        <div class="card-body">
+                            <h3 class="h5">Race Reconciliation</h3>
+                            <p class="text-muted mb-3">Focus this package on race-level participant reconciliation artifacts for race sign-off workflows.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Race participant diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Race participant diffs JSON</a>
                             </div>
                         </div>
                     </div>
@@ -676,12 +704,25 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "run")]
+    public string? QueryRun { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? QueryTab { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? QueryPage { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? QueryStatus { get; set; }
+
     private AdminMigrationRunListResponse? runList;
     private AdminMigrationRunDetailResponse? selectedRunDetail;
     private Guid? selectedRunId;
     private bool isLoadingRuns;
     private bool isLoadingDetail;
     private bool isKickoffSubmitting;
+    private bool showKickoffPanel = true;
     private bool showKickoffConfirmation;
     private string? errorMessage;
     private string? kickoffSuccessMessage;
@@ -714,7 +755,26 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (QueryPage.HasValue && QueryPage.Value > 0)
+        {
+            page = QueryPage.Value;
+        }
+
+        statusFilter = string.IsNullOrWhiteSpace(QueryStatus)
+            ? null
+            : QueryStatus;
+
+        if (IsValidTab(QueryTab))
+        {
+            activeTab = QueryTab!;
+        }
+
         await LoadRunsAsync();
+
+        if (Guid.TryParse(QueryRun, out var runIdFromQuery))
+        {
+            await SelectRunAsync(runIdFromQuery, resetTabToOverview: false, syncUrl: false);
+        }
     }
 
     private async Task LoadRunsAsync()
@@ -760,6 +820,16 @@
     private void CancelKickoffConfirmation()
     {
         showKickoffConfirmation = false;
+    }
+
+    private void ToggleKickoffPanel()
+    {
+        showKickoffPanel = !showKickoffPanel;
+
+        if (!showKickoffPanel)
+        {
+            showKickoffConfirmation = false;
+        }
     }
 
     private async Task ConfirmKickoffAsync()
@@ -816,7 +886,7 @@
 
     private bool IsUploadKickoff => string.Equals(kickoffSourceKind, "upload", StringComparison.OrdinalIgnoreCase);
 
-    private async Task SelectRunAsync(Guid runId)
+    private async Task SelectRunAsync(Guid runId, bool resetTabToOverview = true, bool syncUrl = true)
     {
         isLoadingDetail = true;
         errorMessage = null;
@@ -833,14 +903,22 @@
             }
 
             selectedRunId = runId;
-            activeTab = "overview";
+            if (resetTabToOverview)
+            {
+                activeTab = "overview";
+            }
             detailParticipantFilter = string.Empty;
             detailRaceFilter = string.Empty;
             detailReasonFilter = string.Empty;
             preseasonParticipantFilter = string.Empty;
             preseasonReasonFilter = string.Empty;
             detailNonZeroOnly = false;
-            preseasonNonZeroOnly = false;
+            preseasonNonZeroOnly = true;
+
+            if (syncUrl)
+            {
+                SyncQueryString();
+            }
         }
         catch (Exception ex)
         {
@@ -858,6 +936,7 @@
         selectedRunId = null;
         selectedRunDetail = null;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private async Task OnExpectedStatusFilterChanged(ChangeEventArgs args)
@@ -907,6 +986,7 @@
 
         page--;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private async Task NextPageAsync()
@@ -918,6 +998,7 @@
 
         page++;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private IEnumerable<AdminMigrationRunListItem> GetSortedItems()
@@ -1090,6 +1171,7 @@
     private void SetActiveTab(string tab)
     {
         activeTab = tab;
+        SyncQueryString();
     }
 
     private string GetTabButtonClass(string tab)
@@ -1104,6 +1186,35 @@
         return string.Equals(activeTab, tab, StringComparison.OrdinalIgnoreCase)
             ? "tab-pane fade show active"
             : "tab-pane fade";
+    }
+
+    private static bool IsValidTab(string? tab)
+    {
+        if (string.IsNullOrWhiteSpace(tab))
+        {
+            return false;
+        }
+
+        return string.Equals(tab, "overview", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "preseason", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "race-participants", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "race-diffs", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "pick-diffs", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "exports", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SyncQueryString()
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["run"] = selectedRunId?.ToString(),
+            ["tab"] = string.Equals(activeTab, "overview", StringComparison.OrdinalIgnoreCase) ? null : activeTab,
+            ["page"] = page > 1 ? page : null,
+            ["status"] = string.IsNullOrWhiteSpace(statusFilter) ? null : statusFilter
+        };
+
+        var targetUri = NavigationManager.GetUriWithQueryParameters(parameters);
+        NavigationManager.NavigateTo(targetUri, replace: true);
     }
 
     private string GetExportUrl(string exportType, string format)

@@ -160,6 +160,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.Find("button.btn.btn-sm.btn-outline-primary").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Run Detail", cut.Markup));
+        Assert.Contains("Hide kickoff", cut.Markup);
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Expected vs Actual Review", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
@@ -172,13 +173,24 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Diffs", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Pick Diffs", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Exports", StringComparison.Ordinal));
-        Assert.Contains("Reconciliation Export", cut.Markup);
-        Assert.Contains("Preseason question diffs CSV", cut.Markup);
-        Assert.Contains("Preseason participant diffs CSV", cut.Markup);
-        Assert.Contains("Pick diffs CSV", cut.Markup);
+
+        var signOffCard = cut.Find("[data-testid='exports-signoff-card']");
+        var preseasonCard = cut.Find("[data-testid='exports-preseason-card']");
+        var raceCard = cut.Find("[data-testid='exports-race-card']");
+
+        Assert.Contains("Sign-off Package", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason Reconciliation", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Race Reconciliation", raceCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Pick diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason question diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason participant diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Race participant diffs CSV", raceCard.TextContent, StringComparison.Ordinal);
+
         Assert.Contains("Podium mismatch", cut.Markup);
         Assert.Contains("Wrong slot", cut.Markup);
         Assert.Contains("Who wins the constructors title?", cut.Markup);
+        Assert.DoesNotContain("PRESEASON_POINTS_MATCH", cut.Markup);
 
         cut.Find("#detail-participant-filter").Change("Philip");
         cut.WaitForAssertion(() => Assert.DoesNotContain("No variance", cut.Markup));
@@ -211,6 +223,20 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.Find("#preseason-participant-filter").Change(string.Empty);
         cut.Find("#preseason-non-zero-only").Change(true);
         cut.WaitForAssertion(() => Assert.DoesNotContain("PRESEASON_POINTS_MATCH", cut.Markup));
+
+        cut.Find("button.btn.btn-outline-primary").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("New run", cut.Markup);
+            Assert.DoesNotContain("Start Migration Run", cut.Markup);
+        });
+
+        cut.Find("button.btn.btn-outline-primary").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Hide kickoff", cut.Markup);
+            Assert.Contains("Start Migration Run", cut.Markup);
+        });
     }
 
     [Fact]
