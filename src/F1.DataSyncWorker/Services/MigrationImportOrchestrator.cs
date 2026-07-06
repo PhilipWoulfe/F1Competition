@@ -22,6 +22,8 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly MigrationImportOptions _importOptions;
     private int _migrationsApplied;
 
+    private readonly record struct RawRowStageResult(int StagedRowCount, int RejectedRowCount);
+
     public MigrationImportOrchestrator(
         ILogger<MigrationImportOrchestrator> logger,
         IMigrationImportRunService runService,
@@ -67,7 +69,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
         try
         {
-            var totalRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
+            var rawRows = await StageRawRowsAsync(run.RunId, sourceFilePath, cancellationToken);
             var parseResult = await _raceSelectionParser.ParseAndPersistAsync(run.RunId, cancellationToken);
             if (parseResult.UnresolvedTokenCount > 0)
             {
@@ -103,12 +105,23 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
             var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
 
-            await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
+            await _runService.CompleteRunAsync(run.RunId, rawRows.StagedRowCount, cancellationToken);
+
+            _logger.LogInformation(
+                "Migration import summary. RunId={RunId}, Season={Season}, DryRun={DryRun}, Source={SourceFilePath}, RowsParsed={RowsParsed}, RowsRejected={RowsRejected}, UnresolvedTokens={UnresolvedTokens}, TotalDelta={TotalDelta}",
+                run.RunId,
+                _importOptions.Season,
+                run.IsDryRun,
+                run.SourceFilePath,
+                rawRows.StagedRowCount,
+                rawRows.RejectedRowCount,
+                parseResult.UnresolvedTokenCount,
+                reconciliationResult.TotalDelta);
 
             _logger.LogInformation(
                 "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, SelectionRaceCodesRewritten={SelectionRaceCodesRewritten}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, PickDiffs={PickDiffs}, RaceDiffs={RaceDiffs}, ParticipantDeltaSummaries={ParticipantDeltaSummaries}, ReasonSummaries={ReasonSummaries}, NetDelta={NetDelta}, Checksum={Checksum}",
                 run.RunId,
-                totalRows,
+                rawRows.StagedRowCount,
                 parseResult.SelectionCount,
                 mappingResult.SnapshotCount,
                 mappingResult.MappingCount,
@@ -134,13 +147,16 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
     }
 
-    private async Task<int> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)
+    private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)
     {
+        const string RejectedSection = "Unclassified";
+
         await using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
 
         var rowNumber = 0;
         var stagedCount = 0;
+        var rejectedCount = 0;
         var batch = new List<StagedImportRow>(BatchSize);
 
         while (!reader.EndOfStream)
@@ -154,7 +170,12 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             }
 
             rowNumber++;
-            batch.Add(_rowClassifier.Classify(rowNumber, line));
+            var stagedRow = _rowClassifier.Classify(rowNumber, line);
+            batch.Add(stagedRow);
+            if (string.Equals(stagedRow.SectionType, RejectedSection, StringComparison.Ordinal))
+            {
+                rejectedCount++;
+            }
 
             if (batch.Count < BatchSize)
             {
@@ -172,7 +193,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             stagedCount += batch.Count;
         }
 
-        return stagedCount;
+        return new RawRowStageResult(stagedCount, rejectedCount);
     }
 
     private static string ResolveSourceFilePath(string sourceFilePath)

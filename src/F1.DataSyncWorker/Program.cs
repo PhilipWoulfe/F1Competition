@@ -3,9 +3,16 @@ using F1.DataSyncWorker;
 using F1.DataSyncWorker.Clients;
 using F1.DataSyncWorker.Options;
 using F1.DataSyncWorker.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 
+var migrationCliOverrides = MigrationImportCliParser.ParseToConfiguration(args);
 var builder = Host.CreateApplicationBuilder(args);
+
+if (migrationCliOverrides.Count > 0)
+{
+    builder.Configuration.AddInMemoryCollection(migrationCliOverrides);
+}
 
 builder.Services
 	.AddOptions<DataSyncOptions>()
