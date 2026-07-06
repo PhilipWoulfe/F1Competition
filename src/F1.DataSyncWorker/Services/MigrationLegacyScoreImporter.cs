@@ -12,6 +12,69 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
     private const string SectionTypeHeader = "Header";
     private const string SectionTypeRacePoints = "RacePoints";
     private const string SectionTypeTotalsMeta = "TotalsMeta";
+    private static readonly Dictionary<string, string> RaceCodeAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["AUS"] = "albert_park",
+        ["AUSTRALIA"] = "albert_park",
+        ["ALBERT PARK"] = "albert_park",
+        ["CHN"] = "shanghai",
+        ["CHINA"] = "shanghai",
+        ["SHANGHAI"] = "shanghai",
+        ["JPN"] = "suzuka",
+        ["JAPAN"] = "suzuka",
+        ["SUZUKA"] = "suzuka",
+        ["BAH"] = "bahrain",
+        ["BAHRAIN"] = "bahrain",
+        ["SAR"] = "jeddah",
+        ["SAUDI"] = "jeddah",
+        ["JEDDAH"] = "jeddah",
+        ["MIA"] = "miami",
+        ["MIAMI"] = "miami",
+        ["IMO"] = "imola",
+        ["IMOLA"] = "imola",
+        ["MON"] = "monaco",
+        ["MONACO"] = "monaco",
+        ["MONZA"] = "monza",
+        ["MNZ"] = "monza",
+        ["ITA"] = "monza",
+        ["ITALY"] = "monza",
+        ["BAR"] = "catalunya",
+        ["ESP"] = "catalunya",
+        ["SPAIN"] = "catalunya",
+        ["CAN"] = "villeneuve",
+        ["CANADA"] = "villeneuve",
+        ["AUSTRIA"] = "red_bull_ring",
+        ["AUT"] = "red_bull_ring",
+        ["RED BULL RING"] = "red_bull_ring",
+        ["GBR"] = "silverstone",
+        ["BRITAIN"] = "silverstone",
+        ["SILVERSTONE"] = "silverstone",
+        ["SPA"] = "spa",
+        ["BEL"] = "spa",
+        ["BELGIUM"] = "spa",
+        ["HUN"] = "hungaroring",
+        ["HUNGARY"] = "hungaroring",
+        ["NED"] = "zandvoort",
+        ["NETHERLANDS"] = "zandvoort",
+        ["BAK"] = "baku",
+        ["AZE"] = "baku",
+        ["AZERBAIJAN"] = "baku",
+        ["SIN"] = "marina_bay",
+        ["SINGAPORE"] = "marina_bay",
+        ["COTA"] = "americas",
+        ["USA"] = "americas",
+        ["UNITED STATES"] = "americas",
+        ["MEX"] = "rodriguez",
+        ["MEXICO"] = "rodriguez",
+        ["BRA"] = "interlagos",
+        ["BRAZIL"] = "interlagos",
+        ["LAS"] = "las_vegas",
+        ["VEGAS"] = "las_vegas",
+        ["QAT"] = "losail",
+        ["QATAR"] = "losail",
+        ["ABD"] = "yas_marina",
+        ["ABU DHABI"] = "yas_marina"
+    };
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
 
@@ -32,6 +95,11 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         var headerRow = stagedRows.FirstOrDefault(x => string.Equals(x.SectionType, SectionTypeHeader, StringComparison.Ordinal));
         var participants = ResolveParticipants(headerRow?.RawPayload);
+        var mappedCircuitBySequence = await dbContext.MigrationImportRaceRoundMappings
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RaceSequence)
+            .Select(x => new { x.RaceSequence, x.MappedCircuitId })
+            .ToDictionaryAsync(x => x.RaceSequence, x => x.MappedCircuitId, cancellationToken);
 
         dbContext.MigrationImportLegacyPickScores.RemoveRange(
             dbContext.MigrationImportLegacyPickScores.Where(x => x.ImportRunId == runId));
@@ -48,6 +116,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
         var legacyPickScores = new List<MigrationImportLegacyPickScoreEntity>();
         string? currentRaceCode = null;
+        var raceSequence = 0;
 
         foreach (var row in stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePoints, StringComparison.Ordinal)))
         {
@@ -61,6 +130,15 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             {
                 continue;
             }
+
+            if (string.Equals(pickType, "1", StringComparison.OrdinalIgnoreCase))
+            {
+                raceSequence++;
+            }
+
+            var mappedRaceCode = mappedCircuitBySequence.TryGetValue(raceSequence, out var mappedCircuitId) && !string.IsNullOrWhiteSpace(mappedCircuitId)
+                ? mappedCircuitId
+                : raceCode;
 
             var participantValues = columns.Skip(1).Take(participants.Count).ToArray();
             for (var index = 0; index < participants.Count; index++)
@@ -76,7 +154,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
                 {
                     ImportRunId = runId,
                     RowNumber = row.RowNumber,
-                    RaceCode = raceCode,
+                    RaceCode = mappedRaceCode,
                     PickType = pickType,
                     Subject = participants[index],
                     RawLegacyPoints = raw,
@@ -175,7 +253,11 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         return participants;
     }
 
-    private static bool TryResolveRace(string label, ref string? currentRaceCode, out string raceCode, out string pickType)
+    private static bool TryResolveRace(
+        string label,
+        ref string? currentRaceCode,
+        out string raceCode,
+        out string pickType)
     {
         raceCode = string.Empty;
         pickType = string.Empty;
@@ -222,10 +304,21 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             return false;
         }
 
-        raceCode = match.Groups[1].Value.ToUpperInvariant();
+        raceCode = NormalizeRaceCode(match.Groups[1].Value);
         pickType = match.Groups[2].Value.ToUpperInvariant();
         currentRaceCode = raceCode;
         return true;
+    }
+
+    private static string NormalizeRaceCode(string raceToken)
+    {
+        var upper = raceToken.Trim().ToUpperInvariant();
+        if (RaceCodeAliasDictionary.TryGetValue(upper, out var mapped))
+        {
+            return mapped;
+        }
+
+        return upper.Length <= 3 ? upper : upper[..3];
     }
 
     private static List<string> ParseCsvLine(string line)
@@ -265,6 +358,6 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         return fields;
     }
 
-    [GeneratedRegex("^([A-Za-z]{3})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^([A-Za-z]{3,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceLabelRegex();
 }

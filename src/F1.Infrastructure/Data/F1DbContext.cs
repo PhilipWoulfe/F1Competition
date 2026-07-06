@@ -332,6 +332,7 @@ public class F1DbContext : DbContext
             entity.ToTable("MigrationImportRaceRoundMappings");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.SourceRaceCode).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.MappedCircuitId).HasMaxLength(64);
             entity.Property(x => x.MappedRaceName).HasMaxLength(256);
             entity.Property(x => x.Warning).HasMaxLength(512);
 

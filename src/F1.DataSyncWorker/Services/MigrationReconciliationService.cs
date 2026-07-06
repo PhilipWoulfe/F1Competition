@@ -121,7 +121,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                     CalculatedPoints = calculatedPoints,
                     DeltaPoints = delta,
                     ReasonCode = topReason,
-                    Explanation = $"{group.Key.Subject} {group.Key.RaceCode} imported {importedPoints}, calculated {calculatedPoints}, delta {delta}."
+                    Explanation = BuildRaceExplanation(group.Key.RaceCode, group.Key.Subject, importedPoints, calculatedPoints, delta, group)
                 };
             })
             .ToList();
@@ -233,6 +233,29 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         }
 
         return $"{key.Subject} {key.RaceCode}-{key.PickType} imported {imported?.ToString() ?? "missing"}, calculated {calculated?.ToString() ?? "missing"}, delta {delta}. Reason: {reasonCode}.";
+    }
+
+    private static string BuildRaceExplanation(
+        string raceCode,
+        string subject,
+        int importedPoints,
+        int calculatedPoints,
+        int delta,
+        IEnumerable<MigrationImportPickDiffEntity> pickDiffs)
+    {
+        var contributors = pickDiffs
+            .Where(x => x.DeltaPoints != 0)
+            .OrderBy(x => PickTypeOrder(x.PickType))
+            .ThenBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
+            .Select(x => $"{raceCode}-{x.PickType} {x.ImportedPoints?.ToString() ?? "missing"}->{x.CalculatedPoints?.ToString() ?? "missing"} ({x.DeltaPoints}) [{x.ReasonCode}]")
+            .ToList();
+
+        var suffix = contributors.Count == 0
+            ? "No pick-level variance."
+            : $"Contributors: {string.Join("; ", contributors)}.";
+
+        var explanation = $"{subject} {raceCode} imported {importedPoints}, calculated {calculatedPoints}, delta {delta}. {suffix}";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
     private static int PickTypeOrder(string pickType)

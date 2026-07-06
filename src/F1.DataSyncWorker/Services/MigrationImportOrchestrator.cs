@@ -86,9 +86,11 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             }
 
             var mappingResult = (SnapshotCount: 0, MappingCount: 0, WarningCount: 0);
+            var selectionRaceCodesRewritten = 0;
             if (!run.IsDryRun)
             {
                 mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
+                selectionRaceCodesRewritten = await RewriteSelectionRaceCodesToMappedCircuitIdsAsync(run.RunId, cancellationToken);
             }
             else
             {
@@ -104,13 +106,14 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             await _runService.CompleteRunAsync(run.RunId, totalRows, cancellationToken);
 
             _logger.LogInformation(
-                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, PickDiffs={PickDiffs}, RaceDiffs={RaceDiffs}, ParticipantDeltaSummaries={ParticipantDeltaSummaries}, ReasonSummaries={ReasonSummaries}, NetDelta={NetDelta}, Checksum={Checksum}",
+                "Migration import run completed. RunId={RunId}, RowsStaged={RowsStaged}, RaceSelectionsParsed={RaceSelectionsParsed}, JolpicaSnapshots={JolpicaSnapshots}, RoundMappings={RoundMappings}, MappingWarnings={MappingWarnings}, SelectionRaceCodesRewritten={SelectionRaceCodesRewritten}, ScoredPicks={ScoredPicks}, CalculatedPoints={CalculatedPoints}, LegacyPickScores={LegacyPickScores}, ImportedTotals={ImportedTotals}, CalculatedTotals={CalculatedTotals}, PickDiffs={PickDiffs}, RaceDiffs={RaceDiffs}, ParticipantDeltaSummaries={ParticipantDeltaSummaries}, ReasonSummaries={ReasonSummaries}, NetDelta={NetDelta}, Checksum={Checksum}",
                 run.RunId,
                 totalRows,
                 parseResult.SelectionCount,
                 mappingResult.SnapshotCount,
                 mappingResult.MappingCount,
                 mappingResult.WarningCount,
+                selectionRaceCodesRewritten,
                 scoreResult.ScoredPickCount,
                 scoreResult.TotalPoints,
                 legacyResult.LegacyPickScoreCount,
@@ -180,5 +183,52 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
 
         return Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
+    }
+
+    private async Task<int> RewriteSelectionRaceCodesToMappedCircuitIdsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var mappings = await dbContext.MigrationImportRaceRoundMappings
+            .Where(x => x.ImportRunId == runId && !string.IsNullOrWhiteSpace(x.MappedCircuitId))
+            .OrderBy(x => x.SourceRowNumber)
+            .Select(x => new { x.SourceRowNumber, x.MappedCircuitId })
+            .ToListAsync(cancellationToken);
+
+        if (mappings.Count == 0)
+        {
+            return 0;
+        }
+
+        var rewritten = 0;
+        for (var index = 0; index < mappings.Count; index++)
+        {
+            var startRow = mappings[index].SourceRowNumber;
+            var endRow = index + 1 < mappings.Count
+                ? mappings[index + 1].SourceRowNumber - 1
+                : int.MaxValue;
+            var mappedCircuitId = mappings[index].MappedCircuitId!;
+
+            var selections = await dbContext.MigrationImportRaceSelections
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    x.RowNumber >= startRow &&
+                    x.RowNumber <= endRow &&
+                    x.RaceCode != mappedCircuitId)
+                .ToListAsync(cancellationToken);
+
+            foreach (var selection in selections)
+            {
+                selection.RaceCode = mappedCircuitId;
+                rewritten++;
+            }
+        }
+
+        if (rewritten > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return rewritten;
     }
 }
