@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,18 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private const string SectionTypeRacePick = "RacePick";
     private const string SectionTypeHeader = "Header";
     private const string ActualSubject = "ACTUAL";
+    private static readonly Dictionary<string, string?> TokenAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["MAX"] = "VER",
+        ["HULK"] = "HUL",
+        ["BEAR MAN"] = "BEA",
+        ["BEAR"] = "BEA",
+        ["BORT"] = "BOR",
+        ["LEEC"] = "LEC",
+        ["NONE"] = null,
+        ["NOT"] = null
+    };
+
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
 
     public MigrationRaceSelectionParser(IDbContextFactory<F1DbContext> dbContextFactory)
@@ -18,7 +31,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         _dbContextFactory = dbContextFactory;
     }
 
-    public async Task<int> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken)
+    public async Task<MigrationRaceSelectionParseResult> ParseAndPersistAsync(Guid runId, CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -33,12 +46,14 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         if (participants.Count == 0)
         {
-            return 0;
+            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
         }
 
         var raceRows = stagedRows.Where(x => string.Equals(x.SectionType, SectionTypeRacePick, StringComparison.Ordinal));
         var selections = new List<MigrationImportRaceSelectionEntity>();
+        var unresolvedTokens = new List<MigrationImportUnresolvedTokenEntity>();
         string? currentRaceCode = null;
+        var createdAtUtc = DateTime.UtcNow;
 
         foreach (var row in raceRows)
         {
@@ -58,6 +73,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             for (var index = 0; index < participants.Count; index++)
             {
                 var rawValue = index < participantValues.Length ? participantValues[index] : string.Empty;
+                var normalization = NormalizeSelection(rawValue, pickType);
                 selections.Add(new MigrationImportRaceSelectionEntity
                 {
                     ImportRunId = runId,
@@ -66,12 +82,27 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     PickType = pickType,
                     Subject = participants[index],
                     RawValue = string.IsNullOrWhiteSpace(rawValue) ? null : rawValue.Trim(),
-                    NormalizedValue = NormalizeSelection(rawValue),
+                    NormalizedValue = normalization.NormalizedValue,
                     IsActualOutcome = false
                 });
+
+                if (normalization.UnresolvedTokens.Count > 0)
+                {
+                    unresolvedTokens.AddRange(normalization.UnresolvedTokens.Select(unresolvedToken => new MigrationImportUnresolvedTokenEntity
+                    {
+                        ImportRunId = runId,
+                        RowNumber = row.RowNumber,
+                        RaceCode = raceCode,
+                        PickType = pickType,
+                        Subject = participants[index],
+                        RawToken = unresolvedToken,
+                        CreatedAtUtc = createdAtUtc
+                    }));
+                }
             }
 
             var actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            var actualNormalization = NormalizeSelection(actualRaw, pickType);
             selections.Add(new MigrationImportRaceSelectionEntity
             {
                 ImportRunId = runId,
@@ -80,24 +111,46 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 PickType = pickType,
                 Subject = ActualSubject,
                 RawValue = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
-                NormalizedValue = NormalizeSelection(actualRaw),
+                NormalizedValue = actualNormalization.NormalizedValue,
                 IsActualOutcome = true
             });
+
+            if (actualNormalization.UnresolvedTokens.Count > 0)
+            {
+                unresolvedTokens.AddRange(actualNormalization.UnresolvedTokens.Select(unresolvedToken => new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = raceCode,
+                    PickType = pickType,
+                    Subject = ActualSubject,
+                    RawToken = unresolvedToken,
+                    CreatedAtUtc = createdAtUtc
+                }));
+            }
         }
 
         if (selections.Count == 0)
         {
-            return 0;
+            return new MigrationRaceSelectionParseResult(SelectionCount: 0, UnresolvedTokenCount: 0);
         }
 
         dbContext.MigrationImportRaceSelections.RemoveRange(
             dbContext.MigrationImportRaceSelections.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportUnresolvedTokens.RemoveRange(
+            dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId));
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await dbContext.MigrationImportRaceSelections.AddRangeAsync(selections, cancellationToken);
+        if (unresolvedTokens.Count > 0)
+        {
+            await dbContext.MigrationImportUnresolvedTokens.AddRangeAsync(unresolvedTokens, cancellationToken);
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return selections.Count;
+        return new MigrationRaceSelectionParseResult(
+            SelectionCount: selections.Count,
+            UnresolvedTokenCount: unresolvedTokens.Count);
     }
 
     private static List<string> ResolveParticipants(string? headerPayload)
@@ -164,7 +217,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 return false;
             }
 
-            raceCode = humbugMatch.Groups[1].Value.ToUpperInvariant();
+            raceCode = RaceCodeNormalizer.NormalizeRaceCode(humbugMatch.Groups[1].Value);
             pickType = "DNF";
             currentRaceCode = raceCode;
             return true;
@@ -179,33 +232,85 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 return false;
             }
 
-            raceCode = genericRaceMatch.Groups[1].Value.ToUpperInvariant();
+            raceCode = RaceCodeNormalizer.NormalizeRaceCode(genericRaceMatch.Groups[1].Value);
             pickType = "DNF";
             currentRaceCode = raceCode;
             return true;
         }
 
-        raceCode = match.Groups[1].Value.ToUpperInvariant();
+        raceCode = RaceCodeNormalizer.NormalizeRaceCode(match.Groups[1].Value);
         pickType = match.Groups[2].Value.ToUpperInvariant();
         currentRaceCode = raceCode;
         return true;
     }
 
-    private static string? NormalizeSelection(string? rawValue)
+    private static NormalizationResult NormalizeSelection(string? rawValue, string pickType)
     {
         if (string.IsNullOrWhiteSpace(rawValue))
         {
-            return null;
+            return new NormalizationResult(NormalizedValue: null, UnresolvedTokens: []);
         }
 
         var normalized = rawValue.Trim();
-        if (normalized.Equals("NONE", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Equals("NOT", StringComparison.OrdinalIgnoreCase))
+        var lookupToken = NormalizeTokenLookup(rawValue);
+
+        if (lookupToken.Length == 0)
         {
-            return null;
+            return new NormalizationResult(NormalizedValue: null, UnresolvedTokens: []);
         }
 
-        return normalized;
+        // DNF and ACTUAL DNF values can be comma/space-separated token sets.
+        if (string.Equals(pickType, "DNF", StringComparison.OrdinalIgnoreCase) && LooksLikeMultiTokenDnf(rawValue))
+        {
+            var resolvedTokens = new List<string>();
+            var unresolvedTokens = new List<string>();
+
+            foreach (var token in DnfTokenSplitRegex().Split(lookupToken).Where(token => token.Length > 0))
+            {
+                if (TokenAliasDictionary.TryGetValue(token, out var mappedToken))
+                {
+                    if (!string.IsNullOrWhiteSpace(mappedToken))
+                    {
+                        resolvedTokens.Add(mappedToken);
+                    }
+
+                    continue;
+                }
+
+                if (CanonicalTokenRegex().IsMatch(token))
+                {
+                    resolvedTokens.Add(token);
+                    continue;
+                }
+
+                unresolvedTokens.Add(token);
+            }
+
+            var normalizedDnf = resolvedTokens.Count == 0 ? null : string.Join(" ", resolvedTokens);
+            return new NormalizationResult(NormalizedValue: normalizedDnf, UnresolvedTokens: unresolvedTokens);
+        }
+
+        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedSingleToken))
+        {
+            return new NormalizationResult(NormalizedValue: mappedSingleToken, UnresolvedTokens: []);
+        }
+
+        if (CanonicalTokenRegex().IsMatch(lookupToken))
+        {
+            return new NormalizationResult(NormalizedValue: lookupToken, UnresolvedTokens: []);
+        }
+
+        return new NormalizationResult(NormalizedValue: normalized, UnresolvedTokens: [normalized]);
+    }
+
+    private static bool LooksLikeMultiTokenDnf(string rawValue)
+    {
+        return rawValue.Contains(',') || DnfTokenSplitRegex().Split(rawValue.Trim()).Length > 1;
+    }
+
+    private static string NormalizeTokenLookup(string rawValue)
+    {
+        return MultiWhitespaceRegex().Replace(rawValue.Trim().ToUpperInvariant(), " ");
     }
 
     private static List<string> ParseCsvLine(string line)
@@ -245,9 +350,20 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return fields;
     }
 
-    [GeneratedRegex("^([A-Za-z]{3})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceLabelRegex();
 
-    [GeneratedRegex("^([A-Za-z]{3})-.+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-.+", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex GenericRacePrefixRegex();
+
+    [GeneratedRegex("^[A-Z]{3}$", RegexOptions.Compiled)]
+    private static partial Regex CanonicalTokenRegex();
+
+    [GeneratedRegex("\\s+", RegexOptions.Compiled)]
+    private static partial Regex MultiWhitespaceRegex();
+
+    [GeneratedRegex("[\\s,;/]+", RegexOptions.Compiled)]
+    private static partial Regex DnfTokenSplitRegex();
+
+    private readonly record struct NormalizationResult(string? NormalizedValue, IReadOnlyList<string> UnresolvedTokens);
 }
