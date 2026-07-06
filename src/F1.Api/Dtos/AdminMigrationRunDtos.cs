@@ -37,6 +37,7 @@ public sealed record AdminMigrationRunDetailResponseDto(
     int PickDiffCount,
     int RaceDiffCount,
     int TotalDeltaPoints,
+    int UnexpectedTotalDeltaPoints,
     IReadOnlyList<AdminMigrationUnresolvedTokenSummaryDto> UnresolvedTokenSummary,
     IReadOnlyList<AdminMigrationParticipantDeltaDto> ParticipantDeltas,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,

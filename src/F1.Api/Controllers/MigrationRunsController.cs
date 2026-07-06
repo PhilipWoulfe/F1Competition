@@ -37,9 +37,16 @@ public sealed class MigrationRunsController : ControllerBase
     }
 
     [HttpGet("{runId:guid}")]
-    public async Task<ActionResult<AdminMigrationRunDetailResponseDto>> GetRunDetail(Guid runId, CancellationToken cancellationToken = default)
+    public async Task<ActionResult<AdminMigrationRunDetailResponseDto>> GetRunDetail(
+        Guid runId,
+        [FromQuery] string? expectedStatus = "all",
+        CancellationToken cancellationToken = default)
     {
-        var detail = await _migrationRunAdminService.GetRunDetailAsync(runId, ResolveActor(), cancellationToken);
+        var detail = await _migrationRunAdminService.GetRunDetailAsync(
+            runId,
+            ResolveActor(),
+            cancellationToken,
+            expectedStatus);
         if (detail is null)
         {
             return NotFound();
@@ -53,6 +60,7 @@ public sealed class MigrationRunsController : ControllerBase
         Guid runId,
         string exportType,
         [FromQuery] string format = "csv",
+        [FromQuery] string? expectedStatus = "all",
         CancellationToken cancellationToken = default)
     {
         var export = await _migrationRunAdminService.ExportRunDiffsAsync(
@@ -60,7 +68,8 @@ public sealed class MigrationRunsController : ControllerBase
             exportType,
             format,
             ResolveActor(),
-            cancellationToken);
+            cancellationToken,
+            expectedStatus);
 
         if (export is null)
         {

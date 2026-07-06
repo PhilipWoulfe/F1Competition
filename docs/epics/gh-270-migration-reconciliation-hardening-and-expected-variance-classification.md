@@ -43,6 +43,12 @@ Out of scope:
 - Expected variance matching is deterministic and traceable to a rule identifier.
 - Reviewer summaries report both total variance and unexpected-only variance.
 
+## Storage Contract
+- Persist one row per pick diff and one row per race diff as the canonical reconciliation facts.
+- Persist run metadata and source hash for reproducibility and deduplication.
+- Persist expected-variance metadata on the diff rows, not as a separate overwrite of imported or calculated values.
+- Derive summaries and filtered views from the persisted rows so the same run can be reviewed in all, expected-only, or unexpected-only modes.
+
 ## User Stories
 ### Story 1: Order reconciliation output by race occurrence
 As a migration reviewer, I want comparisons listed in race occurrence order so I can verify output against the source CSV with minimal context switching.

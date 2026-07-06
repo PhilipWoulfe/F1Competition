@@ -49,6 +49,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             PickDiffCount: 100,
             RaceDiffCount: 20,
             TotalDeltaPoints: -4,
+            UnexpectedTotalDeltaPoints: 3,
             UnresolvedTokenSummary:
             [
                 new AdminMigrationUnresolvedTokenSummary("MAXX", 2, 12, new DateTime(2026, 7, 6, 11, 0, 1, DateTimeKind.Utc))
@@ -69,16 +70,51 @@ public sealed class AdminMigrationRunsTests : BunitContext
                 new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
+        var unexpectedDetailResponse = new AdminMigrationRunDetailResponse(
+            RunId: runId,
+            Status: "Completed",
+            IsDryRun: true,
+            SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+            SourceFileChecksum: "abc123",
+            StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+            FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+            RawRowCount: 200,
+            ErrorMessage: null,
+            UnresolvedTokenCount: 3,
+            PickDiffCount: 1,
+            RaceDiffCount: 1,
+            TotalDeltaPoints: -4,
+            UnexpectedTotalDeltaPoints: -4,
+            UnresolvedTokenSummary:
+            [
+                new AdminMigrationUnresolvedTokenSummary("MAXX", 2, 12, new DateTime(2026, 7, 6, 11, 0, 1, DateTimeKind.Utc))
+            ],
+            ParticipantDeltas:
+            [
+                new AdminMigrationParticipantDelta("Philip", 500, 496, -4, "PODIUM_RULE_VARIANCE", 2)
+            ],
+            RaceDiffs:
+            [
+                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
+            ],
+            PickDiffs:
+            [
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
+            ]);
+
         var apiMock = new Mock<IMigrationRunsApiService>();
         apiMock
             .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(listResponse);
         apiMock
-            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), null))
             .ReturnsAsync(detailResponse);
         apiMock
-            .Setup(x => x.GetRunDiffExportUrl(runId, It.IsAny<string>(), It.IsAny<string>()))
-            .Returns<Guid, string, string>((id, exportType, format) =>
+            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), "unexpected"))
+            .ReturnsAsync(unexpectedDetailResponse);
+        apiMock
+            .Setup(x => x.GetRunDiffExportUrl(runId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .Returns((Guid id, string exportType, string format, string? expectedStatus) =>
                 $"admin/migration-runs/{id}/exports/{exportType}?format={format}");
 
         Services.AddSingleton(apiMock.Object);
@@ -95,6 +131,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
+        Assert.Contains("Unexpected: 3", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#participant-comparisons\"", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#race-comparisons\"", cut.Markup);
         Assert.Contains("href=\"/admin/migration-runs#pick-comparisons\"", cut.Markup);
@@ -119,6 +156,10 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.Find("#detail-reason-filter").Change(string.Empty);
         cut.Find("#detail-non-zero-only").Change(true);
         cut.WaitForAssertion(() => Assert.DoesNotContain("Alex", cut.Markup));
+
+        cut.Find("#detail-non-zero-only").Change(false);
+        cut.Find("#detail-expected-status").Change("unexpected");
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Wrong slot", cut.Markup));
     }
 
     [Fact]
@@ -184,7 +225,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(listResponse);
         apiMock
-            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), null))
             .ReturnsAsync((AdminMigrationRunDetailResponse?)null);
 
         Services.AddSingleton(apiMock.Object);

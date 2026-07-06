@@ -12,11 +12,14 @@ public interface IMigrationRunsApiService
         DateTime? startedToUtc = null,
         CancellationToken cancellationToken = default);
 
-    Task<AdminMigrationRunDetailResponse?> GetRunDetailAsync(Guid runId, CancellationToken cancellationToken = default);
+    Task<AdminMigrationRunDetailResponse?> GetRunDetailAsync(
+        Guid runId,
+        CancellationToken cancellationToken = default,
+        string? expectedStatus = null);
 
     Task<AdminMigrationRunKickoffResponse> StartRunAsync(AdminMigrationRunKickoffRequest request, CancellationToken cancellationToken = default);
 
     Task<AdminMigrationRunKickoffResponse> StartRunFromUploadAsync(AdminMigrationRunKickoffUploadRequest request, CancellationToken cancellationToken = default);
 
-    string GetRunDiffExportUrl(Guid runId, string exportType, string format);
+    string GetRunDiffExportUrl(Guid runId, string exportType, string format, string? expectedStatus = null);
 }
