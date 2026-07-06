@@ -9,9 +9,23 @@ public sealed record MigrationRunListQuery(
     DateTime? StartedFromUtc,
     DateTime? StartedToUtc);
 
+public sealed record MigrationRunDiffExportResponse(
+    bool Success,
+    string? Error,
+    string FileName,
+    string ContentType,
+    byte[] Payload);
+
 public interface IMigrationRunAdminService
 {
     Task<AdminMigrationRunListResponseDto> GetRunsAsync(MigrationRunListQuery query, CancellationToken cancellationToken);
 
-    Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, CancellationToken cancellationToken);
+    Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(Guid runId, string requestedBy, CancellationToken cancellationToken);
+
+    Task<MigrationRunDiffExportResponse?> ExportRunDiffsAsync(
+        Guid runId,
+        string exportType,
+        string format,
+        string requestedBy,
+        CancellationToken cancellationToken);
 }

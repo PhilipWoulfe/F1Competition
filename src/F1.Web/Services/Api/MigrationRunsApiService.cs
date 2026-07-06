@@ -56,4 +56,12 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             "Loading migration run details",
             cancellationToken);
     }
+
+    public string GetRunDiffExportUrl(Guid runId, string exportType, string format)
+    {
+        var safeExportType = Uri.EscapeDataString(exportType.Trim().ToLowerInvariant());
+        var safeFormat = Uri.EscapeDataString(format.Trim().ToLowerInvariant());
+        var relativePath = $"admin/migration-runs/{runId}/exports/{safeExportType}?format={safeFormat}";
+        return new Uri(httpClient.BaseAddress!, relativePath).ToString();
+    }
 }

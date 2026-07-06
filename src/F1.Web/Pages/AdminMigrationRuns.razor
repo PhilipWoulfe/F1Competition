@@ -157,9 +157,22 @@ else if (selectedRunDetail is not null)
     </div>
 
     <div class="mb-3">
-        <a href="#participant-comparisons" class="me-3">Participant comparisons</a>
-        <a href="#race-comparisons" class="me-3">Race comparisons</a>
-        <a href="#pick-comparisons">Pick comparisons</a>
+        <a href="/admin/migration-runs#participant-comparisons" class="me-3">Participant comparisons</a>
+        <a href="/admin/migration-runs#race-comparisons" class="me-3">Race comparisons</a>
+        <a href="/admin/migration-runs#pick-comparisons">Pick comparisons</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h3 class="h5">Reconciliation Export</h3>
+            <p class="text-muted mb-3">Download run-level reconciliation output for sign-off. Viewing details and export actions are audit logged with run id and timestamp.</p>
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
+                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
+                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "csv")" target="_blank" rel="noopener noreferrer">Pick diffs CSV</a>
+                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "json")" target="_blank" rel="noopener noreferrer">Pick diffs JSON</a>
+            </div>
+        </div>
     </div>
 
     <div class="card mb-3">
@@ -491,5 +504,15 @@ else if (selectedRunDetail is not null)
 
         return !string.IsNullOrWhiteSpace(value) &&
                value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetExportUrl(string exportType, string format)
+    {
+        if (selectedRunId is null)
+        {
+            return "#";
+        }
+
+        return MigrationRunsApi.GetRunDiffExportUrl(selectedRunId.Value, exportType, format);
     }
 }
