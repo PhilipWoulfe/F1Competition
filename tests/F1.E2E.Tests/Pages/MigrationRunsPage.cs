@@ -70,6 +70,14 @@ internal class MigrationRunsPage
         _driver.FindElement(selector).Click();
     }
 
+    public void SelectFirstRun()
+    {
+        _trace("Selecting first migration run from list");
+        var selector = By.XPath("(//tr[td/code]//button[normalize-space()='View'])[1]");
+        var firstRunButton = _wait.Until(driver => driver.FindElement(selector));
+        firstRunButton.Click();
+    }
+
     public void WaitForRunDetail()
     {
         _trace("Waiting for run detail section...");
@@ -124,6 +132,21 @@ internal class MigrationRunsPage
             .ToList();
     }
 
+    public bool WaitForParticipantComparisonSection()
+    {
+        return WaitForComparisonSection("participant-comparisons", "No participant deltas available for this run.");
+    }
+
+    public bool WaitForRaceComparisonSection()
+    {
+        return WaitForComparisonSection("race-comparisons", "No race diffs available for this run.");
+    }
+
+    public bool WaitForPickComparisonSection()
+    {
+        return WaitForComparisonSection("pick-comparisons", "No pick diffs available for this run.");
+    }
+
     public void WaitUntil(Func<bool> condition)
     {
         _wait.Until(_ => condition());
@@ -146,6 +169,13 @@ internal class MigrationRunsPage
     {
         var rows = _driver.FindElements(By.XPath($"//*[@id='{sectionId}']/following-sibling::*[1][self::div]//tbody/tr"));
         return rows;
+    }
+
+    private bool WaitForComparisonSection(string sectionId, string emptyStateMessage)
+    {
+        var sectionSelector = By.XPath(
+            $"//*[@id='{sectionId}']/following-sibling::*[1][self::div[.//table] or self::p[normalize-space()='{emptyStateMessage}']]");
+        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
     }
 
     private static MigrationParticipantRow ParseParticipantRow(IWebElement row)
