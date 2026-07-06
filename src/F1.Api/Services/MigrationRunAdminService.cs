@@ -53,6 +53,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .OrderByDescending(x => x.StartedAtUtc)
                 .ThenByDescending(x => x.Id)
                 .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToArrayAsync(cancellationToken);
 
             if (pagedRuns.Length == 0)
