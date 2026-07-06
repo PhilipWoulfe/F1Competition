@@ -1,5 +1,6 @@
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Serilog;
 
 namespace F1.Api.Infrastructure;
@@ -8,8 +9,10 @@ public static class DatabaseStartupInitializer
 {
     public static async Task InitializeAsync(IServiceProvider serviceProvider, IConfiguration configuration)
     {
+        var hostEnvironment = serviceProvider.GetRequiredService<IHostEnvironment>();
         var autoMigrate = configuration.GetValue<bool>("Database:AutoMigrate");
-        if (!autoMigrate)
+        var shouldAutoMigrate = autoMigrate || hostEnvironment.IsDevelopment();
+        if (!shouldAutoMigrate)
         {
             return;
         }

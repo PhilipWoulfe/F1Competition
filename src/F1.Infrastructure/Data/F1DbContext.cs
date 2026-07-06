@@ -239,6 +239,8 @@ public class F1DbContext : DbContext
             entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ExpectedVarianceReasonCode).HasMaxLength(64);
+            entity.Property(x => x.ExpectedVarianceRuleId).HasMaxLength(128);
             entity.Property(x => x.Explanation).HasMaxLength(1024).IsRequired();
 
             entity.HasOne<MigrationImportRunEntity>()
@@ -256,6 +258,8 @@ public class F1DbContext : DbContext
             entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ExpectedVarianceReasonCode).HasMaxLength(64);
+            entity.Property(x => x.ExpectedVarianceRuleId).HasMaxLength(128);
             entity.Property(x => x.Explanation).HasMaxLength(1024).IsRequired();
 
             entity.HasOne<MigrationImportRunEntity>()

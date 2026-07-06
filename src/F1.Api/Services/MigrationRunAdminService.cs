@@ -339,7 +339,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CalculatedPoints,
                 x.DeltaPoints,
                 x.ReasonCode,
-                x.Explanation))
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
 
         var pickDiffs = await _dbContext.MigrationImportPickDiffs
@@ -354,7 +357,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CalculatedPoints,
                 x.DeltaPoints,
                 x.ReasonCode,
-                x.Explanation))
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
 
             return new AdminMigrationRunDetailResponseDto(
@@ -511,6 +517,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CalculatedPoints,
                 x.DeltaPoints,
                 x.ReasonCode,
+                    x.IsExpectedVariance,
+                    x.ExpectedVarianceReasonCode,
+                    x.ExpectedVarianceRuleId,
                 x.Explanation
             })
             .ToArrayAsync(cancellationToken);
@@ -539,7 +548,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
+        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.RaceCode)).Append(',')
@@ -549,6 +558,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
                 .Append(EscapeCsv(row.ReasonCode)).Append(',')
+            .Append(row.IsExpectedVariance.ToString()).Append(',')
+            .Append(EscapeCsv(row.ExpectedVarianceReasonCode)).Append(',')
+            .Append(EscapeCsv(row.ExpectedVarianceRuleId)).Append(',')
                 .Append(EscapeCsv(row.Explanation))
                 .AppendLine();
         }

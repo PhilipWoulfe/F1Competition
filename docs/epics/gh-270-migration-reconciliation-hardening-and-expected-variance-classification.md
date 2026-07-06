@@ -92,12 +92,22 @@ Acceptance criteria:
 - Each rule includes owner, rationale, and traceable reference.
 - Runbook includes rollback/removal steps for incorrect rules.
 
+### Story 7: Promote expected variance rules across environments
+As an operator, I want expected variance rules to move consistently from dev to test and prod so I can compare the same classifications in each environment.
+
+Acceptance criteria:
+- Rules are stored in an idempotent source of truth that can be applied repeatedly without duplication.
+- The same approved rule set can be promoted from dev to test and prod with environment-specific targeting.
+- Rule promotion is auditable so reviewers can confirm which environment received which rule version.
+- Environment sync does not alter imported, calculated, or delta values.
+
 ## Delivery Plan
 1. Finalize expected variance data model and matching contract
 2. Implement rule evaluation in reconciliation service
 3. Add expected/unexpected filtering and aggregate summaries
 4. Update admin review UX and API payloads
 5. Publish runbook and onboarding checklist for rule governance
+6. Add environment-safe promotion and seeding for expected variance rules
 
 ## Risks and Mitigations
 - Risk: Expected flags hide true regressions.
