@@ -117,16 +117,65 @@ Test notes:
 - Smoke test command for dry-run and write modes.
 - Verify non-zero exit for malformed file or unresolved-token hard-fail.
 
-## Story M10: Document runbook and sign-off checklist
-As a team, we want a migration runbook so execution and approval are consistent.
+## Story M10: Document runbook, admin validation, and sign-off checklist
+As a team, we want a migration runbook and admin validation flow so execution and approval are consistent.
 
 Acceptance criteria:
 - Runbook documents prerequisites, command usage, and rollback/cleanup steps.
-- Sign-off checklist includes: unresolved token review, MON mapping review, totals variance review.
+- Sign-off checklist includes: unresolved token review, MON mapping review, totals variance review, and admin UI validation of run detail data.
 - Final report artifact locations are documented.
 
 Test notes:
 - Dry-run the runbook in a clean environment and verify no missing steps.
+- Validate the runbook includes explicit admin UI verification steps for runs list, run detail, and expected-vs-actual comparisons.
+
+## Story M11: Add admin read API for migration runs and run detail
+As an admin, I want migration run APIs so the UI can show historical runs and detailed reconciliation output.
+
+Acceptance criteria:
+- Admin-only endpoints return paged migration runs with status, timestamps, source file, dry-run flag, and summary counters.
+- Run detail endpoint returns unresolved token summary, participant deltas, race diffs, and pick diffs for a selected run.
+- Endpoint contracts include deterministic ordering and stable filtering by run status/date.
+
+Test notes:
+- API contract tests for list/detail payloads and authorization behavior.
+- Verify non-admin callers receive forbidden responses.
+
+## Story M12: Build admin migrations runs page
+As an admin, I want to browse migration runs in the admin area so I can quickly inspect run health and outcomes.
+
+Acceptance criteria:
+- Admin navigation includes a Migration Runs page with paged/sortable run history.
+- List view shows run id, started/finished times, status, dry-run/write mode, unresolved token count, and total delta.
+- Selecting a run opens detail view with summary cards and links to comparison sections.
+
+Test notes:
+- UI integration tests for list rendering, empty state, loading state, and error state.
+- Verify only admin users can access the page route.
+
+## Story M13: Add expected-vs-actual comparison UX for run detail
+As an admin reviewer, I want expected-vs-actual comparisons so I can understand exactly where migration values differ.
+
+Acceptance criteria:
+- Run detail includes participant-race and participant-race-pick comparisons showing imported points (expected), calculated points (actual), delta, reason code, and explanation.
+- Comparison tables support filtering by participant, race, non-zero delta only, and reason code.
+- Detail panel or expandable row shows raw values used to compute the comparison where available.
+
+Test notes:
+- UI tests for filter behavior and deterministic table ordering.
+- Verify explanation text is always present for non-zero deltas.
+
+## Story M14: Add admin reconciliation export and audit trail affordances
+As an admin, I want export and audit affordances so run reviews can be shared and traced.
+
+Acceptance criteria:
+- Run detail supports downloading reconciliation output (CSV or JSON) for participant and pick diffs.
+- Admin actions and view access are auditable with run id and timestamp.
+- Export output format aligns with runbook sign-off requirements.
+
+Test notes:
+- Verify export payload schema and row ordering are stable.
+- Verify audit records are written for admin access and export actions.
 
 ## Suggested Delivery Sequence
 1. M1 staging and run envelope
@@ -138,4 +187,8 @@ Test notes:
 7. M7 legacy import and total snapshots
 8. M8 reconciliation output
 9. M9 runnable entrypoint
-10. M10 runbook and final sign-off
+10. M11 admin read API
+11. M12 admin runs page
+12. M13 expected-vs-actual comparison UX
+13. M14 export and audit affordances
+14. M10 runbook and final sign-off

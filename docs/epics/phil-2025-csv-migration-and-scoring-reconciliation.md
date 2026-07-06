@@ -31,9 +31,10 @@ In scope:
 - Legacy points import and calculated points engine
 - Race-level and pick-level comparison outputs
 - Import run audit trail and unresolved-token reporting
+- Admin API and UI surfaces to review migration runs and reconciliation output
+- Expected-vs-actual drilldown views for run-level verification
 
 Out of scope:
-- UI redesign for migration views
 - Full historical multi-season scoring redesign
 - Non-2025 source adapter implementation (tracked as follow-on stories)
 
@@ -121,13 +122,22 @@ Acceptance criteria:
 - 2025 CSV logic remains isolated in one adapter.
 - Contracts for next source (last-year) and ongoing source are documented.
 
+### Story 7: Deliver admin migration run review experience
+As an admin, I want to view migration runs and compare expected-vs-actual values in the UI so run approvals are efficient and auditable.
+
+Acceptance criteria:
+- Admin-only API provides migration run list and run detail with unresolved tokens, race diffs, participant summaries, and pick diffs.
+- Admin UI includes run history, run status, and drilldown comparison views for expected-vs-actual values.
+- Comparison views support filtering and export aligned with sign-off workflow.
+
 ## Delivery Plan
 1. Contract and dictionary snapshot design
 2. CSV adapter and staging pipeline
 3. Calculator and unit tests
 4. Reconciliation report generation
 5. Dry-run and run audit hardening
-6. Follow-on adapter interface documentation
+6. Admin run review API and UI delivery
+7. Follow-on adapter interface documentation
 
 ## Risks and Mitigations
 - Risk: Ambiguous race labels lead to incorrect joins.

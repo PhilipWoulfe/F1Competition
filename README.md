@@ -227,6 +227,27 @@ export MigrationImport__UnresolvedTokenFailThreshold=0
 dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj
 ```
 
+CLI entrypoint (M9):
+
+- `--migration-import` enables one-time migration mode.
+- `--source-file-path <path>` (or `--source <path>`) overrides the CSV source path.
+- `--season <year>` overrides the migration season.
+- `--dry-run` (or `--dry-run=<true|false>`) controls write mode.
+- `--write-mode` is shorthand to force `DryRun=false`.
+
+Example CLI run:
+
+```bash
+export ConnectionStrings__Postgres='Host=localhost;Port=5432;Database=f1competition;Username=<user>;Password=<password>'
+dotnet run --project src/F1.DataSyncWorker/F1.DataSyncWorker.csproj -- \
+  --migration-import \
+  --source-file-path data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv \
+  --season 2025 \
+  --dry-run
+```
+
+Each run prints a migration summary line including rows parsed, rows rejected, unresolved token count, and total delta points.
+
 #### C. Azure Function (`local.settings.json`) - Legacy Path
 This file configures the legacy Cosmos ingestion service and is no longer the canonical baseline seed path. It remains for migration fallback only.
 
