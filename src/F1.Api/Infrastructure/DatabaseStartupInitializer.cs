@@ -10,8 +10,14 @@ public static class DatabaseStartupInitializer
     public static async Task InitializeAsync(IServiceProvider serviceProvider, IConfiguration configuration)
     {
         var hostEnvironment = serviceProvider.GetRequiredService<IHostEnvironment>();
-        var autoMigrate = configuration.GetValue<bool>("Database:AutoMigrate");
-        var shouldAutoMigrate = autoMigrate || hostEnvironment.IsDevelopment();
+
+        // Respect explicit configuration first. If unset, keep the previous
+        // Development default of auto-migrating at startup.
+        var autoMigrateRaw = configuration["Database:AutoMigrate"];
+        var shouldAutoMigrate = bool.TryParse(autoMigrateRaw, out var configuredAutoMigrate)
+            ? configuredAutoMigrate
+            : hostEnvironment.IsDevelopment();
+
         if (!shouldAutoMigrate)
         {
             return;

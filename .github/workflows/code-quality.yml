@@ -110,6 +110,10 @@ jobs:
           dotnet restore tests/F1.Web.Tests/F1.Web.Tests.csproj
 
       - name: Run API Unit Tests with Coverage
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          DOTNET_ENVIRONMENT: Development
+          Database__AutoMigrate: false
         run: |
           dotnet test tests/F1.Api.Tests/F1.Api.Tests.csproj \
             --configuration Debug \
