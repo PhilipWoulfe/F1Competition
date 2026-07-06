@@ -50,6 +50,7 @@ builder.Services.AddScoped<IRaceContextResolver, RaceContextResolver>();
 builder.Services.AddSingleton<ICompetitionRuleCatalog, CompetitionRuleCatalog>();
 builder.Services.AddScoped<ISelectionRuleProvider, SelectionRuleProvider>();
 builder.Services.AddScoped<ISelectionService, SelectionService>();
+builder.Services.AddScoped<IMigrationRunAdminService, MigrationRunAdminService>();
 if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test"))
 {
     builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
