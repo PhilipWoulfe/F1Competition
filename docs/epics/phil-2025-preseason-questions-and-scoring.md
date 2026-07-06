@@ -194,3 +194,6 @@ Test notes:
 - Admin can review preseason expected-vs-actual diffs end-to-end without CLI.
 - Unit, integration, and E2E preseason tests pass in CI with required coverage targets.
 - Runbook and sign-off checklist are complete and validated.
+
+## Follow-On UX Story
+- Migration review UX overhaul: `docs/epics/migration-runs-ux-overhaul-story.md`
