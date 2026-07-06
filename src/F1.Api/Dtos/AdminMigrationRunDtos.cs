@@ -1,5 +1,7 @@
 namespace F1.Api.Dtos;
 
+using Microsoft.AspNetCore.Http;
+
 public sealed record AdminMigrationRunListResponseDto(
     int Page,
     int PageSize,
@@ -75,6 +77,10 @@ public sealed record AdminMigrationPickDiffDto(
 
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,
+    string Mode);
+
+public sealed record AdminMigrationRunKickoffUploadRequestDto(
+    IFormFile? SourceFile,
     string Mode);
 
 public sealed record AdminMigrationRunKickoffResponseDto(

@@ -1,6 +1,7 @@
 @page "/admin/migration-runs"
 @using F1.Web.Models
 @using F1.Web.Services.Api
+@using Microsoft.AspNetCore.Components.Forms
 @attribute [Authorize(Roles = "Admin")]
 @inject IMigrationRunsApiService MigrationRunsApi
 
@@ -21,11 +22,14 @@
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5">Start Migration Run</h2>
-        <p class="text-muted mb-3">Select mode and source, then confirm before starting a new migration run.</p>
+        <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
         <div class="row g-3 align-items-end">
-            <div class="col-md-6">
-                <label class="form-label" for="kickoff-source-path">Source File Path</label>
-                <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
+            <div class="col-md-3">
+                <label class="form-label" for="kickoff-source-kind">Source Type</label>
+                <select id="kickoff-source-kind" class="form-select" @bind="kickoffSourceKind">
+                    <option value="path">Server path</option>
+                    <option value="upload">Upload CSV</option>
+                </select>
             </div>
             <div class="col-md-3">
                 <label class="form-label" for="kickoff-mode">Mode</label>
@@ -34,10 +38,29 @@
                     <option value="write">Write</option>
                 </select>
             </div>
-            <div class="col-md-3 d-grid">
+            <div class="col-md-6 d-grid">
                 <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
             </div>
         </div>
+
+        @if (IsUploadKickoff)
+        {
+            <div class="mt-3">
+                <label class="form-label" for="kickoff-upload-file">CSV File</label>
+                <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" />
+                @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
+                {
+                    <div class="form-text">Selected: @kickoffUploadFileName</div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="mt-3">
+                <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
+            </div>
+        }
 
         @if (showKickoffConfirmation)
         {
@@ -45,7 +68,7 @@
                 <h3 class="h6">Confirm Migration Kickoff</h3>
                 <p class="mb-2">
                     You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
-                    <code>@kickoffSourceFilePath</code>.
+                    <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
                 </p>
                 <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
                 <div class="d-flex flex-wrap gap-2">
@@ -369,7 +392,10 @@ else if (selectedRunDetail is not null)
     private string? errorMessage;
     private string? kickoffSuccessMessage;
 
+    private string kickoffSourceKind = "path";
     private string kickoffSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
+    private IBrowserFile? kickoffUploadFile;
+    private string? kickoffUploadFileName;
     private string kickoffMode = "dry-run";
 
     private int page = 1;
@@ -421,6 +447,14 @@ else if (selectedRunDetail is not null)
     {
         kickoffSuccessMessage = null;
         errorMessage = null;
+
+        if (IsUploadKickoff && kickoffUploadFile is null)
+        {
+            errorMessage = "Please choose a CSV file to upload.";
+            showKickoffConfirmation = false;
+            return;
+        }
+
         showKickoffConfirmation = true;
     }
 
@@ -437,9 +471,27 @@ else if (selectedRunDetail is not null)
 
         try
         {
-            var response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
-                SourceFilePath: kickoffSourceFilePath,
-                Mode: kickoffMode));
+            AdminMigrationRunKickoffResponse response;
+            if (IsUploadKickoff)
+            {
+                if (kickoffUploadFile is null)
+                {
+                    errorMessage = "Please choose a CSV file to upload.";
+                    return;
+                }
+
+                await using var uploadStream = kickoffUploadFile.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                response = await MigrationRunsApi.StartRunFromUploadAsync(new AdminMigrationRunKickoffUploadRequest(
+                    FileName: kickoffUploadFile.Name,
+                    Content: uploadStream,
+                    Mode: kickoffMode));
+            }
+            else
+            {
+                response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
+                    SourceFilePath: kickoffSourceFilePath,
+                    Mode: kickoffMode));
+            }
 
             kickoffSuccessMessage =
                 $"Migration run {response.RunId} started in {response.RequestedMode} mode by {response.RequestedBy} at {response.TriggeredAtUtc:yyyy-MM-dd HH:mm} UTC.";
@@ -456,6 +508,14 @@ else if (selectedRunDetail is not null)
             isKickoffSubmitting = false;
         }
     }
+
+    private void OnKickoffFileChanged(InputFileChangeEventArgs args)
+    {
+        kickoffUploadFile = args.File;
+        kickoffUploadFileName = args.File?.Name;
+    }
+
+    private bool IsUploadKickoff => string.Equals(kickoffSourceKind, "upload", StringComparison.OrdinalIgnoreCase);
 
     private async Task SelectRunAsync(Guid runId)
     {

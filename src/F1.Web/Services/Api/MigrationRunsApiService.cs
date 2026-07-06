@@ -67,6 +67,21 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             cancellationToken);
     }
 
+    public async Task<AdminMigrationRunKickoffResponse> StartRunFromUploadAsync(AdminMigrationRunKickoffUploadRequest request, CancellationToken cancellationToken = default)
+    {
+        using var content = new MultipartFormDataContent();
+        using var fileContent = new StreamContent(request.Content);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        content.Add(fileContent, "SourceFile", request.FileName);
+        content.Add(new StringContent(request.Mode), "Mode");
+
+        using var response = await httpClient.PostAsync("admin/migration-runs/kickoff/upload", content, cancellationToken);
+        return await ApiResponseParser.ReadRequiredJsonAsync<AdminMigrationRunKickoffResponse>(
+            response,
+            "Starting migration run from upload",
+            cancellationToken);
+    }
+
     public string GetRunDiffExportUrl(Guid runId, string exportType, string format)
     {
         var safeExportType = Uri.EscapeDataString(exportType.Trim().ToLowerInvariant());

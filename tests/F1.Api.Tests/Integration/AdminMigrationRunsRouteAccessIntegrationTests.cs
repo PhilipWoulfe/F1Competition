@@ -188,6 +188,48 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
+    [Fact]
+    public async Task MigrationRunKickoffUploadRoute_WhenAnonymous_ShouldReturnUnauthorized()
+    {
+        var client = CreateClient(mockEmail: null, mockGroups: null);
+
+        using var content = CreateUploadContent();
+        var response = await client.PostAsync("/admin/migration-runs/kickoff/upload", content);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunKickoffUploadRoute_WhenAuthenticatedNonAdmin_ShouldReturnForbidden()
+    {
+        var client = CreateClient(mockEmail: "user@example.com", mockGroups: ["F1 Users"]);
+
+        using var content = CreateUploadContent();
+        var response = await client.PostAsync("/admin/migration-runs/kickoff/upload", content);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationRunKickoffUploadRoute_WhenAuthenticatedAdmin_ShouldReturnCreated()
+    {
+        var client = CreateClient(mockEmail: "admin@example.com", mockGroups: ["F1 Admins"]);
+
+        using var content = CreateUploadContent();
+        var response = await client.PostAsync("/admin/migration-runs/kickoff/upload", content);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    private static MultipartFormDataContent CreateUploadContent()
+    {
+        var content = new MultipartFormDataContent();
+        var csvBytes = System.Text.Encoding.UTF8.GetBytes("Question,Philip\nAUS-1,VER");
+        content.Add(new ByteArrayContent(csvBytes), "SourceFile", "import.csv");
+        content.Add(new StringContent("dry-run"), "Mode");
+        return content;
+    }
+
     private sealed class IntegrationTestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
         public IntegrationTestAuthHandler(

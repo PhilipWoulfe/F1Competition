@@ -15,6 +15,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
+    private const string AllowedTempImportRootPath = "f1-imports";
     private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
@@ -190,7 +191,6 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Where(x =>
                     (x.Status == StatusQueued || x.Status == StatusStarted) &&
                     x.FinishedAtUtc == null &&
-                    x.SourceFilePath == sourceFilePath &&
                     x.SourceFileChecksum == checksum)
                 .OrderByDescending(x => x.StartedAtUtc)
                 .ThenByDescending(x => x.Id)
@@ -590,7 +590,6 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .Where(x =>
                 (x.Status == StatusQueued || x.Status == StatusStarted) &&
                 x.FinishedAtUtc == null &&
-                x.SourceFilePath == sourceFilePath &&
                 x.SourceFileChecksum == checksum)
             .OrderByDescending(x => x.StartedAtUtc)
             .ThenByDescending(x => x.Id)
@@ -600,22 +599,32 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private static string? ResolveSourceFilePath(string sourceFilePath)
     {
-        var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
         var candidatePath = Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
+        var tempImportRoot = Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath());
 
-        if (string.Equals(candidatePath, importRoot, comparison))
+        if (IsPathWithinRoot(candidatePath, importRoot) || IsPathWithinRoot(candidatePath, tempImportRoot))
         {
             return candidatePath;
         }
 
-        var importRootWithSeparator = importRoot.EndsWith(Path.DirectorySeparatorChar)
-            ? importRoot
-            : importRoot + Path.DirectorySeparatorChar;
+        return null;
+    }
 
-        return candidatePath.StartsWith(importRootWithSeparator, comparison)
-            ? candidatePath
-            : null;
+    private static bool IsPathWithinRoot(string candidatePath, string rootPath)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        if (string.Equals(candidatePath, rootPath, comparison))
+        {
+            return true;
+        }
+
+        var rootWithSeparator = rootPath.EndsWith(Path.DirectorySeparatorChar)
+            ? rootPath
+            : rootPath + Path.DirectorySeparatorChar;
+
+        return candidatePath.StartsWith(rootWithSeparator, comparison);
     }
 
     private static async Task<string> ComputeSha256Async(string sourceFilePath, CancellationToken cancellationToken)

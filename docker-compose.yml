@@ -40,6 +40,8 @@ services:
       dockerfile: ./src/F1.DataSyncWorker/Dockerfile
     image: ghcr.io/philipwoulfe/f1competition-data-sync:${TAG:-test}
     container_name: f1-data-sync-worker
+    volumes:
+      - ${HOST_MIGRATION_UPLOAD_PATH:-/tmp/f1-migration-imports}:/tmp/f1-imports
     restart: on-failure
 
   f1-api:
@@ -67,6 +69,7 @@ services:
       - DevSettings__EnableDebugEndpoints=${DEV_ENABLE_DEBUG_ENDPOINTS:-false}
     volumes:
       - ${HOST_LOG_PATH:-/tmp/f1api-logs}:/var/log/f1api
+      - ${HOST_MIGRATION_UPLOAD_PATH:-/tmp/f1-migration-imports}:/tmp/f1-imports
     image: ghcr.io/philipwoulfe/f1competition:${TAG:-test}
     build:
       context: .

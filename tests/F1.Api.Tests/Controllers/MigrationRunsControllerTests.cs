@@ -325,6 +325,77 @@ public sealed class MigrationRunsControllerTests
         Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
     }
 
+    [Fact]
+    public async Task KickoffRunFromUpload_WhenValidCsv_ReturnsCreatedPayload()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: true,
+                Conflict: false,
+                Error: null,
+                ExistingRunId: null,
+                Run: new AdminMigrationRunKickoffResponseDto(
+                    RunId: runId,
+                    Status: "Started",
+                    IsDryRun: true,
+                    RequestedMode: "dry-run",
+                    SourceFilePath: "data/imports/uploads/upload.csv",
+                    SourceFileChecksum: "abc123",
+                    TriggeredAtUtc: new DateTime(2026, 7, 6, 13, 0, 0, DateTimeKind.Utc),
+                    RequestedBy: "admin@example.com")));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Question,Philip\nAUS-1,VER"));
+        var formFile = new FormFile(stream, 0, stream.Length, "SourceFile", "import.csv");
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: formFile,
+            Mode: "dry-run"));
+
+        var created = Assert.IsType<CreatedAtActionResult>(result);
+        var payload = Assert.IsType<AdminMigrationRunKickoffResponseDto>(created.Value);
+        Assert.Equal(runId, payload.RunId);
+
+        service.Verify(x => x.KickoffRunAsync(
+            It.Is<MigrationRunKickoffCommand>(command =>
+                command.RequestedMode == "dry-run" &&
+                command.SourceFilePath != null &&
+                command.SourceFilePath.Contains("data/imports/uploads")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task KickoffRunFromUpload_WhenFileMissing_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: null,
+            Mode: "dry-run"));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+    }
+
     private static HttpContext CreateHttpContext(bool isAdmin)
     {
         var claims = new List<Claim>

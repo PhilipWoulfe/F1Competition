@@ -77,6 +77,11 @@ public sealed record AdminMigrationRunKickoffRequest(
     string? SourceFilePath,
     string Mode);
 
+public sealed record AdminMigrationRunKickoffUploadRequest(
+    string FileName,
+    Stream Content,
+    string Mode);
+
 public sealed record AdminMigrationRunKickoffResponse(
     Guid RunId,
     string Status,
