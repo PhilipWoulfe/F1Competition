@@ -1,3 +1,5 @@
+using Npgsql;
+
 namespace F1.E2E.Tests.Infrastructure;
 
 internal class E2eOptions
@@ -143,7 +145,15 @@ internal class E2eOptions
             port = 5432;
         }
 
-        return $"Host={host};Port={port};Database={database};Username={username};Password={password}";
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = host,
+            Port = port,
+            Database = database,
+            Username = username,
+            Password = password
+        };
+        return builder.ToString();
     }
 
     private static int ParseIntAllowZero(string? raw, int fallback)

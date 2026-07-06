@@ -144,7 +144,7 @@ internal class MigrationRunsPage
 
     private IReadOnlyList<IWebElement> GetRowsAfterSection(string sectionId)
     {
-        var rows = _driver.FindElements(By.XPath($"//*[@id='{sectionId}']/following-sibling::div[1]//tbody/tr"));
+        var rows = _driver.FindElements(By.XPath($"//*[@id='{sectionId}']/following-sibling::*[1][self::div]//tbody/tr"));
         return rows;
     }
 
