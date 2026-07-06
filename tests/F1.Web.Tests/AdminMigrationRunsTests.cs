@@ -10,6 +10,82 @@ namespace F1.Web.Tests.Pages;
 public sealed class AdminMigrationRunsTests : BunitContext
 {
     [Fact]
+    public void AdminMigrationRuns_ShouldExposeTablistAndSelectedTabAria_WhenRunIsSelected()
+    {
+        var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");
+        var listResponse = new AdminMigrationRunListResponse(
+            Page: 1,
+            PageSize: 25,
+            TotalCount: 1,
+            Items:
+            [
+                new AdminMigrationRunListItem(
+                    RunId: runId,
+                    Status: "Completed",
+                    IsDryRun: true,
+                    SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+                    SourceFileChecksum: "abc123",
+                    StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+                    FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+                    RawRowCount: 200,
+                    UnresolvedTokenCount: 3,
+                    PickDiffCount: 100,
+                    RaceDiffCount: 20,
+                    TotalDeltaPoints: -4,
+                    UnexpectedTotalDeltaPoints: 3,
+                    ErrorMessage: null)
+            ]);
+
+        var detailResponse = new AdminMigrationRunDetailResponse(
+            RunId: runId,
+            Status: "Completed",
+            IsDryRun: true,
+            SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+            SourceFileChecksum: "abc123",
+            StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+            FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+            RawRowCount: 200,
+            ErrorMessage: null,
+            UnresolvedTokenCount: 3,
+            PickDiffCount: 100,
+            RaceDiffCount: 20,
+            TotalDeltaPoints: -4,
+            UnexpectedTotalDeltaPoints: 3,
+            UnresolvedTokenSummary:
+            [
+                new AdminMigrationUnresolvedTokenSummary("MAXX", 2, 12, new DateTime(2026, 7, 6, 11, 0, 1, DateTimeKind.Utc))
+            ],
+            ParticipantDeltas: [],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
+            PreseasonParticipantDeltas: [],
+            PreseasonQuestionDiffs: [],
+            PreseasonReasonCategorySummaries: [],
+            RaceDiffs: [],
+            PickDiffs: []);
+
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(listResponse);
+        apiMock
+            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), null))
+            .ReturnsAsync(detailResponse);
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Completed", cut.Markup));
+
+        cut.Find("button.btn.btn-sm.btn-outline-primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(cut.Find("ul[role='tablist']"));
+            Assert.True(cut.FindAll("button[role='tab'][aria-selected='true']").Count >= 1);
+        });
+    }
+
+    [Fact]
     public void AdminMigrationRuns_ShouldRenderRunsTable_WhenApiReturnsItems()
     {
         var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");
