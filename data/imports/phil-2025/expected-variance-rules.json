@@ -1,6 +1,6 @@
 {
   "ruleSetId": "phil-2025-expected-variance",
-  "ruleSetVersion": "2026.07.06.2",
+  "ruleSetVersion": "2026.07.06.15",
   "rules": [
     {
       "ruleId": "phil-2025-shanghai-andy-p2-row145-colD",
@@ -10,6 +10,230 @@
       "pickType": "2",
       "importedSourcePattern": "race-points row 145, column D",
       "calculatedSourcePattern": "race-picks row 48, column D",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-suzuka-kevin-p2-row149-colG",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Kevin",
+      "raceCode": "suzuka",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 149, column G",
+      "calculatedSourcePattern": "race-picks row 52, column G",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-suzuka-new-sexy-ayrton-p2-row149-colC",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "New Sexy Ayrton",
+      "raceCode": "suzuka",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 149, column C",
+      "calculatedSourcePattern": "race-picks row 52, column C",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-suzuka-pious-p3-row150-colH",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Pious",
+      "raceCode": "suzuka",
+      "pickType": "3",
+      "importedSourcePattern": "race-points row 150, column H",
+      "calculatedSourcePattern": "race-picks row 53, column H",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-bahrain-dave-p2-row153-colF",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Dave",
+      "raceCode": "bahrain",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 153, column F",
+      "calculatedSourcePattern": "race-picks row 56, column F",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-jeddah-andy-dnf-missing-colD",
+      "reasonCode": "LEGACY_POINTS_MISSING",
+      "subject": "Andy",
+      "raceCode": "jeddah",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row n/a, column D",
+      "calculatedSourcePattern": "race-picks row 62, column D",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-jeddah-new-sexy-ayrton-dnf-missing-colC",
+      "reasonCode": "LEGACY_POINTS_MISSING",
+      "subject": "New Sexy Ayrton",
+      "raceCode": "jeddah",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row n/a, column C",
+      "calculatedSourcePattern": "race-picks row 62, column C",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-jeddah-shane-dnf-missing-colI",
+      "reasonCode": "LEGACY_POINTS_MISSING",
+      "subject": "Shane",
+      "raceCode": "jeddah",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row n/a, column I",
+      "calculatedSourcePattern": "race-picks row 62, column I",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-monaco-philip-p2-row169-colB",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Philip",
+      "raceCode": "monaco",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 169, column B",
+      "calculatedSourcePattern": "race-picks row 72, column B",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-monaco-philip-p3-row170-colB",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Philip",
+      "raceCode": "monaco",
+      "pickType": "3",
+      "importedSourcePattern": "race-points row 170, column B",
+      "calculatedSourcePattern": "race-picks row 73, column B",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-catalunya-andy-dnf-row175-colD",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Andy",
+      "raceCode": "catalunya",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row 175, column D",
+      "calculatedSourcePattern": "race-picks row 78, column D",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-silverstone-kevin-dnf-row187-colG",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Kevin",
+      "raceCode": "silverstone",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row 187, column G",
+      "calculatedSourcePattern": "race-picks row 90, column G",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-spa-dave-p3-row190-colF",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Dave",
+      "raceCode": "spa",
+      "pickType": "3",
+      "importedSourcePattern": "race-points row 190, column F",
+      "calculatedSourcePattern": "race-picks row 93, column F",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-monza-new-sexy-ayrton-p2-row201-colC",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "New Sexy Ayrton",
+      "raceCode": "monza",
+      "pickType": "2",
+      "importedSourcePattern": "race-points row 201, column C",
+      "calculatedSourcePattern": "race-picks row 104, column C",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-interlagos-kevin-p1-row220-colG",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Kevin",
+      "raceCode": "interlagos",
+      "pickType": "1",
+      "importedSourcePattern": "race-points row 220, column G",
+      "calculatedSourcePattern": "race-picks row 123, column G",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-vegas-andy-p1-row224-colD",
+      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "subject": "Andy",
+      "raceCode": "vegas",
+      "pickType": "1",
+      "importedSourcePattern": "race-points row 224, column D",
+      "calculatedSourcePattern": "race-picks row 127, column D",
+      "targetEnvironments": [
+        "Development",
+        "Test",
+        "Production"
+      ]
+    },
+    {
+      "ruleId": "phil-2025-vegas-kevin-dnf-missing-colG",
+      "reasonCode": "LEGACY_POINTS_MISSING",
+      "subject": "Kevin",
+      "raceCode": "vegas",
+      "pickType": "DNF",
+      "importedSourcePattern": "race-points row n/a, column G",
+      "calculatedSourcePattern": "race-picks row 130, column G",
       "targetEnvironments": [
         "Development",
         "Test",
