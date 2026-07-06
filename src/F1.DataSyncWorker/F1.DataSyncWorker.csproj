@@ -29,6 +29,6 @@
     <None Include="../../data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv"
           Link="data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv"
           CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+          CopyToPublishDirectory="Never" />
   </ItemGroup>
 </Project>
