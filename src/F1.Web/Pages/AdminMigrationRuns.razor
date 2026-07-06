@@ -318,11 +318,19 @@ else if (selectedRunDetail is not null)
     {
         isLoadingDetail = true;
         errorMessage = null;
+        selectedRunId = runId;
+        selectedRunDetail = null;
 
         try
         {
-            selectedRunId = runId;
-            selectedRunDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+            var runDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+            if (runDetail is null)
+            {
+                errorMessage = $"Migration run detail was not found for run {runId}.";
+                return;
+            }
+
+            selectedRunDetail = runDetail;
         }
         catch (Exception ex)
         {
