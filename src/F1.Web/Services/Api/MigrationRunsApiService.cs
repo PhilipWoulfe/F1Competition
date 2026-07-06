@@ -61,6 +61,7 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
     {
         var safeExportType = Uri.EscapeDataString(exportType.Trim().ToLowerInvariant());
         var safeFormat = Uri.EscapeDataString(format.Trim().ToLowerInvariant());
-        return $"admin/migration-runs/{runId}/exports/{safeExportType}?format={safeFormat}";
+        var relativePath = $"admin/migration-runs/{runId}/exports/{safeExportType}?format={safeFormat}";
+        return new Uri(httpClient.BaseAddress!, relativePath).ToString();
     }
 }
