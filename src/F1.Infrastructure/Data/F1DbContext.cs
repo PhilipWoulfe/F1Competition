@@ -19,6 +19,7 @@ public class F1DbContext : DbContext
     public DbSet<RaceMetadataEntity> RaceMetadata => Set<RaceMetadataEntity>();
     public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
+    public DbSet<MigrationImportPreseasonAnswerEntity> MigrationImportPreseasonAnswers => Set<MigrationImportPreseasonAnswerEntity>();
     public DbSet<MigrationImportRaceSelectionEntity> MigrationImportRaceSelections => Set<MigrationImportRaceSelectionEntity>();
     public DbSet<MigrationImportCalculatedScoreEntity> MigrationImportCalculatedScores => Set<MigrationImportCalculatedScoreEntity>();
     public DbSet<MigrationImportLegacyPickScoreEntity> MigrationImportLegacyPickScores => Set<MigrationImportLegacyPickScoreEntity>();
@@ -164,6 +165,24 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RaceCode, x.PickType, x.Subject, x.RowNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportPreseasonAnswerEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportPreseasonAnswers");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.QuestionKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.QuestionText).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RawAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber, x.QuestionKey, x.Subject, x.IsActualOutcome }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportCalculatedScoreEntity>(entity =>
