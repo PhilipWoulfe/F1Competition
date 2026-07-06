@@ -45,6 +45,8 @@ public class NavMenuTests : BunitContext
         var cut = Render<NavMenu>();
 
         Assert.Contains("Admin", cut.Markup);
+        Assert.Contains("Migration Runs", cut.Markup);
+        Assert.Contains("href=\"admin/migration-runs\"", cut.Markup);
     }
 
     [Fact]

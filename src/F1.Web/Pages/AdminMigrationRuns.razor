@@ -1,0 +1,400 @@
+@page "/admin/migration-runs"
+@using F1.Web.Models
+@using F1.Web.Services.Api
+@attribute [Authorize(Roles = "Admin")]
+@inject IMigrationRunsApiService MigrationRunsApi
+
+<PageTitle>Migration Runs</PageTitle>
+
+<h1>Migration Runs</h1>
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label" for="status-filter">Status Filter</label>
+                <select id="status-filter" class="form-select" @bind="statusFilter">
+                    <option value="">All</option>
+                    <option value="Started">Started</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Failed">Failed</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="sort-field">Sort Field</label>
+                <select id="sort-field" class="form-select" @bind="sortField">
+                    <option value="started">Started</option>
+                    <option value="status">Status</option>
+                    <option value="delta">Total Delta</option>
+                    <option value="unresolved">Unresolved Tokens</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="sort-direction">Direction</label>
+                <select id="sort-direction" class="form-select" @bind="sortDirection">
+                    <option value="desc">Descending</option>
+                    <option value="asc">Ascending</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="page-size">Page Size</label>
+                <select id="page-size" class="form-select" @bind="pageSize">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@isLoadingRuns">Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (isLoadingRuns)
+{
+    <p><em>Loading migration runs...</em></p>
+}
+else if (runList is null || runList.Items.Count == 0)
+{
+    <p>No migration runs found for the selected filters.</p>
+}
+else
+{
+    <div class="table-responsive mb-3">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Run Id</th>
+                    <th>Started (UTC)</th>
+                    <th>Finished (UTC)</th>
+                    <th>Status</th>
+                    <th>Mode</th>
+                    <th>Unresolved</th>
+                    <th>Total Delta</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in GetSortedItems())
+                {
+                    <tr class="@(selectedRunId == item.RunId ? "table-primary" : string.Empty)">
+                        <td><code>@item.RunId</code></td>
+                        <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@(item.FinishedAtUtc.HasValue ? item.FinishedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") : "-")</td>
+                        <td>@item.Status</td>
+                        <td>@(item.IsDryRun ? "Dry-run" : "Write")</td>
+                        <td>@item.UnresolvedTokenCount</td>
+                        <td>@item.TotalDeltaPoints</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRunAsync(item.RunId)">View</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(page <= 1 || isLoadingRuns)">Previous</button>
+        <span>Page @(page) of @TotalPages</span>
+        <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(page >= TotalPages || isLoadingRuns)">Next</button>
+    </div>
+}
+
+@if (isLoadingDetail)
+{
+    <p><em>Loading selected run details...</em></p>
+}
+else if (selectedRunDetail is not null)
+{
+    <h2 class="mb-3">Run Detail</h2>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Rows Parsed</div>
+                    <div class="fs-4">@selectedRunDetail.RawRowCount</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Unresolved Tokens</div>
+                    <div class="fs-4">@selectedRunDetail.UnresolvedTokenCount</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Pick Diffs</div>
+                    <div class="fs-4">@selectedRunDetail.PickDiffCount</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Total Delta</div>
+                    <div class="fs-4">@selectedRunDetail.TotalDeltaPoints</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <a href="#participant-comparisons" class="me-3">Participant comparisons</a>
+        <a href="#race-comparisons" class="me-3">Race comparisons</a>
+        <a href="#pick-comparisons">Pick comparisons</a>
+    </div>
+
+    <h3 id="participant-comparisons">Participant Comparisons</h3>
+    @if (selectedRunDetail.ParticipantDeltas.Count == 0)
+    {
+        <p>No participant deltas available for this run.</p>
+    }
+    else
+    {
+        <div class="table-responsive mb-4">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Participant</th>
+                        <th>Imported</th>
+                        <th>Calculated</th>
+                        <th>Delta</th>
+                        <th>Top Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in selectedRunDetail.ParticipantDeltas)
+                    {
+                        <tr>
+                            <td>@row.Subject</td>
+                            <td>@row.ImportedTotalPoints</td>
+                            <td>@row.CalculatedTotalPoints</td>
+                            <td>@row.NetDeltaPoints</td>
+                            <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <h3 id="race-comparisons">Race Comparisons</h3>
+    @if (selectedRunDetail.RaceDiffs.Count == 0)
+    {
+        <p>No race diffs available for this run.</p>
+    }
+    else
+    {
+        <div class="table-responsive mb-4">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Race</th>
+                        <th>Participant</th>
+                        <th>Imported</th>
+                        <th>Calculated</th>
+                        <th>Delta</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in selectedRunDetail.RaceDiffs)
+                    {
+                        <tr>
+                            <td>@row.RaceCode</td>
+                            <td>@row.Subject</td>
+                            <td>@row.ImportedPoints</td>
+                            <td>@row.CalculatedPoints</td>
+                            <td>@row.DeltaPoints</td>
+                            <td>@row.ReasonCode</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <h3 id="pick-comparisons">Pick Comparisons</h3>
+    @if (selectedRunDetail.PickDiffs.Count == 0)
+    {
+        <p>No pick diffs available for this run.</p>
+    }
+    else
+    {
+        <div class="table-responsive mb-4">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th>Race</th>
+                        <th>Participant</th>
+                        <th>Pick</th>
+                        <th>Imported</th>
+                        <th>Calculated</th>
+                        <th>Delta</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in selectedRunDetail.PickDiffs)
+                    {
+                        <tr>
+                            <td>@row.RaceCode</td>
+                            <td>@row.Subject</td>
+                            <td>@row.PickType</td>
+                            <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
+                            <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
+                            <td>@row.DeltaPoints</td>
+                            <td>@row.ReasonCode</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private AdminMigrationRunListResponse? runList;
+    private AdminMigrationRunDetailResponse? selectedRunDetail;
+    private Guid? selectedRunId;
+    private bool isLoadingRuns;
+    private bool isLoadingDetail;
+    private string? errorMessage;
+
+    private int page = 1;
+    private int pageSize = 25;
+    private string? statusFilter;
+
+    private string sortField = "started";
+    private string sortDirection = "desc";
+
+    private int TotalPages => runList is null || runList.TotalCount == 0
+        ? 1
+        : (int)Math.Ceiling(runList.TotalCount / (double)runList.PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRunsAsync();
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        isLoadingRuns = true;
+        errorMessage = null;
+
+        try
+        {
+            runList = await MigrationRunsApi.GetRunsAsync(page, pageSize, statusFilter);
+
+            if (selectedRunId.HasValue && runList.Items.All(item => item.RunId != selectedRunId.Value))
+            {
+                selectedRunId = null;
+                selectedRunDetail = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load migration runs: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingRuns = false;
+        }
+    }
+
+    private async Task SelectRunAsync(Guid runId)
+    {
+        isLoadingDetail = true;
+        errorMessage = null;
+        selectedRunId = runId;
+        selectedRunDetail = null;
+
+        try
+        {
+            var runDetail = await MigrationRunsApi.GetRunDetailAsync(runId);
+            if (runDetail is null)
+            {
+                errorMessage = $"Migration run detail was not found for run {runId}.";
+                return;
+            }
+
+            selectedRunDetail = runDetail;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load run detail: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDetail = false;
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        page = 1;
+        selectedRunId = null;
+        selectedRunDetail = null;
+        await LoadRunsAsync();
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (page <= 1)
+        {
+            return;
+        }
+
+        page--;
+        await LoadRunsAsync();
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (page >= TotalPages)
+        {
+            return;
+        }
+
+        page++;
+        await LoadRunsAsync();
+    }
+
+    private IEnumerable<AdminMigrationRunListItem> GetSortedItems()
+    {
+        if (runList is null)
+        {
+            return Enumerable.Empty<AdminMigrationRunListItem>();
+        }
+
+        var descending = string.Equals(sortDirection, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return sortField switch
+        {
+            "status" => descending
+                ? runList.Items.OrderByDescending(x => x.Status, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.StartedAtUtc)
+                : runList.Items.OrderBy(x => x.Status, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.StartedAtUtc),
+            "delta" => descending
+                ? runList.Items.OrderByDescending(x => x.TotalDeltaPoints).ThenByDescending(x => x.StartedAtUtc)
+                : runList.Items.OrderBy(x => x.TotalDeltaPoints).ThenBy(x => x.StartedAtUtc),
+            "unresolved" => descending
+                ? runList.Items.OrderByDescending(x => x.UnresolvedTokenCount).ThenByDescending(x => x.StartedAtUtc)
+                : runList.Items.OrderBy(x => x.UnresolvedTokenCount).ThenBy(x => x.StartedAtUtc),
+            _ => descending
+                ? runList.Items.OrderByDescending(x => x.StartedAtUtc)
+                : runList.Items.OrderBy(x => x.StartedAtUtc)
+        };
+    }
+}

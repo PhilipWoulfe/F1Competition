@@ -77,6 +77,7 @@ builder.Services.AddScoped<IAppInfoService, AppInfoService>();
 
 // 4. Register typed API services.
 builder.Services.AddScoped<IDriversApiService, DriversApiService>();
+builder.Services.AddScoped<IMigrationRunsApiService, MigrationRunsApiService>();
 builder.Services.AddScoped<IRaceContextApiService, RaceContextApiService>();
 builder.Services.AddScoped<IRaceMetadataApiService, RaceMetadataApiService>();
 builder.Services.AddScoped<ISelectionApiService, SelectionApiService>();
