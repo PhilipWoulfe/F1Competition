@@ -120,6 +120,10 @@ public sealed class MigrationRunsControllerTests
             UnexpectedTotalDeltaPoints: -4,
             UnresolvedTokenSummary: [],
             ParticipantDeltas: [],
+            PreseasonSummary: new AdminMigrationPreseasonSummaryDto(0, 0, 0, 0),
+            PreseasonParticipantDeltas: [],
+            PreseasonQuestionDiffs: [],
+            PreseasonReasonCategorySummaries: [],
             RaceDiffs: [],
             PickDiffs: []);
 
@@ -165,6 +169,10 @@ public sealed class MigrationRunsControllerTests
                 UnexpectedTotalDeltaPoints: 5,
                 UnresolvedTokenSummary: [],
                 ParticipantDeltas: [],
+                PreseasonSummary: new AdminMigrationPreseasonSummaryDto(0, 0, 0, 0),
+                PreseasonParticipantDeltas: [],
+                PreseasonQuestionDiffs: [],
+                PreseasonReasonCategorySummaries: [],
                 RaceDiffs: [],
                 PickDiffs: []));
 

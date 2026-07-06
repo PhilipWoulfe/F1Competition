@@ -1,4 +1,4 @@
-# Epic: Phil 2025 Preseason Questions and Scoring
+# Epic #275: Phil 2025 Preseason Questions and Scoring
 
 ## Summary
 Add end-to-end support for preseason questions in the Phil 2025 migration flow, including parsing, scoring, reconciliation, API exposure, admin UI review, and automated test coverage.
@@ -154,6 +154,9 @@ Test notes:
 ### Story P10: Document preseason runbook and sign-off checklist
 As a team, we want preseason runbook steps so execution and approval are consistent.
 
+Implementation reference:
+- Runbook and checklist: `docs/runbooks/preseason-migration-signoff.md`
+
 Acceptance criteria:
 - Runbook documents prerequisites, command usage, and validation steps for preseason data.
 - Sign-off checklist includes M2 policy verification, question-level diff review, and preseason-vs-race separation check.
@@ -191,3 +194,6 @@ Test notes:
 - Admin can review preseason expected-vs-actual diffs end-to-end without CLI.
 - Unit, integration, and E2E preseason tests pass in CI with required coverage targets.
 - Runbook and sign-off checklist are complete and validated.
+
+## Follow-On UX Story
+- Migration review UX overhaul: `docs/epics/migration-runs-ux-overhaul-story.md`

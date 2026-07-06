@@ -3,6 +3,7 @@ using System;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace F1.Infrastructure.Migrations
 {
     [DbContext(typeof(F1DbContext))]
-    partial class F1DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260706195642_AddMigrationImportPreseasonCalculatedScores")]
+    partial class AddMigrationImportPreseasonCalculatedScores
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -616,46 +619,6 @@ namespace F1.Infrastructure.Migrations
                     b.ToTable("MigrationImportPreseasonImportedTallies", (string)null);
                 });
 
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonParticipantDeltaSummaryEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<int>("CalculatedTotalPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ImportRunId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ImportedTotalPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("NetDeltaPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("TopReasonCode")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("TopReasonCount")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ImportRunId", "Subject")
-                        .IsUnique();
-
-                    b.ToTable("MigrationImportPreseasonParticipantDeltaSummaries", (string)null);
-                });
-
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonPolicyEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -691,92 +654,6 @@ namespace F1.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("MigrationImportPreseasonPolicies", (string)null);
-                });
-
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonQuestionDiffEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<int?>("CalculatedPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DeltaPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Explanation")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<Guid>("ImportRunId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int?>("ImportedPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("QuestionKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("QuestionText")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("ReasonCode")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("RowNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ImportRunId", "RowNumber", "QuestionKey", "Subject")
-                        .IsUnique();
-
-                    b.ToTable("MigrationImportPreseasonQuestionDiffs", (string)null);
-                });
-
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonReasonCategorySummaryEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<Guid>("ImportRunId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("OccurrenceCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ReasonCode")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("TotalDeltaPoints")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ImportRunId", "ReasonCode")
-                        .IsUnique();
-
-                    b.ToTable("MigrationImportPreseasonReasonCategorySummaries", (string)null);
                 });
 
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportRaceDiffEntity", b =>
@@ -1018,40 +895,6 @@ namespace F1.Infrastructure.Migrations
                     b.Property<bool>("IsDryRun")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("MappingWarningCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonAnswerCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonErrorCount")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("PreseasonIsolationGuardPassed")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PreseasonParseStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("PreseasonQuestionDiffCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonScoredQuestionCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PreseasonScoringStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("PreseasonTotalDeltaPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonWarningCount")
-                        .HasColumnType("integer");
-
                     b.Property<int>("RawRowCount")
                         .HasColumnType("integer");
 
@@ -1072,9 +915,6 @@ namespace F1.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
-
-                    b.Property<int>("UnresolvedTokenCount")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -1303,34 +1143,7 @@ namespace F1.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonParticipantDeltaSummaryEntity", b =>
-                {
-                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ImportRunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonPolicyEntity", b =>
-                {
-                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ImportRunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonQuestionDiffEntity", b =>
-                {
-                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ImportRunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("F1.Infrastructure.Data.Entities.MigrationImportPreseasonReasonCategorySummaryEntity", b =>
                 {
                     b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
                         .WithMany()

@@ -1,12 +1,275 @@
 using F1.DataSyncWorker.Services;
+using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace F1.Infrastructure.Tests.Contracts;
 
 public sealed class MigrationLegacyScoreImporterTests
 {
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPhilPreseasonPolicyAndTalliesPresent_PersistsPolicyAndTallies()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious,Shane,Veronica,BinGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,20"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                SectionType = "SeasonQuestionPoints",
+                RawPayload = "At least one driver will win 4 consecutive races?,0,20,0,0,20,0,0,0,20,0,,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        var policy = await dbContext.MigrationImportPreseasonPolicies
+            .SingleAsync(x => x.ImportRunId == runId);
+        Assert.Equal(2, policy.RowNumber);
+        Assert.Equal("M2", policy.CellReference);
+        Assert.Equal("20", policy.RawPointsPerQuestion);
+        Assert.Equal(20, policy.PointsPerQuestion);
+
+        var tallies = await dbContext.MigrationImportPreseasonImportedTallies
+            .Where(x => x.ImportRunId == runId && x.RowNumber == 22)
+            .OrderBy(x => x.Subject)
+            .ToListAsync();
+
+        Assert.Equal(10, tallies.Count);
+        Assert.Equal("PRE-022", tallies[0].QuestionKey);
+        Assert.Contains(tallies, x => x.Subject == "Philip" && x.ImportedPoints == 0);
+        Assert.Contains(tallies, x => x.Subject == "New Sexy Ayrton" && x.ImportedPoints == 20);
+        Assert.Contains(tallies, x => x.Subject == "Veronica" && x.ImportedPoints == 20);
+    }
+
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPreseasonPolicyMissingAndFailEnabled_Throws()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious,Shane,Veronica,BinGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                SectionType = "SeasonQuestionPoints",
+                RawPayload = "At least one driver will win 4 consecutive races?,0,20,0,0,20,0,0,0,20,0,,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(
+            new TestDbContextFactory(options),
+            Options.Create(new MigrationImportOptions { FailOnPreseasonPolicyParseError = true }));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => importer.ImportAndPersistAsync(runId, CancellationToken.None));
+        Assert.Contains("Preseason policy parse failed", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPreseasonPolicyMalformedAndFailDisabled_PersistsRawWithNullParsedValue()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious,Shane,Veronica,BinGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,twenty"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                SectionType = "SeasonQuestionPoints",
+                RawPayload = "At least one driver will win 4 consecutive races?,0,20,0,0,20,0,0,0,20,0,,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        var policy = await dbContext.MigrationImportPreseasonPolicies
+            .SingleAsync(x => x.ImportRunId == runId);
+
+        Assert.Equal("twenty", policy.RawPointsPerQuestion);
+        Assert.Null(policy.PointsPerQuestion);
+    }
+
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPreseasonTallyMalformedAndFailEnabled_Throws()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious,Shane,Veronica,BinGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,20"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                SectionType = "SeasonQuestionPoints",
+                RawPayload = "At least one driver will win 4 consecutive races?,N/A,20,0,0,20,0,0,0,20,0,,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(
+            new TestDbContextFactory(options),
+            Options.Create(new MigrationImportOptions { FailOnPreseasonTallyParseError = true }));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => importer.ImportAndPersistAsync(runId, CancellationToken.None));
+        Assert.Contains("Preseason tally parse failed", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAndPersistAsync_WhenPreseasonTallyMalformedAndFailDisabled_PersistsRawWithNullParsedValue()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious,Shane,Veronica,BinGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,20"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                SectionType = "SeasonQuestionPoints",
+                RawPayload = "At least one driver will win 4 consecutive races?,N/A,20,0,0,20,0,0,0,20,0,,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        var malformedTally = await dbContext.MigrationImportPreseasonImportedTallies
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 22 && x.Subject == "Philip");
+
+        Assert.Equal("N/A", malformedTally.RawPoints);
+        Assert.Null(malformedTally.ImportedPoints);
+    }
+
     [Fact]
     public async Task ImportAndPersistAsync_WhenRacePointsAndTotalsPresent_PersistsLegacyScoresAndSeparateTotals()
     {

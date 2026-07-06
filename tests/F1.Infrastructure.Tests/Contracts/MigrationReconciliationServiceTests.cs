@@ -353,6 +353,141 @@ public sealed class MigrationReconciliationServiceTests
         Assert.Equal("aaa_race", pickDiffsByInsertOrder[3].RaceCode);
     }
 
+    [Fact]
+    public async Task ReconcileAndPersistAsync_ProducesPreseasonQuestionAndParticipantDiffOutputs()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/PhilMigratedSelectionsAndScores.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
+        });
+
+        dbContext.MigrationImportPreseasonImportedTallies.AddRange(
+            new MigrationImportPreseasonImportedTallyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                QuestionKey = "PRE-022",
+                QuestionText = "Q1",
+                Subject = "Philip",
+                ImportedPoints = 20,
+                RawPoints = "20"
+            },
+            new MigrationImportPreseasonImportedTallyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                QuestionKey = "PRE-022",
+                QuestionText = "Q1",
+                Subject = "Andy",
+                ImportedPoints = 20,
+                RawPoints = "20"
+            },
+            new MigrationImportPreseasonImportedTallyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 23,
+                QuestionKey = "PRE-023",
+                QuestionText = "Q2",
+                Subject = "Philip",
+                ImportedPoints = 20,
+                RawPoints = "20"
+            });
+
+        dbContext.MigrationImportPreseasonCalculatedScores.AddRange(
+            new MigrationImportPreseasonCalculatedScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                QuestionKey = "PRE-022",
+                QuestionText = "Q1",
+                Subject = "Philip",
+                Points = 20,
+                ReasonCode = "PRESEASON_EXACT"
+            },
+            new MigrationImportPreseasonCalculatedScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                QuestionKey = "PRE-022",
+                QuestionText = "Q1",
+                Subject = "Andy",
+                Points = 0,
+                ReasonCode = "PRESEASON_MISMATCH"
+            },
+            new MigrationImportPreseasonCalculatedScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 23,
+                QuestionKey = "PRE-023",
+                QuestionText = "Q2",
+                Subject = "Philip",
+                Points = 0,
+                ReasonCode = "PRESEASON_MISMATCH"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var service = new MigrationReconciliationService(new TestDbContextFactory(options));
+        var result = await service.ReconcileAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(3, result.PreseasonQuestionDiffCount);
+        Assert.Equal(2, result.PreseasonParticipantSummaryCount);
+        Assert.Equal(1, result.PreseasonReasonSummaryCount);
+        Assert.Equal(-40, result.PreseasonTotalDelta);
+
+        var preseasonDiffs = await dbContext.MigrationImportPreseasonQuestionDiffs
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+
+        Assert.Equal(3, preseasonDiffs.Count);
+        Assert.Equal(22, preseasonDiffs[0].RowNumber);
+        Assert.Equal("Andy", preseasonDiffs[0].Subject);
+        Assert.Equal("PRESEASON_RULE_VARIANCE", preseasonDiffs[0].ReasonCode);
+        Assert.Contains("preseason-points row 22, column C", preseasonDiffs[0].Explanation);
+        Assert.Contains("preseason-calculated row 22, column C", preseasonDiffs[0].Explanation);
+
+        Assert.Equal(22, preseasonDiffs[1].RowNumber);
+        Assert.Equal("Philip", preseasonDiffs[1].Subject);
+        Assert.Equal("PRESEASON_POINTS_MATCH", preseasonDiffs[1].ReasonCode);
+        Assert.Equal(0, preseasonDiffs[1].DeltaPoints);
+
+        Assert.Equal(23, preseasonDiffs[2].RowNumber);
+        Assert.Equal("Philip", preseasonDiffs[2].Subject);
+        Assert.Equal("PRESEASON_RULE_VARIANCE", preseasonDiffs[2].ReasonCode);
+        Assert.Equal(-20, preseasonDiffs[2].DeltaPoints);
+
+        var participantSummary = await dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");
+        Assert.Equal(40, participantSummary.ImportedTotalPoints);
+        Assert.Equal(20, participantSummary.CalculatedTotalPoints);
+        Assert.Equal(-20, participantSummary.NetDeltaPoints);
+        Assert.Equal("PRESEASON_RULE_VARIANCE", participantSummary.TopReasonCode);
+        Assert.Equal(1, participantSummary.TopReasonCount);
+
+        var reasonSummary = await dbContext.MigrationImportPreseasonReasonCategorySummaries
+            .SingleAsync(x => x.ImportRunId == runId && x.ReasonCode == "PRESEASON_RULE_VARIANCE");
+        Assert.Equal(2, reasonSummary.OccurrenceCount);
+        Assert.Equal(-40, reasonSummary.TotalDeltaPoints);
+    }
+
     private static string GetGoldenFilePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

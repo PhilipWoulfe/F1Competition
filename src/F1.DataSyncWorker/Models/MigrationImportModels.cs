@@ -11,11 +11,15 @@ public sealed record MigrationImportRunContext(
 
 public sealed record MigrationRaceSelectionParseResult(
     int SelectionCount,
-    int UnresolvedTokenCount);
+    int UnresolvedTokenCount,
+    int PreseasonAnswerCount = 0);
 
 public sealed record MigrationScoreRecalculationResult(
     int ScoredPickCount,
-    int TotalPoints);
+    int TotalPoints,
+    int PreseasonScoredQuestionCount = 0,
+    int PreseasonTotalPoints = 0,
+    int PreseasonScoringWarningCount = 0);
 
 public sealed record MigrationLegacyScoreImportResult(
     int LegacyPickScoreCount,
@@ -27,4 +31,21 @@ public sealed record MigrationReconciliationResult(
     int RaceDiffCount,
     int ParticipantSummaryCount,
     int ReasonSummaryCount,
-    int TotalDelta);
+    int TotalDelta,
+    int PreseasonQuestionDiffCount = 0,
+    int PreseasonParticipantSummaryCount = 0,
+    int PreseasonReasonSummaryCount = 0,
+    int PreseasonTotalDelta = 0);
+
+public sealed record MigrationImportRunCompletionMetadata(
+    int UnresolvedTokenCount = 0,
+    int MappingWarningCount = 0,
+    string PreseasonParseStatus = "NotDetected",
+    string PreseasonScoringStatus = "NotDetected",
+    int PreseasonWarningCount = 0,
+    int PreseasonErrorCount = 0,
+    int PreseasonAnswerCount = 0,
+    int PreseasonScoredQuestionCount = 0,
+    int PreseasonQuestionDiffCount = 0,
+    int PreseasonTotalDeltaPoints = 0,
+    bool PreseasonIsolationGuardPassed = true);

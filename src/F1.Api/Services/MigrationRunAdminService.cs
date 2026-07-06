@@ -390,6 +390,54 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             })
             .ToArray();
 
+        var preseasonQuestionDiffs = await _dbContext.MigrationImportPreseasonQuestionDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.QuestionKey)
+            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
+                x.RowNumber,
+                x.QuestionKey,
+                x.QuestionText,
+                x.Subject,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonParticipantDeltas = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Subject)
+            .Select(x => new AdminMigrationPreseasonParticipantDeltaDto(
+                x.Subject,
+                x.ImportedTotalPoints,
+                x.CalculatedTotalPoints,
+                x.NetDeltaPoints,
+                x.TopReasonCode,
+                x.TopReasonCount))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonReasonCategorySummaries = await _dbContext.MigrationImportPreseasonReasonCategorySummaries
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.OccurrenceCount)
+            .ThenBy(x => x.ReasonCode)
+            .Select(x => new AdminMigrationPreseasonReasonCategorySummaryDto(
+                x.ReasonCode,
+                x.OccurrenceCount,
+                x.TotalDeltaPoints))
+            .ToArrayAsync(cancellationToken);
+
+        var preseasonSummary = new AdminMigrationPreseasonSummaryDto(
+            QuestionDiffCount: preseasonQuestionDiffs.Length,
+            ParticipantDeltaCount: preseasonParticipantDeltas.Length,
+            ReasonCategoryCount: preseasonReasonCategorySummaries.Length,
+            TotalDeltaPoints: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
+
             return new AdminMigrationRunDetailResponseDto(
                 RunId: run.Id,
                 Status: run.Status,
@@ -407,6 +455,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
                 UnresolvedTokenSummary: unresolvedTokenSummary,
                 ParticipantDeltas: participantDeltas,
+                PreseasonSummary: preseasonSummary,
+                PreseasonParticipantDeltas: preseasonParticipantDeltas,
+                PreseasonQuestionDiffs: preseasonQuestionDiffs,
+                PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
                 RaceDiffs: raceDiffs,
                 PickDiffs: pickDiffs);
         }
@@ -453,13 +505,149 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         {
             "participant-diffs" => await ExportParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
             "pick-diffs" => await ExportPickDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
+            "preseason-question-diffs" => await ExportPreseasonQuestionDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
+            "preseason-participant-diffs" => await ExportPreseasonParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
             _ => new MigrationRunDiffExportResponse(
                 Success: false,
-                Error: "exportType must be participant-diffs or pick-diffs.",
+                Error: "exportType must be participant-diffs, pick-diffs, preseason-question-diffs, or preseason-participant-diffs.",
                 FileName: string.Empty,
                 ContentType: "text/plain",
                 Payload: [])
         };
+    }
+
+    private async Task<MigrationRunDiffExportResponse> ExportPreseasonQuestionDiffsAsync(
+        Guid runId,
+        string format,
+        string requestedBy,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.MigrationImportPreseasonQuestionDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.QuestionKey)
+            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
+                x.RowNumber,
+                x.QuestionKey,
+                x.QuestionText,
+                x.Subject,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation))
+            .ToArrayAsync(cancellationToken);
+
+        var extension = format == "json" ? "json" : "csv";
+        var fileName = $"migration-run-{runId}-preseason-question-diffs.{extension}";
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} format={Format} exportType={ExportType} rowCount={RowCount}",
+            "export",
+            runId,
+            requestedBy,
+            DateTime.UtcNow,
+            format,
+            "preseason-question-diffs",
+            rows.Length);
+
+        if (format == "json")
+        {
+            return new MigrationRunDiffExportResponse(
+                Success: true,
+                Error: null,
+                FileName: fileName,
+                ContentType: "application/json",
+                Payload: JsonSerializer.SerializeToUtf8Bytes(rows, ExportJsonOptions));
+        }
+
+        var csv = new StringBuilder();
+        csv.AppendLine("rowNumber,questionKey,questionText,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
+        foreach (var row in rows)
+        {
+            csv.Append(row.RowNumber.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.QuestionKey)).Append(',')
+                .Append(EscapeCsv(row.QuestionText)).Append(',')
+                .Append(EscapeCsv(row.Subject)).Append(',')
+                .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
+                .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
+                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.ReasonCode)).Append(',')
+                .Append(EscapeCsv(row.Explanation))
+                .AppendLine();
+        }
+
+        return new MigrationRunDiffExportResponse(
+            Success: true,
+            Error: null,
+            FileName: fileName,
+            ContentType: "text/csv",
+            Payload: Encoding.UTF8.GetBytes(csv.ToString()));
+    }
+
+    private async Task<MigrationRunDiffExportResponse> ExportPreseasonParticipantDiffsAsync(
+        Guid runId,
+        string format,
+        string requestedBy,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Subject)
+            .Select(x => new AdminMigrationPreseasonParticipantDeltaDto(
+                x.Subject,
+                x.ImportedTotalPoints,
+                x.CalculatedTotalPoints,
+                x.NetDeltaPoints,
+                x.TopReasonCode,
+                x.TopReasonCount))
+            .ToArrayAsync(cancellationToken);
+
+        var extension = format == "json" ? "json" : "csv";
+        var fileName = $"migration-run-{runId}-preseason-participant-diffs.{extension}";
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} format={Format} exportType={ExportType} rowCount={RowCount}",
+            "export",
+            runId,
+            requestedBy,
+            DateTime.UtcNow,
+            format,
+            "preseason-participant-diffs",
+            rows.Length);
+
+        if (format == "json")
+        {
+            return new MigrationRunDiffExportResponse(
+                Success: true,
+                Error: null,
+                FileName: fileName,
+                ContentType: "application/json",
+                Payload: JsonSerializer.SerializeToUtf8Bytes(rows, ExportJsonOptions));
+        }
+
+        var csv = new StringBuilder();
+        csv.AppendLine("subject,importedTotalPoints,calculatedTotalPoints,netDeltaPoints,topReasonCode,topReasonCount");
+        foreach (var row in rows)
+        {
+            csv.Append(EscapeCsv(row.Subject)).Append(',')
+                .Append(row.ImportedTotalPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(row.CalculatedTotalPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(row.NetDeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.TopReasonCode)).Append(',')
+                .Append(row.TopReasonCount.ToString(CultureInfo.InvariantCulture))
+                .AppendLine();
+        }
+
+        return new MigrationRunDiffExportResponse(
+            Success: true,
+            Error: null,
+            FileName: fileName,
+            ContentType: "text/csv",
+            Payload: Encoding.UTF8.GetBytes(csv.ToString()));
     }
 
     private async Task<MigrationRunDiffExportResponse> ExportParticipantDiffsAsync(

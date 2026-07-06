@@ -146,6 +146,55 @@ internal static class MigrationRunE2eFixtureSeeder
             await insertReasonSummary.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        await using (var insertPreseasonParticipantSummary = new NpgsqlCommand(
+                         """
+                         INSERT INTO "MigrationImportPreseasonParticipantDeltaSummaries"
+                             ("ImportRunId", "Subject", "ImportedTotalPoints", "CalculatedTotalPoints", "NetDeltaPoints", "TopReasonCode", "TopReasonCount")
+                         VALUES
+                             (@runId, @primaryParticipant, 40, 20, -20, 'PRESEASON_RULE_VARIANCE', 1),
+                             (@runId, @secondaryParticipant, 20, 20, 0, 'PRESEASON_POINTS_MATCH', 1);
+                         """,
+                         connection,
+                         transaction))
+        {
+            insertPreseasonParticipantSummary.Parameters.AddWithValue("runId", FixtureRunId);
+            insertPreseasonParticipantSummary.Parameters.AddWithValue("primaryParticipant", primaryParticipant);
+            insertPreseasonParticipantSummary.Parameters.AddWithValue("secondaryParticipant", secondaryParticipant);
+            await insertPreseasonParticipantSummary.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var insertPreseasonQuestionDiffs = new NpgsqlCommand(
+                         """
+                         INSERT INTO "MigrationImportPreseasonQuestionDiffs"
+                             ("ImportRunId", "RowNumber", "QuestionKey", "QuestionText", "Subject", "ImportedPoints", "CalculatedPoints", "DeltaPoints", "ReasonCode", "Explanation")
+                         VALUES
+                             (@runId, 22, 'PRE-022', 'Fixture preseason question', @primaryParticipant, 20, 0, -20, 'PRESEASON_RULE_VARIANCE', 'fixture preseason mismatch'),
+                             (@runId, 23, 'PRE-023', 'Fixture preseason match', @secondaryParticipant, 20, 20, 0, 'PRESEASON_POINTS_MATCH', 'fixture preseason match');
+                         """,
+                         connection,
+                         transaction))
+        {
+            insertPreseasonQuestionDiffs.Parameters.AddWithValue("runId", FixtureRunId);
+            insertPreseasonQuestionDiffs.Parameters.AddWithValue("primaryParticipant", primaryParticipant);
+            insertPreseasonQuestionDiffs.Parameters.AddWithValue("secondaryParticipant", secondaryParticipant);
+            await insertPreseasonQuestionDiffs.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var insertPreseasonReasonSummary = new NpgsqlCommand(
+                         """
+                         INSERT INTO "MigrationImportPreseasonReasonCategorySummaries"
+                             ("ImportRunId", "ReasonCode", "OccurrenceCount", "TotalDeltaPoints")
+                         VALUES
+                             (@runId, 'PRESEASON_RULE_VARIANCE', 1, -20),
+                             (@runId, 'PRESEASON_POINTS_MATCH', 1, 0);
+                         """,
+                         connection,
+                         transaction))
+        {
+            insertPreseasonReasonSummary.Parameters.AddWithValue("runId", FixtureRunId);
+            await insertPreseasonReasonSummary.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         trace?.Invoke($"Migration fixture seeded. RunId={FixtureRunId}");
@@ -167,6 +216,9 @@ internal static class MigrationRunE2eFixtureSeeder
         var deleteSql =
             """
             DELETE FROM "MigrationImportReasonCategorySummaries" WHERE "ImportRunId" = @runId;
+            DELETE FROM "MigrationImportPreseasonReasonCategorySummaries" WHERE "ImportRunId" = @runId;
+            DELETE FROM "MigrationImportPreseasonQuestionDiffs" WHERE "ImportRunId" = @runId;
+            DELETE FROM "MigrationImportPreseasonParticipantDeltaSummaries" WHERE "ImportRunId" = @runId;
             DELETE FROM "MigrationImportPickDiffs" WHERE "ImportRunId" = @runId;
             DELETE FROM "MigrationImportRaceDiffs" WHERE "ImportRunId" = @runId;
             DELETE FROM "MigrationImportParticipantDeltaSummaries" WHERE "ImportRunId" = @runId;

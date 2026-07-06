@@ -3,6 +3,7 @@ using System;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace F1.Infrastructure.Migrations
 {
     [DbContext(typeof(F1DbContext))]
-    partial class F1DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260706200035_AddMigrationImportPreseasonReconciliationOutputs")]
+    partial class AddMigrationImportPreseasonReconciliationOutputs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1018,40 +1021,6 @@ namespace F1.Infrastructure.Migrations
                     b.Property<bool>("IsDryRun")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("MappingWarningCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonAnswerCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonErrorCount")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("PreseasonIsolationGuardPassed")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PreseasonParseStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("PreseasonQuestionDiffCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonScoredQuestionCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PreseasonScoringStatus")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("PreseasonTotalDeltaPoints")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PreseasonWarningCount")
-                        .HasColumnType("integer");
-
                     b.Property<int>("RawRowCount")
                         .HasColumnType("integer");
 
@@ -1072,9 +1041,6 @@ namespace F1.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
-
-                    b.Property<int>("UnresolvedTokenCount")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 

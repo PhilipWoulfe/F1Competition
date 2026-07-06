@@ -8,6 +8,107 @@ namespace F1.Infrastructure.Tests.Contracts;
 public sealed class MigrationRaceSelectionParserTests
 {
     [Fact]
+    public async Task ParseAndPersistAsync_WhenPreseasonQuestionRowsExist_PersistsParticipantAndActualAnswersWithRowTraceability()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,NONE,NOT,  ,N,Y,Y,Y,N,Y,N,20"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 3,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "WDC - 1st?,NOR,VER,VER,LEC,PIA,NOR,VER,NOR,VER,NOR,NOR/VER;PIA"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        var preseasonAnswers = await dbContext.MigrationImportPreseasonAnswers
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ToListAsync();
+
+        Assert.Equal((MigrationPhil2025CsvContractPolicy.ParticipantColumns.Length + 1) * 2, preseasonAnswers.Count);
+
+        var philipRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Philip" && !x.IsActualOutcome);
+        Assert.Equal("PRE-002", philipRow2.QuestionKey);
+        Assert.Equal("At least one driver will win 4 consecutive races?", philipRow2.QuestionText);
+        Assert.Equal("Y", philipRow2.NormalizedAnswer);
+
+        var andyRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Andy" && !x.IsActualOutcome);
+        Assert.Null(andyRow2.NormalizedAnswer);
+
+        var claireRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Claire" && !x.IsActualOutcome);
+        Assert.Null(claireRow2.NormalizedAnswer);
+
+        var actualRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "ACTUAL" && x.IsActualOutcome);
+        Assert.Equal("N", actualRow2.NormalizedAnswer);
+
+        var actualRow3 = preseasonAnswers.Single(x => x.RowNumber == 3 && x.Subject == "ACTUAL" && x.IsActualOutcome);
+        Assert.Equal("NOR | VER | PIA", actualRow3.NormalizedAnswer);
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenPreseasonAnswersContainMalformedTokens_PreservesNormalizedTrimmedValue()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            SectionType = "SeasonQuestionPrediction",
+            RawPayload = "Doohan gets booted after 6 or less races?,@@@,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y"
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        var malformed = await dbContext.MigrationImportPreseasonAnswers
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Philip");
+
+        Assert.Equal("@@@", malformed.RawAnswer);
+        Assert.Equal("@@@", malformed.NormalizedAnswer);
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenRaceRowsExist_ExtractsParticipantPicksAndActualOutcome()
     {
         var runId = Guid.NewGuid();
