@@ -240,12 +240,12 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
     private static string ResolveSourceFilePath(string sourceFilePath)
     {
-        if (Path.IsPathRooted(sourceFilePath))
+        var trimmedPath = sourceFilePath.Trim();
+        if (Path.IsPathRooted(trimmedPath))
         {
-            return sourceFilePath;
+            return Path.GetFullPath(trimmedPath);
         }
 
-        var trimmedPath = sourceFilePath.Trim();
         var directCandidate = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         if (File.Exists(directCandidate))
         {
