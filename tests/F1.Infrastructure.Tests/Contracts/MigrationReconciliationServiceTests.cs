@@ -214,6 +214,7 @@ public sealed class MigrationReconciliationServiceTests
         var pickDiff = await dbContext.MigrationImportPickDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
 
+        Assert.StartsWith("Philip AUS-1 imported 500", pickDiff.Explanation);
         Assert.Equal(1024, pickDiff.Explanation.Length);
         Assert.EndsWith("...", pickDiff.Explanation);
     }
