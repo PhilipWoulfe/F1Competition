@@ -94,6 +94,9 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
+        Assert.Contains("href=\"/admin/migration-runs#participant-comparisons\"", cut.Markup);
+        Assert.Contains("href=\"/admin/migration-runs#race-comparisons\"", cut.Markup);
+        Assert.Contains("href=\"/admin/migration-runs#pick-comparisons\"", cut.Markup);
         Assert.Contains("Reconciliation Export", cut.Markup);
         Assert.Contains("Pick diffs CSV", cut.Markup);
         Assert.Contains("Podium mismatch", cut.Markup);
