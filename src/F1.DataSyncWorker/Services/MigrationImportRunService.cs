@@ -9,6 +9,7 @@ namespace F1.DataSyncWorker.Services;
 
 public sealed class MigrationImportRunService : IMigrationImportRunService
 {
+    private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const string StatusCompleted = "Completed";
     private const string StatusFailed = "Failed";
@@ -17,6 +18,38 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
     public MigrationImportRunService(IDbContextFactory<F1DbContext> dbContextFactory)
     {
         _dbContextFactory = dbContextFactory;
+    }
+
+    public async Task<MigrationImportRunContext?> TryClaimNextQueuedRunAsync(CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var queuedRun = await dbContext.MigrationImportRuns
+            .Where(x =>
+                x.Status == StatusQueued &&
+                x.FinishedAtUtc == null)
+            .OrderBy(x => x.StartedAtUtc)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (queuedRun is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return null;
+        }
+
+        queuedRun.Status = StatusStarted;
+        queuedRun.ErrorMessage = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new MigrationImportRunContext(
+            queuedRun.Id,
+            queuedRun.SourceFilePath,
+            queuedRun.SourceFileChecksum,
+            queuedRun.IsDryRun,
+            PersistDomainEntities: !queuedRun.IsDryRun);
     }
 
     public async Task<MigrationImportRunContext> StartRunAsync(string sourceFilePath, bool isDryRun, CancellationToken cancellationToken)

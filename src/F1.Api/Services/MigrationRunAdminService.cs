@@ -15,6 +15,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
+    private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
     private const int DefaultPageSize = 25;
@@ -181,14 +182,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var now = DateTime.UtcNow;
         var isDryRun = normalizedMode == "dry-run";
         var runId = Guid.NewGuid();
-
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         try
         {
             var activeRun = await _dbContext.MigrationImportRuns
                 .AsNoTracking()
                 .Where(x =>
-                    x.Status == StatusStarted &&
+                    (x.Status == StatusQueued || x.Status == StatusStarted) &&
                     x.FinishedAtUtc == null &&
                     x.SourceFilePath == sourceFilePath &&
                     x.SourceFileChecksum == checksum)
@@ -214,7 +214,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 SourceFilePath = sourceFilePath,
                 SourceFileChecksum = checksum,
                 IsDryRun = isDryRun,
-                Status = StatusStarted,
+                Status = StatusQueued,
                 StartedAtUtc = now
             });
 
@@ -263,7 +263,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             ExistingRunId: null,
             Run: new AdminMigrationRunKickoffResponseDto(
                 RunId: runId,
-                Status: StatusStarted,
+                Status: StatusQueued,
                 IsDryRun: isDryRun,
                 RequestedMode: normalizedMode,
                 SourceFilePath: sourceFilePath,
@@ -588,7 +588,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return await _dbContext.MigrationImportRuns
             .AsNoTracking()
             .Where(x =>
-                x.Status == StatusStarted &&
+                (x.Status == StatusQueued || x.Status == StatusStarted) &&
                 x.FinishedAtUtc == null &&
                 x.SourceFilePath == sourceFilePath &&
                 x.SourceFileChecksum == checksum)
