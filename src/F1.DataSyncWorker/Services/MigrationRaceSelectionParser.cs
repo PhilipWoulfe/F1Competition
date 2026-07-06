@@ -93,7 +93,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             for (var index = 0; index < participants.Count; index++)
             {
                 var rawValue = index < participantValues.Length ? participantValues[index] : string.Empty;
-                var normalization = NormalizeSelection(rawValue, pickType);
+                var normalization = NormalizeSelection(rawValue, pickType, usePhil2025SequenceMapping);
                 selections.Add(new MigrationImportRaceSelectionEntity
                 {
                     ImportRunId = runId,
@@ -122,7 +122,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             }
 
             var actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-            var actualNormalization = NormalizeSelection(actualRaw, pickType);
+            var actualNormalization = NormalizeSelection(actualRaw, pickType, usePhil2025SequenceMapping);
             selections.Add(new MigrationImportRaceSelectionEntity
             {
                 ImportRunId = runId,
@@ -264,7 +264,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return true;
     }
 
-    private static NormalizationResult NormalizeSelection(string? rawValue, string pickType)
+    private static NormalizationResult NormalizeSelection(string? rawValue, string pickType, bool applyPhil2025TokenCorrections)
     {
         if (string.IsNullOrWhiteSpace(rawValue))
         {
@@ -277,6 +277,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         if (lookupToken.Length == 0)
         {
             return new NormalizationResult(NormalizedValue: null, UnresolvedTokens: []);
+        }
+
+        // The Phil 2025 source contains podium typos where NOT was intended to be NOR.
+        if (applyPhil2025TokenCorrections && PodiumPickTypes.Contains(pickType) &&
+            string.Equals(lookupToken, "NOT", StringComparison.OrdinalIgnoreCase))
+        {
+            return new NormalizationResult(NormalizedValue: "NOR", UnresolvedTokens: []);
         }
 
         // DNF and ACTUAL DNF values can be comma/space-separated token sets.
@@ -347,6 +354,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
     [GeneratedRegex("[\\s,;/]+", RegexOptions.Compiled)]
     private static partial Regex DnfTokenSplitRegex();
+
+    private static readonly HashSet<string> PodiumPickTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "1",
+        "2",
+        "3"
+    };
 
     private readonly record struct NormalizationResult(string? NormalizedValue, IReadOnlyList<string> UnresolvedTokens);
 }
