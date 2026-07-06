@@ -8,6 +8,150 @@ namespace F1.Infrastructure.Tests.Contracts;
 public sealed class MigrationScoreRecalculatorTests
 {
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreseasonAnswersPresent_ComputesQuestionScoresAndSeparateTotals()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            ColumnIndex = 12,
+            CellReference = "M2",
+            RawPointsPerQuestion = "20",
+            PointsPerQuestion = 20
+        });
+
+        dbContext.MigrationImportPreseasonAnswers.AddRange(
+            // Question 1 matrix: exact, null, mismatch, malformed token mismatch.
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "ACTUAL", "Y", isActual: true),
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Philip", "Y"),
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Andy", null),
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Claire", "N"),
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Dave", "@@@"),
+
+            // Question 2 with delimited actual answers: multi-token exact matching.
+            PreseasonAnswer(runId, 3, "PRE-003", "Q2", "ACTUAL", "NOR | VER | PIA", isActual: true),
+            PreseasonAnswer(runId, 3, "PRE-003", "Q2", "Philip", "NOR"),
+            PreseasonAnswer(runId, 3, "PRE-003", "Q2", "Andy", "HAM"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var preseasonScores = await dbContext.MigrationImportPreseasonCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ToListAsync();
+
+        Assert.Equal(6, preseasonScores.Count);
+
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-002" && x.Subject == "Philip"), 20, "PRESEASON_EXACT");
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-002" && x.Subject == "Andy"), 0, "PRESEASON_PREDICTION_NULL");
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-002" && x.Subject == "Claire"), 0, "PRESEASON_MISMATCH");
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-002" && x.Subject == "Dave"), 0, "PRESEASON_MISMATCH");
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-003" && x.Subject == "Philip"), 20, "PRESEASON_EXACT");
+        AssertPreseasonScore(preseasonScores.Single(x => x.QuestionKey == "PRE-003" && x.Subject == "Andy"), 0, "PRESEASON_MISMATCH");
+
+        var preseasonTotals = await dbContext.MigrationImportPreseasonCalculatedTotals
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        Assert.Equal(4, preseasonTotals.Count);
+        Assert.Equal(40, preseasonTotals.Single(x => x.Subject == "Philip").CalculatedTotalPoints);
+        Assert.Equal(0, preseasonTotals.Single(x => x.Subject == "Andy").CalculatedTotalPoints);
+        Assert.Equal(0, preseasonTotals.Single(x => x.Subject == "Claire").CalculatedTotalPoints);
+        Assert.Equal(0, preseasonTotals.Single(x => x.Subject == "Dave").CalculatedTotalPoints);
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreseasonPolicyMissing_SetsPolicyMissingReasonAndZeroPoints()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonAnswers.AddRange(
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "ACTUAL", "Y", isActual: true),
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Philip", "Y"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var score = await dbContext.MigrationImportPreseasonCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");
+
+        AssertPreseasonScore(score, 0, "PRESEASON_POLICY_MISSING");
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreseasonActualMissing_SetsActualMissingReasonAndZeroPoints()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            ColumnIndex = 12,
+            CellReference = "M2",
+            RawPointsPerQuestion = "20",
+            PointsPerQuestion = 20
+        });
+
+        dbContext.MigrationImportPreseasonAnswers.Add(
+            PreseasonAnswer(runId, 2, "PRE-002", "Q1", "Philip", "Y"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var score = await dbContext.MigrationImportPreseasonCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");
+
+        AssertPreseasonScore(score, 0, "PRESEASON_ACTUAL_MISSING");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenPodiumAndDnfMatrixApplied_ComputesExpectedPoints()
     {
         var runId = Guid.NewGuid();
@@ -123,6 +267,35 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     private static void AssertScore(MigrationImportCalculatedScoreEntity actual, int points, string reasonCode)
+    {
+        Assert.Equal(points, actual.Points);
+        Assert.Equal(reasonCode, actual.ReasonCode);
+        Assert.True(actual.Points >= 0);
+    }
+
+    private static MigrationImportPreseasonAnswerEntity PreseasonAnswer(
+        Guid runId,
+        int rowNumber,
+        string questionKey,
+        string questionText,
+        string subject,
+        string? normalizedAnswer,
+        bool isActual = false)
+    {
+        return new MigrationImportPreseasonAnswerEntity
+        {
+            ImportRunId = runId,
+            RowNumber = rowNumber,
+            QuestionKey = questionKey,
+            QuestionText = questionText,
+            Subject = subject,
+            RawAnswer = normalizedAnswer,
+            NormalizedAnswer = normalizedAnswer,
+            IsActualOutcome = isActual
+        };
+    }
+
+    private static void AssertPreseasonScore(MigrationImportPreseasonCalculatedScoreEntity actual, int points, string reasonCode)
     {
         Assert.Equal(points, actual.Points);
         Assert.Equal(reasonCode, actual.ReasonCode);

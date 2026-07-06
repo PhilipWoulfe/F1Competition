@@ -33,10 +33,25 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
+        var preseasonAnswers = await dbContext.MigrationImportPreseasonAnswers
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var preseasonPolicy = await dbContext.MigrationImportPreseasonPolicies
+            .Where(x => x.ImportRunId == runId)
+            .AsNoTracking()
+            .SingleOrDefaultAsync(cancellationToken);
+
         dbContext.MigrationImportCalculatedScores.RemoveRange(
             dbContext.MigrationImportCalculatedScores.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonCalculatedScores.RemoveRange(
+            dbContext.MigrationImportPreseasonCalculatedScores.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonCalculatedTotals.RemoveRange(
+            dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
-        if (selections.Count == 0)
+        if (selections.Count == 0 && preseasonAnswers.Count == 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
             return new MigrationScoreRecalculationResult(ScoredPickCount: 0, TotalPoints: 0);
@@ -77,9 +92,30 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             }
         }
 
+        var preseasonCalculatedScores = CalculatePreseasonScores(runId, preseasonAnswers, preseasonPolicy?.PointsPerQuestion);
+        var preseasonCalculatedTotals = preseasonCalculatedScores
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new MigrationImportPreseasonCalculatedTotalEntity
+            {
+                ImportRunId = runId,
+                Subject = group.Key,
+                CalculatedTotalPoints = group.Sum(x => x.Points)
+            })
+            .ToList();
+
         if (calculatedScores.Count > 0)
         {
             await dbContext.MigrationImportCalculatedScores.AddRangeAsync(calculatedScores, cancellationToken);
+        }
+
+        if (preseasonCalculatedScores.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonCalculatedScores.AddRangeAsync(preseasonCalculatedScores, cancellationToken);
+        }
+
+        if (preseasonCalculatedTotals.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonCalculatedTotals.AddRangeAsync(preseasonCalculatedTotals, cancellationToken);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -87,6 +123,102 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         return new MigrationScoreRecalculationResult(
             ScoredPickCount: calculatedScores.Count,
             TotalPoints: calculatedScores.Sum(x => x.Points));
+    }
+
+    private static List<MigrationImportPreseasonCalculatedScoreEntity> CalculatePreseasonScores(
+        Guid runId,
+        IReadOnlyCollection<MigrationImportPreseasonAnswerEntity> answers,
+        int? pointsPerQuestion)
+    {
+        if (answers.Count == 0)
+        {
+            return [];
+        }
+
+        var groupedByQuestion = answers
+            .GroupBy(x => new { x.RowNumber, x.QuestionKey, x.QuestionText })
+            .OrderBy(x => x.Key.RowNumber)
+            .ToList();
+
+        var calculated = new List<MigrationImportPreseasonCalculatedScoreEntity>();
+
+        foreach (var questionGroup in groupedByQuestion)
+        {
+            var actual = questionGroup.FirstOrDefault(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase));
+            var actualValue = NormalizeToken(actual?.NormalizedAnswer);
+            var actualTokenSet = BuildPreseasonActualTokenSet(actualValue);
+
+            foreach (var participant in questionGroup.Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase)))
+            {
+                var predictedValue = NormalizeToken(participant.NormalizedAnswer);
+                var (points, reasonCode) = ScorePreseasonAnswer(predictedValue, actualValue, actualTokenSet, pointsPerQuestion);
+
+                calculated.Add(new MigrationImportPreseasonCalculatedScoreEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = participant.RowNumber,
+                    QuestionKey = participant.QuestionKey,
+                    QuestionText = participant.QuestionText,
+                    Subject = participant.Subject,
+                    PredictedValue = predictedValue,
+                    ActualValue = actualValue,
+                    Points = points,
+                    ReasonCode = reasonCode
+                });
+            }
+        }
+
+        return calculated;
+    }
+
+    private static (int Points, string ReasonCode) ScorePreseasonAnswer(
+        string? predictedValue,
+        string? actualValue,
+        ISet<string> actualTokenSet,
+        int? pointsPerQuestion)
+    {
+        if (!pointsPerQuestion.HasValue)
+        {
+            return (0, "PRESEASON_POLICY_MISSING");
+        }
+
+        if (string.IsNullOrWhiteSpace(predictedValue))
+        {
+            return (0, "PRESEASON_PREDICTION_NULL");
+        }
+
+        if (string.IsNullOrWhiteSpace(actualValue))
+        {
+            return (0, "PRESEASON_ACTUAL_MISSING");
+        }
+
+        if (actualTokenSet.Contains(predictedValue))
+        {
+            return (Math.Max(0, pointsPerQuestion.Value), "PRESEASON_EXACT");
+        }
+
+        return (0, "PRESEASON_MISMATCH");
+    }
+
+    private static HashSet<string> BuildPreseasonActualTokenSet(string? actualValue)
+    {
+        if (string.IsNullOrWhiteSpace(actualValue))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var tokenSet = PreseasonActualSplitRegex()
+            .Split(actualValue)
+            .Select(token => token.Trim().ToUpperInvariant())
+            .Where(token => token.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (tokenSet.Count == 0)
+        {
+            tokenSet.Add(actualValue.Trim().ToUpperInvariant());
+        }
+
+        return tokenSet;
     }
 
     private static MigrationImportCalculatedScoreEntity CalculateScore(
@@ -184,4 +316,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
     [GeneratedRegex("[A-Z]{3}", RegexOptions.Compiled)]
     private static partial Regex DriverCodeRegex();
+
+    [GeneratedRegex("\\s*\\|\\s*", RegexOptions.Compiled)]
+    private static partial Regex PreseasonActualSplitRegex();
 }
