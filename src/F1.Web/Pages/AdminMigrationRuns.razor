@@ -188,7 +188,7 @@ else if (selectedRunDetail is not null)
     </div>
 
     <h3 id="participant-comparisons">Participant Comparisons</h3>
-    @if (!filteredParticipantDeltas.Any())
+    @if (filteredParticipantDeltas.Count == 0)
     {
         <p>No participant deltas available for this run.</p>
     }
@@ -222,7 +222,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="race-comparisons">Race Comparisons</h3>
-    @if (!filteredRaceDiffs.Any())
+    @if (filteredRaceDiffs.Count == 0)
     {
         <p>No race diffs available for this run.</p>
     }
@@ -260,7 +260,7 @@ else if (selectedRunDetail is not null)
     }
 
     <h3 id="pick-comparisons">Pick Comparisons</h3>
-    @if (!filteredPickDiffs.Any())
+    @if (filteredPickDiffs.Count == 0)
     {
         <p>No pick diffs available for this run.</p>
     }
