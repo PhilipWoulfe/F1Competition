@@ -205,11 +205,21 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
         catch (Exception ex)
         {
+            await using var failureContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var unresolvedTokenCount = await failureContext.MigrationImportUnresolvedTokens.CountAsync(
+                x => x.ImportRunId == run.RunId,
+                cancellationToken);
+            var preseasonAnswerCount = await failureContext.MigrationImportPreseasonAnswers.CountAsync(
+                x => x.ImportRunId == run.RunId,
+                cancellationToken);
+
             await _runService.FailRunAsync(
                 run.RunId,
                 ex.Message,
                 cancellationToken,
                 new MigrationImportRunCompletionMetadata(
+                    UnresolvedTokenCount: unresolvedTokenCount,
+                    PreseasonAnswerCount: preseasonAnswerCount,
                     PreseasonParseStatus: "Failed",
                     PreseasonScoringStatus: "Failed",
                     PreseasonErrorCount: 1,
