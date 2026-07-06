@@ -85,6 +85,7 @@ namespace F1.Api.Tests.Integration
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         { "ConnectionStrings:Postgres", TestConnectionString },
+                        { "Database:AutoMigrate", "false" },
                         { "DevSettings:SimulateCloudflare", "true" },
                         { "DevSettings:MockEmail", "user@example.com" },
                         { "DevSettings:MockGroups:0", "F1 Users" },
@@ -108,7 +109,8 @@ namespace F1.Api.Tests.Integration
                 {
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
-                        { "ConnectionStrings:Postgres", TestConnectionString }
+                        { "ConnectionStrings:Postgres", TestConnectionString },
+                        { "Database:AutoMigrate", "false" }
                     });
                 });
             }).CreateClient();

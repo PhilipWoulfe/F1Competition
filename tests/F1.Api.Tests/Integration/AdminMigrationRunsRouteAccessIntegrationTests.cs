@@ -97,6 +97,7 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
                 var values = new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Postgres"] = TestConnectionString,
+                    ["Database:AutoMigrate"] = "false",
                     ["DevSettings:SimulateCloudflare"] = "true",
                     ["DevSettings:MockEmail"] = string.Empty,
                     ["CloudflareAccess:AdminGroups:0"] = "F1 Admins"

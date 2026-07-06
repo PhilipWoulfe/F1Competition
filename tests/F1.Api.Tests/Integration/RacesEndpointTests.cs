@@ -50,6 +50,7 @@ namespace F1.Api.Tests.Integration
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         { "ConnectionStrings:Postgres", TestConnectionString },
+                        { "Database:AutoMigrate", "false" },
                         { "DevSettings:SimulateCloudflare", "true" }
                     });
                 });
