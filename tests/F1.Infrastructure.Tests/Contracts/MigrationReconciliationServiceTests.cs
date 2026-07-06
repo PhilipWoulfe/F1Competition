@@ -24,6 +24,14 @@ public sealed class MigrationReconciliationServiceTests
             StartedAtUtc = DateTime.UtcNow
         });
 
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
+        });
+
         dbContext.MigrationImportLegacyPickScores.AddRange(
             new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 1, RaceCode = "AUS", PickType = "1", Subject = "Philip", LegacyPoints = 10 },
             new MigrationImportLegacyPickScoreEntity { ImportRunId = runId, RowNumber = 2, RaceCode = "AUS", PickType = "2", Subject = "Philip", LegacyPoints = 10 },
@@ -77,10 +85,17 @@ public sealed class MigrationReconciliationServiceTests
         Assert.NotEmpty(nonZero);
         Assert.All(nonZero, x => Assert.False(string.IsNullOrWhiteSpace(x.Explanation)));
 
+        var philipFirstPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
+        Assert.Contains("row 1, column B", philipFirstPick.Explanation);
+
+        var andySecondPick = pickDiffs.Single(x => x.RaceCode == "AUS" && x.Subject == "Andy" && x.PickType == "2");
+        Assert.Contains("row 5, column C", andySecondPick.Explanation);
+
         var philipAusRaceDiff = await dbContext.MigrationImportRaceDiffs
             .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip");
         Assert.Contains("Contributors:", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-1 10->5 (-5)", philipAusRaceDiff.Explanation);
+        Assert.Contains("column B", philipAusRaceDiff.Explanation);
         Assert.Contains("AUS-DNF 5->0 (-5)", philipAusRaceDiff.Explanation);
 
         var andyAusRaceDiff = await dbContext.MigrationImportRaceDiffs
@@ -103,6 +118,14 @@ public sealed class MigrationReconciliationServiceTests
             IsDryRun = true,
             Status = "Started",
             StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,Andy,"
         });
 
         dbContext.MigrationImportLegacyPickScores.AddRange(
@@ -132,6 +155,68 @@ public sealed class MigrationReconciliationServiceTests
 
         Assert.Equal(1, reasonSummary.OccurrenceCount);
         Assert.Equal(-5, reasonSummary.TotalDeltaPoints);
+    }
+
+    [Fact]
+    public async Task ReconcileAndPersistAsync_TruncatesLongPickExplanation_ToPersistableLength()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,Philip,"
+        });
+
+        var rowNumbers = Enumerable.Range(1, 500).ToArray();
+        dbContext.MigrationImportLegacyPickScores.AddRange(
+            rowNumbers.Select(rowNumber => new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = rowNumber,
+                RaceCode = "AUS",
+                PickType = "1",
+                Subject = "Philip",
+                LegacyPoints = 1
+            }));
+
+        dbContext.MigrationImportCalculatedScores.Add(
+            new MigrationImportCalculatedScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                RaceCode = "AUS",
+                PickType = "1",
+                Subject = "Philip",
+                Points = 0,
+                ReasonCode = "PODIUM_TOP3_WRONG_SLOT"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var service = new MigrationReconciliationService(new TestDbContextFactory(options));
+        await service.ReconcileAndPersistAsync(runId, CancellationToken.None);
+
+        var pickDiff = await dbContext.MigrationImportPickDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.RaceCode == "AUS" && x.Subject == "Philip" && x.PickType == "1");
+
+        Assert.StartsWith("Philip AUS-1 imported 500", pickDiff.Explanation);
+        Assert.Equal(1024, pickDiff.Explanation.Length);
+        Assert.EndsWith("...", pickDiff.Explanation);
     }
 
     private static string GetGoldenFilePath(string fileName)
