@@ -12,69 +12,6 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
     private const string SectionTypeHeader = "Header";
     private const string SectionTypeRacePoints = "RacePoints";
     private const string SectionTypeTotalsMeta = "TotalsMeta";
-    private static readonly Dictionary<string, string> RaceCodeAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["AUS"] = "albert_park",
-        ["AUSTRALIA"] = "albert_park",
-        ["ALBERT PARK"] = "albert_park",
-        ["CHN"] = "shanghai",
-        ["CHINA"] = "shanghai",
-        ["SHANGHAI"] = "shanghai",
-        ["JPN"] = "suzuka",
-        ["JAPAN"] = "suzuka",
-        ["SUZUKA"] = "suzuka",
-        ["BAH"] = "bahrain",
-        ["BAHRAIN"] = "bahrain",
-        ["SAR"] = "jeddah",
-        ["SAUDI"] = "jeddah",
-        ["JEDDAH"] = "jeddah",
-        ["MIA"] = "miami",
-        ["MIAMI"] = "miami",
-        ["IMO"] = "imola",
-        ["IMOLA"] = "imola",
-        ["MON"] = "monaco",
-        ["MONACO"] = "monaco",
-        ["MONZA"] = "monza",
-        ["MNZ"] = "monza",
-        ["ITA"] = "monza",
-        ["ITALY"] = "monza",
-        ["BAR"] = "catalunya",
-        ["ESP"] = "catalunya",
-        ["SPAIN"] = "catalunya",
-        ["CAN"] = "villeneuve",
-        ["CANADA"] = "villeneuve",
-        ["AUSTRIA"] = "red_bull_ring",
-        ["AUT"] = "red_bull_ring",
-        ["RED BULL RING"] = "red_bull_ring",
-        ["GBR"] = "silverstone",
-        ["BRITAIN"] = "silverstone",
-        ["SILVERSTONE"] = "silverstone",
-        ["SPA"] = "spa",
-        ["BEL"] = "spa",
-        ["BELGIUM"] = "spa",
-        ["HUN"] = "hungaroring",
-        ["HUNGARY"] = "hungaroring",
-        ["NED"] = "zandvoort",
-        ["NETHERLANDS"] = "zandvoort",
-        ["BAK"] = "baku",
-        ["AZE"] = "baku",
-        ["AZERBAIJAN"] = "baku",
-        ["SIN"] = "marina_bay",
-        ["SINGAPORE"] = "marina_bay",
-        ["COTA"] = "americas",
-        ["USA"] = "americas",
-        ["UNITED STATES"] = "americas",
-        ["MEX"] = "rodriguez",
-        ["MEXICO"] = "rodriguez",
-        ["BRA"] = "interlagos",
-        ["BRAZIL"] = "interlagos",
-        ["LAS"] = "las_vegas",
-        ["VEGAS"] = "las_vegas",
-        ["QAT"] = "losail",
-        ["QATAR"] = "losail",
-        ["ABD"] = "yas_marina",
-        ["ABU DHABI"] = "yas_marina"
-    };
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
 
@@ -304,21 +241,10 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             return false;
         }
 
-        raceCode = NormalizeRaceCode(match.Groups[1].Value);
+        raceCode = RaceCodeNormalizer.NormalizeRaceCode(match.Groups[1].Value);
         pickType = match.Groups[2].Value.ToUpperInvariant();
         currentRaceCode = raceCode;
         return true;
-    }
-
-    private static string NormalizeRaceCode(string raceToken)
-    {
-        var upper = raceToken.Trim().ToUpperInvariant();
-        if (RaceCodeAliasDictionary.TryGetValue(upper, out var mapped))
-        {
-            return mapped;
-        }
-
-        return upper.Length <= 3 ? upper : upper[..3];
     }
 
     private static List<string> ParseCsvLine(string line)
@@ -358,6 +284,6 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         return fields;
     }
 
-    [GeneratedRegex("^([A-Za-z]{3,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceLabelRegex();
 }

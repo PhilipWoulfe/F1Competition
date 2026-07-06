@@ -209,24 +209,17 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 : int.MaxValue;
             var mappedCircuitId = mappings[index].MappedCircuitId!;
 
-            var selections = await dbContext.MigrationImportRaceSelections
+            var updated = await dbContext.MigrationImportRaceSelections
                 .Where(x =>
                     x.ImportRunId == runId &&
                     x.RowNumber >= startRow &&
                     x.RowNumber <= endRow &&
                     x.RaceCode != mappedCircuitId)
-                .ToListAsync(cancellationToken);
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(selection => selection.RaceCode, mappedCircuitId),
+                    cancellationToken);
 
-            foreach (var selection in selections)
-            {
-                selection.RaceCode = mappedCircuitId;
-                rewritten++;
-            }
-        }
-
-        if (rewritten > 0)
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            rewritten += updated;
         }
 
         return rewritten;

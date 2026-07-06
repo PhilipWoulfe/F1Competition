@@ -156,6 +156,45 @@ public sealed class MigrationLegacyScoreImporterTests
     }
 
     [Fact]
+    public async Task ImportAndPersistAsync_WhenMultiWordRaceLabelsProvided_MapsToExpectedCircuitIds()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePoints", RawPayload = "ABU DHABI-1,10" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePoints", RawPayload = "UNITED STATES-2,5" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 4, SectionType = "TotalsMeta", RawPayload = "Result,15" });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        var result = await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(2, result.LegacyPickScoreCount);
+
+        var legacyScores = await dbContext.MigrationImportLegacyPickScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ToListAsync();
+
+        Assert.Equal("yas_marina", legacyScores[0].RaceCode);
+        Assert.Equal("americas", legacyScores[1].RaceCode);
+    }
+
+    [Fact]
     public async Task ImportAndPersistAsync_WhenRoundMappingsExist_UsesMappedCircuitIdsForAllLegacyRaceCodes()
     {
         var runId = Guid.NewGuid();

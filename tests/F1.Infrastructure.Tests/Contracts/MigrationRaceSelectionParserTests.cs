@@ -352,6 +352,45 @@ public sealed class MigrationRaceSelectionParserTests
     }
 
     [Fact]
+    public async Task ParseAndPersistAsync_WhenMultiWordRaceLabelsProvided_MapsToExpectedCircuitIds()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 1, SectionType = "Header", RawPayload = "Question,Philip,," },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 2, SectionType = "RacePick", RawPayload = "ABU DHABI-1,VER,VER" },
+            new MigrationImportRawRowEntity { ImportRunId = runId, RowNumber = 3, SectionType = "RacePick", RawPayload = "UNITED STATES-2,NOR,NOR" });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var parseResult = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(4, parseResult.SelectionCount);
+        Assert.Equal(0, parseResult.UnresolvedTokenCount);
+
+        var abuDhabiPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Philip");
+        Assert.Equal("yas_marina", abuDhabiPick.RaceCode);
+
+        var unitedStatesPick = await dbContext.MigrationImportRaceSelections
+            .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Philip");
+        Assert.Equal("americas", unitedStatesPick.RaceCode);
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenSeasonRaceCodesUsed_MapsAllToJolpicaCircuitIds()
     {
         var runId = Guid.NewGuid();
