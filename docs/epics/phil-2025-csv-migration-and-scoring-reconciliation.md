@@ -130,6 +130,15 @@ Acceptance criteria:
 - Admin UI includes run history, run status, and drilldown comparison views for expected-vs-actual values.
 - Comparison views support filtering and export aligned with sign-off workflow.
 
+### Story 8: Add admin migration kickoff controls
+As an admin operator, I want to start migration runs from the admin UI so dry-runs and write-runs can be triggered and audited without CLI access.
+
+Acceptance criteria:
+- Admin-only API supports run kickoff with mode selection and returns created run identity.
+- UI requires explicit confirmation before triggering a run and shows clear success/error states.
+- Duplicate active runs for the same source/checksum are prevented and reported.
+- Trigger metadata captures initiator identity, timestamp, and requested mode.
+
 ## Delivery Plan
 1. Contract and dictionary snapshot design
 2. CSV adapter and staging pipeline
@@ -137,7 +146,8 @@ Acceptance criteria:
 4. Reconciliation report generation
 5. Dry-run and run audit hardening
 6. Admin run review API and UI delivery
-7. Follow-on adapter interface documentation
+7. Admin kickoff controls delivery
+8. Follow-on adapter interface documentation
 
 ## Risks and Mitigations
 - Risk: Ambiguous race labels lead to incorrect joins.

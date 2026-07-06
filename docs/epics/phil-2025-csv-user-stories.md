@@ -177,6 +177,21 @@ Test notes:
 - Verify export payload schema and row ordering are stable.
 - Verify audit records are written for admin access and export actions.
 
+## Story M15: Add admin migration kickoff controls
+As an admin operator, I want to start migration runs from the admin UI so dry-runs and write-runs can be triggered and audited without CLI access.
+
+Acceptance criteria:
+- Admin UI exposes a start-run action with explicit mode selection (dry-run or write).
+- Starting a run requires a confirmation step that clearly states mode, source input, and impact.
+- Kickoff endpoint enforces admin-only access and returns a created run id for tracking.
+- Duplicate active runs for the same source/checksum are prevented with a clear conflict response.
+- Run trigger metadata includes initiator identity, trigger timestamp, and requested mode.
+
+Test notes:
+- API integration tests for anonymous, non-admin, and admin kickoff authorization behavior.
+- UI tests for confirmation flow, success state, and conflict/error feedback.
+- Verify a started run appears in run history with trigger metadata and correct status progression.
+
 ## Suggested Delivery Sequence
 1. M1 staging and run envelope
 2. M2 row classifier
@@ -191,4 +206,5 @@ Test notes:
 11. M12 admin runs page
 12. M13 expected-vs-actual comparison UX
 13. M14 export and audit affordances
-14. M10 runbook and final sign-off
+14. M15 admin kickoff controls
+15. M10 runbook and final sign-off
