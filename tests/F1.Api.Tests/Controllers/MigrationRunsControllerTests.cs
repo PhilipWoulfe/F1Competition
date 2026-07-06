@@ -2,6 +2,7 @@ using System.Security.Claims;
 using F1.Api.Controllers;
 using F1.Api.Dtos;
 using F1.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -66,21 +67,14 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
-    public async Task GetRuns_WhenNonAdmin_ReturnsForbid()
+    public void MigrationRunsController_RequiresAdminRole()
     {
-        var service = new Mock<IMigrationRunAdminService>();
-        var controller = new MigrationRunsController(service.Object)
-        {
-            ControllerContext = new ControllerContext
-            {
-                HttpContext = CreateHttpContext(isAdmin: false)
-            }
-        };
+        var authorizeAttribute = typeof(MigrationRunsController)
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+            .Cast<AuthorizeAttribute>()
+            .Single();
 
-        var result = await controller.GetRuns();
-
-        Assert.IsType<ForbidResult>(result.Result);
-        service.Verify(x => x.GetRunsAsync(It.IsAny<MigrationRunListQuery>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Equal("Admin", authorizeAttribute.Roles);
     }
 
     [Fact]
@@ -104,21 +98,46 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
-    public async Task GetRunDetail_WhenNonAdmin_ReturnsForbid()
+    public async Task GetRunDetail_WhenAdminAndRunExists_ReturnsOkPayload()
     {
         var service = new Mock<IMigrationRunAdminService>();
+        var runId = Guid.NewGuid();
+        var detail = new AdminMigrationRunDetailResponseDto(
+            RunId: runId,
+            Status: "Completed",
+            IsDryRun: false,
+            SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+            SourceFileChecksum: "abc123",
+            StartedAtUtc: new DateTime(2026, 7, 6, 10, 0, 0, DateTimeKind.Utc),
+            FinishedAtUtc: new DateTime(2026, 7, 6, 10, 3, 0, DateTimeKind.Utc),
+            RawRowCount: 250,
+            ErrorMessage: null,
+            UnresolvedTokenCount: 1,
+            PickDiffCount: 2,
+            RaceDiffCount: 3,
+            TotalDeltaPoints: -4,
+            UnresolvedTokenSummary: [],
+            ParticipantDeltas: [],
+            RaceDiffs: [],
+            PickDiffs: []);
+
+        service.Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(detail);
+
         var controller = new MigrationRunsController(service.Object)
         {
             ControllerContext = new ControllerContext
             {
-                HttpContext = CreateHttpContext(isAdmin: false)
+                HttpContext = CreateHttpContext(isAdmin: true)
             }
         };
 
-        var result = await controller.GetRunDetail(Guid.NewGuid());
+        var result = await controller.GetRunDetail(runId);
 
-        Assert.IsType<ForbidResult>(result.Result);
-        service.Verify(x => x.GetRunDetailAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<AdminMigrationRunDetailResponseDto>(okResult.Value);
+        Assert.Equal(runId, payload.RunId);
+        service.Verify(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static HttpContext CreateHttpContext(bool isAdmin)

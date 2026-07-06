@@ -7,7 +7,7 @@ namespace F1.Api.Controllers;
 
 [ApiController]
 [Route("admin/migration-runs")]
-[Authorize]
+[Authorize(Roles = "Admin")]
 public sealed class MigrationRunsController : ControllerBase
 {
     private readonly IMigrationRunAdminService _migrationRunAdminService;
@@ -26,11 +26,6 @@ public sealed class MigrationRunsController : ControllerBase
         [FromQuery] DateTime? startedToUtc = null,
         CancellationToken cancellationToken = default)
     {
-        if (!User.IsInRole("Admin"))
-        {
-            return Forbid();
-        }
-
         var response = await _migrationRunAdminService.GetRunsAsync(
             new MigrationRunListQuery(page, pageSize, status, startedFromUtc, startedToUtc),
             cancellationToken);
@@ -41,11 +36,6 @@ public sealed class MigrationRunsController : ControllerBase
     [HttpGet("{runId:guid}")]
     public async Task<ActionResult<AdminMigrationRunDetailResponseDto>> GetRunDetail(Guid runId, CancellationToken cancellationToken = default)
     {
-        if (!User.IsInRole("Admin"))
-        {
-            return Forbid();
-        }
-
         var detail = await _migrationRunAdminService.GetRunDetailAsync(runId, cancellationToken);
         if (detail is null)
         {

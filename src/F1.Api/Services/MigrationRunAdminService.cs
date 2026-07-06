@@ -48,42 +48,31 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(run => new
+            {
+                run.Id,
+                run.Status,
+                run.IsDryRun,
+                run.SourceFilePath,
+                run.SourceFileChecksum,
+                run.StartedAtUtc,
+                run.FinishedAtUtc,
+                run.RawRowCount,
+                run.ErrorMessage,
+                UnresolvedTokenCount = _dbContext.MigrationImportUnresolvedTokens.Count(x => x.ImportRunId == run.Id),
+                PickDiffCount = _dbContext.MigrationImportPickDiffs.Count(x => x.ImportRunId == run.Id),
+                RaceDiffCount = _dbContext.MigrationImportRaceDiffs.Count(x => x.ImportRunId == run.Id),
+                TotalDeltaPoints = _dbContext.MigrationImportParticipantDeltaSummaries
+                    .Where(x => x.ImportRunId == run.Id)
+                    .Select(x => (int?)x.NetDeltaPoints)
+                    .Sum() ?? 0
+            })
             .ToListAsync(cancellationToken);
 
         if (runs.Count == 0)
         {
             return new AdminMigrationRunListResponseDto(page, pageSize, totalCount, []);
         }
-
-        var runIds = runs.Select(x => x.Id).ToArray();
-
-        var unresolvedCounts = await _dbContext.MigrationImportUnresolvedTokens
-            .AsNoTracking()
-            .Where(x => runIds.Contains(x.ImportRunId))
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() })
-            .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
-
-        var pickDiffCounts = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => runIds.Contains(x.ImportRunId))
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() })
-            .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
-
-        var raceDiffCounts = await _dbContext.MigrationImportRaceDiffs
-            .AsNoTracking()
-            .Where(x => runIds.Contains(x.ImportRunId))
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, Count = group.Count() })
-            .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
-
-        var totalDeltas = await _dbContext.MigrationImportParticipantDeltaSummaries
-            .AsNoTracking()
-            .Where(x => runIds.Contains(x.ImportRunId))
-            .GroupBy(x => x.ImportRunId)
-            .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) })
-            .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
 
         var items = runs.Select(run => new AdminMigrationRunListItemDto(
                 RunId: run.Id,
@@ -94,10 +83,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 StartedAtUtc: run.StartedAtUtc,
                 FinishedAtUtc: run.FinishedAtUtc,
                 RawRowCount: run.RawRowCount,
-                UnresolvedTokenCount: unresolvedCounts.GetValueOrDefault(run.Id, 0),
-                PickDiffCount: pickDiffCounts.GetValueOrDefault(run.Id, 0),
-                RaceDiffCount: raceDiffCounts.GetValueOrDefault(run.Id, 0),
-                TotalDeltaPoints: totalDeltas.GetValueOrDefault(run.Id, 0),
+                UnresolvedTokenCount: run.UnresolvedTokenCount,
+                PickDiffCount: run.PickDiffCount,
+                RaceDiffCount: run.RaceDiffCount,
+                TotalDeltaPoints: run.TotalDeltaPoints,
                 ErrorMessage: run.ErrorMessage))
             .ToArray();
 
