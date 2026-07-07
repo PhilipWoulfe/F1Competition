@@ -83,8 +83,12 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
         {
             var normalizedConflictPolicy = NormalizeConflictPolicy(_importOptions.CanonicalConflictPolicy);
             var competition = await dbContext.Competitions
-                .OrderBy(x => x.Id)
-                .FirstOrDefaultAsync(x => x.Year == _importOptions.Season, cancellationToken);
+                .Where(x => x.Year == _importOptions.Season)
+                .OrderBy(x => x.Name == "Philip 2025" ? 0 : 1)
+                .ThenBy(x => x.Name.Contains("Philip") ? 0 : 1)
+                .ThenBy(x => x.Name.StartsWith("Migration Import") ? 1 : 0)
+                .ThenBy(x => x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (competition is null)
             {
