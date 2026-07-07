@@ -308,7 +308,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             }
 
             var questionText = columns[0].Trim();
-            var questionKey = $"PRE-{row.RowNumber:D3}";
+            var questionKey = ResolvePreseasonQuestionKey(row.RowNumber, usePhil2025Contract);
 
             for (var participantIndex = 0; participantIndex < participants.Count; participantIndex++)
             {
@@ -341,6 +341,19 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         }
 
         return parsed;
+    }
+
+    private static string ResolvePreseasonQuestionKey(int rowNumber, bool usePhil2025Contract)
+    {
+        var normalizedRowNumber = rowNumber;
+        if (usePhil2025Contract)
+        {
+            var contractOffset = MigrationPhil2025CsvContractPolicy.PreseasonPointsStartRow -
+                MigrationPhil2025CsvContractPolicy.PreseasonQuestionStartRow;
+            normalizedRowNumber = Math.Max(1, rowNumber - contractOffset);
+        }
+
+        return $"PRE-{normalizedRowNumber:D3}";
     }
 
     private void HandlePreseasonPolicyParseIssue(string message, int? rowNumber = null)

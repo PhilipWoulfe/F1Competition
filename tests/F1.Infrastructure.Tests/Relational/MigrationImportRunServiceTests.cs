@@ -226,6 +226,71 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
+    public async Task RunOnceAsync_WhenPhilPolicyPresent_ScoresPreseasonWithoutPolicyMissingWarnings()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            string.Join(Environment.NewLine,
+            [
+                "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious ,Shane,Veronica,BINGPT,,",
+                "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,20"
+            ]),
+            MigrationPhil2025CsvContractPolicy.SourceFileName);
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+            Assert.Equal("Completed", run.PreseasonParseStatus);
+            Assert.Equal("Completed", run.PreseasonScoringStatus);
+            Assert.Equal(0, run.PreseasonWarningCount);
+
+            var daveScore = await verificationContext.MigrationImportPreseasonCalculatedScores
+                .AsNoTracking()
+                .SingleAsync(x => x.ImportRunId == run.Id && x.QuestionKey == "PRE-002" && x.Subject == "Dave");
+            Assert.Equal(20, daveScore.Points);
+            Assert.Equal("PRESEASON_EXACT", daveScore.ReasonCode);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
     public async Task RunOnceAsync_WhenUnresolvedTokensBelowThreshold_CompletesWithWarnings()
     {
         await using var setupContext = CreateContext();
@@ -617,6 +682,9 @@ public sealed class MigrationImportRunServiceTests
         public async Task<MigrationLegacyScoreImportResult> ImportAndPersistAsync(Guid runId, CancellationToken cancellationToken)
         {
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            dbContext.MigrationImportLegacyPickScores.RemoveRange(
+                dbContext.MigrationImportLegacyPickScores.Where(x => x.ImportRunId == runId));
+
             dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
             {
                 ImportRunId = runId,
