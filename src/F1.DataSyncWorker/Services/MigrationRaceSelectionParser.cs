@@ -273,8 +273,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         if (competitionIds.Count != 1)
         {
-            throw new InvalidOperationException(
-                $"Expected exactly one competition for season '{_importOptions.Season}' when persisting question templates, but found {competitionIds.Count}.");
+            return null;
         }
 
         var competitionId = competitionIds[0];
