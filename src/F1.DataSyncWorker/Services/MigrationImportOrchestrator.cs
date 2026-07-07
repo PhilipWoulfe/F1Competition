@@ -175,6 +175,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
             var paritySnapshotChecksum = await BuildParitySnapshotChecksumAsync(run.RunId, cancellationToken);
             var parityComparison = await BuildParityComparisonAsync(run, paritySnapshotChecksum, cancellationToken);
+            var idempotency = await BuildIdempotencyMetadataAsync(run, cancellationToken);
 
             var runMetadata = await BuildRunCompletionMetadataAsync(
                 run.RunId,
@@ -184,6 +185,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 mappingResult.WarningCount,
                 paritySnapshotChecksum,
                 parityComparison,
+                idempotency,
                 cancellationToken);
 
             await _runService.CompleteRunAsync(
@@ -244,6 +246,12 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 parityComparison.ParityStatus,
                 parityComparison.ComparedRunId,
                 parityComparison.ComparedChecksum);
+
+            _logger.LogInformation(
+                "Migration import idempotency report. RunId={RunId}, ScopeKey={ScopeKey}, Outcome={Outcome}",
+                run.RunId,
+                idempotency.ScopeKey,
+                idempotency.Outcome);
         }
         catch (Exception ex)
         {
@@ -313,6 +321,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         int mappingWarningCount,
         string paritySnapshotChecksum,
         (string ParityStatus, Guid? ComparedRunId, string? ComparedChecksum) parityComparison,
+        (string ScopeKey, string Outcome) idempotency,
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -355,7 +364,29 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             ParitySnapshotChecksum: paritySnapshotChecksum,
             ParityStatus: parityComparison.ParityStatus,
             ParityComparedRunId: parityComparison.ComparedRunId,
-            ParityComparedChecksum: parityComparison.ComparedChecksum);
+            ParityComparedChecksum: parityComparison.ComparedChecksum,
+            IdempotencyScopeKey: idempotency.ScopeKey,
+            IdempotencyOutcome: idempotency.Outcome);
+    }
+
+    private async Task<(string ScopeKey, string Outcome)> BuildIdempotencyMetadataAsync(
+        MigrationImportRunContext run,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scopeKey = $"season:{_importOptions.Season}|checksum:{run.SourceFileChecksum}";
+
+        var hasPriorCompletedInScope = await dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.Id != run.RunId &&
+                    x.Status == "Completed" &&
+                    x.SourceFileChecksum == run.SourceFileChecksum &&
+                    x.IdempotencyScopeKey == scopeKey,
+                cancellationToken);
+
+        return (scopeKey, hasPriorCompletedInScope ? "Replayed" : "FirstWrite");
     }
 
     private async Task<string> BuildParitySnapshotChecksumAsync(Guid runId, CancellationToken cancellationToken)

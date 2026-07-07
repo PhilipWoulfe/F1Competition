@@ -52,4 +52,6 @@ public sealed record MigrationImportRunCompletionMetadata(
     string? ParitySnapshotChecksum = null,
     string ParityStatus = "NotCompared",
     string? ParityComparedChecksum = null,
-    Guid? ParityComparedRunId = null);
+    Guid? ParityComparedRunId = null,
+    string? IdempotencyScopeKey = null,
+    string IdempotencyOutcome = "Unknown");

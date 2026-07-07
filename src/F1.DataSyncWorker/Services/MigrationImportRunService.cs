@@ -69,7 +69,8 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
             PreseasonParseStatus = "NotDetected",
             PreseasonScoringStatus = "NotDetected",
             PreseasonIsolationGuardPassed = true,
-            ParityStatus = "NotCompared"
+            ParityStatus = "NotCompared",
+            IdempotencyOutcome = "Unknown"
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -162,6 +163,8 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
             run.ParityStatus = Truncate(metadata.ParityStatus, 32) ?? "NotCompared";
             run.ParityComparedChecksum = Truncate(metadata.ParityComparedChecksum, 128);
             run.ParityComparedRunId = metadata.ParityComparedRunId;
+            run.IdempotencyScopeKey = Truncate(metadata.IdempotencyScopeKey, 256);
+            run.IdempotencyOutcome = Truncate(metadata.IdempotencyOutcome, 32) ?? "Unknown";
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

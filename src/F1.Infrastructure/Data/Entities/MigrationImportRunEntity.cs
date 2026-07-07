@@ -25,5 +25,7 @@ public sealed class MigrationImportRunEntity
     public string ParityStatus { get; set; } = "NotCompared";
     public string? ParityComparedChecksum { get; set; }
     public Guid? ParityComparedRunId { get; set; }
+    public string? IdempotencyScopeKey { get; set; }
+    public string IdempotencyOutcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }
 }

@@ -325,6 +325,171 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
+    public async Task RunOnceAsync_WhenWriteRunIsRepeatedWithSameChecksum_DoesNotDuplicateCanonicalRows()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var firstRun = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions { Enabled = true, SourceFilePath = sourceFilePath, DryRun = false, Season = 2025 }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            var secondRun = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions { Enabled = true, SourceFilePath = sourceFilePath, DryRun = false, Season = 2025 }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await firstRun.RunOnceAsync(CancellationToken.None);
+
+            await using var firstSnapshotContext = CreateContext();
+            var firstSelectionCount = await firstSnapshotContext.Selections.CountAsync();
+            var firstPositionCount = await firstSnapshotContext.SelectionPositions.CountAsync();
+
+            await secondRun.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var secondSelectionCount = await verificationContext.Selections.CountAsync();
+            var secondPositionCount = await verificationContext.SelectionPositions.CountAsync();
+
+            Assert.Equal(firstSelectionCount, secondSelectionCount);
+            Assert.Equal(firstPositionCount, secondPositionCount);
+
+            var runs = await verificationContext.MigrationImportRuns.AsNoTracking().OrderBy(x => x.StartedAtUtc).ToListAsync();
+            Assert.Equal(2, runs.Count);
+            Assert.Equal("FirstWrite", runs[0].IdempotencyOutcome);
+            Assert.Equal("Replayed", runs[1].IdempotencyOutcome);
+            Assert.Equal(runs[0].IdempotencyScopeKey, runs[1].IdempotencyScopeKey);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenWriteRunChecksumChanges_UsesNewIdempotencyScope()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePathA = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        var sourceFilePathB = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,NOR,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,0,10\n" +
+            "DNF,5,5\n" +
+            "Result,5\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var runA = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions { Enabled = true, SourceFilePath = sourceFilePathA, DryRun = false, Season = 2025 }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            var runB = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions { Enabled = true, SourceFilePath = sourceFilePathB, DryRun = false, Season = 2025 }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await runA.RunOnceAsync(CancellationToken.None);
+            await runB.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var runs = await verificationContext.MigrationImportRuns.AsNoTracking().OrderBy(x => x.StartedAtUtc).ToListAsync();
+            Assert.Equal(2, runs.Count);
+            Assert.NotEqual(runs[0].SourceFileChecksum, runs[1].SourceFileChecksum);
+            Assert.NotEqual(runs[0].IdempotencyScopeKey, runs[1].IdempotencyScopeKey);
+            Assert.Equal("FirstWrite", runs[0].IdempotencyOutcome);
+            Assert.Equal("FirstWrite", runs[1].IdempotencyOutcome);
+        }
+        finally
+        {
+            File.Delete(sourceFilePathA);
+            File.Delete(sourceFilePathB);
+        }
+    }
+
+    [Fact]
     public async Task RunOnceAsync_WhenUnresolvedTokensReachThreshold_FailsRun()
     {
         await using var setupContext = CreateContext();
