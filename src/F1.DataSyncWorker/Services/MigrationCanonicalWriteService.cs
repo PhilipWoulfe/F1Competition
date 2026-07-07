@@ -80,36 +80,78 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 .Where(x => x.CompetitionId == competition.Id && x.Season == _importOptions.Season)
                 .ToListAsync(cancellationToken);
 
-            var existingRaceByCircuit = existingRaces
+            var existingRaceById = existingRaces
                 .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
 
+            var existingRaceByRound = existingRaces
+                .GroupBy(x => x.Round)
+                .ToDictionary(x => x.Key, x => x.First());
+
+            var mappedRoundByRaceCode = await dbContext.MigrationImportRaceRoundMappings
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    x.Round.HasValue &&
+                    !string.IsNullOrWhiteSpace(x.MappedCircuitId))
+                .GroupBy(x => x.MappedCircuitId!)
+                .Select(group => new
+                {
+                    RaceCode = group.Key,
+                    Round = group.Min(item => item.Round!.Value)
+                })
+                .ToDictionaryAsync(x => x.RaceCode, x => x.Round, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
             var raceIdByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var round = 1;
+            var occupiedRounds = existingRaces
+                .Select(x => x.Round)
+                .ToHashSet();
+            var nextRoundCursor = 1;
             foreach (var raceCode in raceCodes)
             {
                 var canonicalRaceId = BuildRaceId(_importOptions.Season, raceCode);
-                raceIdByCode[raceCode] = canonicalRaceId;
 
-                if (existingRaceByCircuit.ContainsKey(canonicalRaceId))
+                if (existingRaceById.TryGetValue(canonicalRaceId, out var existingRaceByCanonicalId))
                 {
-                    round++;
+                    raceIdByCode[raceCode] = existingRaceByCanonicalId.Id;
                     continue;
                 }
 
-                dbContext.Races.Add(new Race
+                var desiredRound = mappedRoundByRaceCode.TryGetValue(raceCode, out var mappedRound)
+                    ? mappedRound
+                    : nextRoundCursor;
+
+                if (existingRaceByRound.TryGetValue(desiredRound, out var existingRaceByDesiredRound))
+                {
+                    raceIdByCode[raceCode] = existingRaceByDesiredRound.Id;
+                    continue;
+                }
+
+                while (occupiedRounds.Contains(desiredRound))
+                {
+                    desiredRound++;
+                }
+
+                raceIdByCode[raceCode] = canonicalRaceId;
+
+                var createdRace = new Race
                 {
                     Id = canonicalRaceId,
                     CompetitionId = competition.Id,
                     Season = _importOptions.Season,
-                    Round = round,
+                    Round = desiredRound,
                     RaceName = raceCode,
                     CircuitName = raceCode,
                     StartTimeUtc = DateTime.UtcNow,
                     PreQualyDeadlineUtc = DateTime.UtcNow,
                     FinalDeadlineUtc = DateTime.UtcNow
-                });
-                round++;
+                };
+
+                dbContext.Races.Add(createdRace);
+                existingRaceById[canonicalRaceId] = createdRace;
+                existingRaceByRound[desiredRound] = createdRace;
+                occupiedRounds.Add(desiredRound);
+                nextRoundCursor = Math.Max(nextRoundCursor, desiredRound + 1);
             }
 
             var driverIds = selections
