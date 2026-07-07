@@ -109,6 +109,100 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task RollbackRunAsync_DeletesCanonicalScopeAndPersistsAudit()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            var competition = new F1.Core.Models.Competition
+            {
+                Name = "Migration Import 2025",
+                Year = 2025,
+                Description = "Rollback scope"
+            };
+            dbContext.Competitions.Add(competition);
+            await dbContext.SaveChangesAsync();
+
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportRaceSelections.Add(new MigrationImportRaceSelectionEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                NormalizedValue = "VER"
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "migration-2025-albert-park",
+                CompetitionId = competition.Id,
+                Season = 2025,
+                Round = 1,
+                RaceName = "albert_park",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            var selectionId = Guid.NewGuid();
+            dbContext.Selections.Add(new F1.Core.Models.Selection
+            {
+                Id = selectionId,
+                UserId = "Philip",
+                RaceId = "migration-2025-albert-park",
+                BetType = F1.Core.Models.BetType.Regular,
+                SubmittedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.SelectionPositions.Add(new SelectionPositionEntity
+            {
+                SelectionId = selectionId,
+                Position = 1,
+                DriverId = "VER"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var rollback = await service.RollbackRunAsync(
+            new MigrationRunRollbackCommand(runId, "admin@example.com", "Bad write run"),
+            CancellationToken.None);
+
+        Assert.True(rollback.Success);
+        Assert.NotNull(rollback.Rollback);
+        Assert.Equal("RolledBack", rollback.Rollback!.Status);
+
+        await using var verificationContext = new F1DbContext(options);
+        Assert.Empty(verificationContext.Selections);
+        Assert.Empty(verificationContext.SelectionPositions);
+        Assert.Empty(verificationContext.Races.Where(x => x.Id == "migration-2025-albert-park"));
+
+        var audit = Assert.Single(verificationContext.MigrationImportRollbackAudits);
+        Assert.Equal("admin@example.com", audit.Actor);
+        Assert.Equal("Bad write run", audit.Reason);
+        Assert.Equal("Completed", audit.Outcome);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_IncludesConflictDiagnosticsForAdmins()
     {
         var runId = Guid.NewGuid();

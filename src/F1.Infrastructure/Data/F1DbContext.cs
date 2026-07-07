@@ -44,6 +44,7 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
     public DbSet<MigrationImportConflictDiagnosticEntity> MigrationImportConflictDiagnostics => Set<MigrationImportConflictDiagnosticEntity>();
+    public DbSet<MigrationImportRollbackAuditEntity> MigrationImportRollbackAudits => Set<MigrationImportRollbackAuditEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -595,6 +596,22 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.EntityType, x.KeyFields });
+        });
+
+        modelBuilder.Entity<MigrationImportRollbackAuditEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRollbackAudits");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.Outcome).HasMaxLength(32).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RequestedAtUtc });
         });
     }
 }

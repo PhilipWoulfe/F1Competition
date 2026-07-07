@@ -1,5 +1,6 @@
 using F1.Api.Dtos;
 using F1.Infrastructure.Data;
+using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -316,6 +317,100 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 EstimatedAffectedSelectionCount: estimatedAffectedSelectionCount));
     }
 
+    public async Task<MigrationRunRollbackResult> RollbackRunAsync(MigrationRunRollbackCommand command, CancellationToken cancellationToken)
+    {
+        var run = await _dbContext.MigrationImportRuns
+            .FirstOrDefaultAsync(x => x.Id == command.RunId, cancellationToken);
+
+        if (run is null)
+        {
+            return new MigrationRunRollbackResult(false, "Migration run was not found.", null);
+        }
+
+        if (!string.Equals(run.Status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(run.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return new MigrationRunRollbackResult(false, "Only completed or failed runs can be rolled back.", null);
+        }
+
+        var raceCodes = await _dbContext.MigrationImportRaceSelections
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == command.RunId && !x.IsActualOutcome)
+            .Select(x => x.RaceCode)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        var raceIds = await _dbContext.Races
+            .AsNoTracking()
+            .Where(x => raceCodes.Contains(x.RaceName) && x.Id.StartsWith("migration-"))
+            .Select(x => x.Id)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        var selectionIds = await _dbContext.Selections
+            .AsNoTracking()
+            .Where(x => raceIds.Contains(x.RaceId))
+            .Select(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var selectionPositions = await _dbContext.SelectionPositions
+                .Where(x => selectionIds.Contains(x.SelectionId))
+                .ToListAsync(cancellationToken);
+            var selections = await _dbContext.Selections
+                .Where(x => selectionIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+            var races = await _dbContext.Races
+                .Where(x => raceIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+
+            var affectedSelectionPositionCount = selectionPositions.Count;
+            var affectedSelectionCount = selections.Count;
+            var affectedRaceCount = races.Count;
+
+            _dbContext.SelectionPositions.RemoveRange(selectionPositions);
+            _dbContext.Selections.RemoveRange(selections);
+            _dbContext.Races.RemoveRange(races);
+
+            var requestedAtUtc = DateTime.UtcNow;
+            _dbContext.MigrationImportRollbackAudits.Add(new MigrationImportRollbackAuditEntity
+            {
+                ImportRunId = command.RunId,
+                Actor = command.RequestedBy,
+                Reason = command.Reason,
+                RequestedAtUtc = requestedAtUtc,
+                AffectedRaceCount = affectedRaceCount,
+                AffectedSelectionCount = affectedSelectionCount,
+                AffectedSelectionPositionCount = affectedSelectionPositionCount,
+                Outcome = "Completed"
+            });
+
+            run.Status = "RolledBack";
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return new MigrationRunRollbackResult(
+                true,
+                null,
+                new AdminMigrationRollbackResponseDto(
+                    command.RunId,
+                    run.Status,
+                    requestedAtUtc,
+                    command.RequestedBy,
+                    "Completed",
+                    affectedRaceCount,
+                    affectedSelectionCount,
+                    affectedSelectionPositionCount));
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new MigrationRunRollbackResult(false, ex.Message, null);
+        }
+    }
+
     private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, CancellationToken cancellationToken)
     {
         var raceCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -562,6 +657,20 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.CreatedAtUtc))
             .ToArrayAsync(cancellationToken);
 
+        var rollbackAudits = await _dbContext.MigrationImportRollbackAudits
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .Select(x => new AdminMigrationRollbackAuditDto(
+                x.RequestedAtUtc,
+                x.Actor,
+                x.Reason,
+                x.Outcome,
+                x.AffectedRaceCount,
+                x.AffectedSelectionCount,
+                x.AffectedSelectionPositionCount))
+            .ToArrayAsync(cancellationToken);
+
         var preseasonSummary = new AdminMigrationPreseasonSummaryDto(
             QuestionDiffCount: preseasonQuestionDiffs.Length,
             ParticipantDeltaCount: preseasonParticipantDeltas.Length,
@@ -594,7 +703,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
                 ConflictDiagnostics: conflictDiagnostics,
                 RaceDiffs: raceDiffs,
-                PickDiffs: pickDiffs);
+                PickDiffs: pickDiffs,
+                RollbackAudits: rollbackAudits);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
         {

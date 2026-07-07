@@ -574,6 +574,68 @@ public sealed class MigrationRunsControllerTests
         Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
     }
 
+    [Fact]
+    public async Task RollbackRun_WhenReasonMissing_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.RollbackRun(Guid.NewGuid(), new AdminMigrationRollbackRequestDto("  "));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+        service.Verify(x => x.RollbackRunAsync(It.IsAny<MigrationRunRollbackCommand>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RollbackRun_WhenServiceSucceeds_ReturnsOkPayload()
+    {
+        var runId = Guid.NewGuid();
+        var requestedAtUtc = new DateTime(2026, 7, 7, 8, 0, 0, DateTimeKind.Utc);
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.RollbackRunAsync(It.IsAny<MigrationRunRollbackCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunRollbackResult(
+                Success: true,
+                Error: null,
+                Rollback: new AdminMigrationRollbackResponseDto(
+                    RunId: runId,
+                    Status: "RolledBack",
+                    RequestedAtUtc: requestedAtUtc,
+                    RequestedBy: "admin@example.com",
+                    Outcome: "Completed",
+                    AffectedRaceCount: 1,
+                    AffectedSelectionCount: 2,
+                    AffectedSelectionPositionCount: 6)));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.RollbackRun(runId, new AdminMigrationRollbackRequestDto("bad canonical write"));
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<AdminMigrationRollbackResponseDto>(ok.Value);
+        Assert.Equal(runId, payload.RunId);
+        Assert.Equal("RolledBack", payload.Status);
+        service.Verify(x => x.RollbackRunAsync(
+            It.Is<MigrationRunRollbackCommand>(command =>
+                command.RunId == runId &&
+                command.RequestedBy == "admin@example.com" &&
+                command.Reason == "bad canonical write"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static HttpContext CreateHttpContext(bool isAdmin)
     {
         var claims = new List<Claim>

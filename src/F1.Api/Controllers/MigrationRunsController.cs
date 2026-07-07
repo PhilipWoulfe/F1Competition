@@ -310,6 +310,37 @@ public sealed class MigrationRunsController : ControllerBase
         return CreatedAtAction(nameof(GetRunDetail), new { runId = result.Run!.RunId }, result.Run);
     }
 
+    [HttpPost("{runId:guid}/rollback")]
+    public async Task<IActionResult> RollbackRun(
+        Guid runId,
+        [FromBody] AdminMigrationRollbackRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return BadRequest(new
+            {
+                message = "Rollback reason is required.",
+                code = "rollback_invalid_request"
+            });
+        }
+
+        var result = await _migrationRunAdminService.RollbackRunAsync(
+            new MigrationRunRollbackCommand(runId, ResolveActor(), request.Reason.Trim()),
+            cancellationToken);
+
+        if (!result.Success)
+        {
+            return BadRequest(new
+            {
+                message = result.Error ?? "Unable to rollback migration run.",
+                code = "rollback_failed"
+            });
+        }
+
+        return Ok(result.Rollback);
+    }
+
     private static string ResolveWritableUploadRoot()
     {
         var primaryRoot = Path.GetFullPath(UploadDirectory, Directory.GetCurrentDirectory());

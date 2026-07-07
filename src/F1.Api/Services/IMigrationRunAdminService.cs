@@ -29,6 +29,16 @@ public sealed record MigrationRunKickoffResult(
     Guid? ExistingRunId,
     AdminMigrationRunKickoffResponseDto? Run);
 
+public sealed record MigrationRunRollbackCommand(
+    Guid RunId,
+    string RequestedBy,
+    string Reason);
+
+public sealed record MigrationRunRollbackResult(
+    bool Success,
+    string? Error,
+    AdminMigrationRollbackResponseDto? Rollback);
+
 public interface IMigrationRunAdminService
 {
     Task<AdminMigrationRunListResponseDto> GetRunsAsync(MigrationRunListQuery query, CancellationToken cancellationToken);
@@ -72,5 +82,9 @@ public interface IMigrationRunAdminService
 
     Task<MigrationRunKickoffResult> KickoffRunAsync(
         MigrationRunKickoffCommand command,
+        CancellationToken cancellationToken);
+
+    Task<MigrationRunRollbackResult> RollbackRunAsync(
+        MigrationRunRollbackCommand command,
         CancellationToken cancellationToken);
 }

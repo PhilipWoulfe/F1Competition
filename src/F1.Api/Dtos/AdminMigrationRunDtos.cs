@@ -47,7 +47,30 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
     IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
-    IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null);
+    IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null,
+    IReadOnlyList<AdminMigrationRollbackAuditDto>? RollbackAudits = null);
+
+public sealed record AdminMigrationRollbackRequestDto(
+    string Reason);
+
+public sealed record AdminMigrationRollbackResponseDto(
+    Guid RunId,
+    string Status,
+    DateTime RequestedAtUtc,
+    string RequestedBy,
+    string Outcome,
+    int AffectedRaceCount,
+    int AffectedSelectionCount,
+    int AffectedSelectionPositionCount);
+
+public sealed record AdminMigrationRollbackAuditDto(
+    DateTime RequestedAtUtc,
+    string Actor,
+    string Reason,
+    string Outcome,
+    int AffectedRaceCount,
+    int AffectedSelectionCount,
+    int AffectedSelectionPositionCount);
 
 public sealed record AdminMigrationConflictDiagnosticDto(
     string EntityType,
