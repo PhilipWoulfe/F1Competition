@@ -338,15 +338,23 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season && template.Category == F1.Core.Models.QuestionCategory.H2H),
                 score => score.QuestionTemplateId,
                 template => template.Id,
-                (score, template) => new CompetitionParticipantDetailItemDto(
+                (score, template) => new
+                {
                     template.QuestionId,
                     template.Prompt,
                     score.ImportedPoints,
                     score.CalculatedPoints,
-                    score.DeltaPoints,
-                    null,
-                    null))
-            .OrderBy(item => item.Label)
+                    score.DeltaPoints
+                })
+            .OrderBy(item => item.QuestionId)
+            .Select(item => new CompetitionParticipantDetailItemDto(
+                item.QuestionId,
+                item.Prompt,
+                item.ImportedPoints,
+                item.CalculatedPoints,
+                item.DeltaPoints,
+                null,
+                null))
             .ToArrayAsync(cancellationToken);
 
         return rows;
