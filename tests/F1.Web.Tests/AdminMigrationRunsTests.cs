@@ -256,12 +256,12 @@ public sealed class AdminMigrationRunsTests : BunitContext
 
         Assert.Contains("Sign-off Package", signOffCard.TextContent, StringComparison.Ordinal);
         Assert.Contains("Preseason Reconciliation", preseasonCard.TextContent, StringComparison.Ordinal);
-        Assert.Contains("Race Reconciliation", raceCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant Diffs", raceCard.TextContent, StringComparison.Ordinal);
         Assert.Contains("Participant diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
         Assert.Contains("Pick diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
         Assert.Contains("Preseason question diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
         Assert.Contains("Preseason participant diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
-        Assert.Contains("Race participant diffs CSV", raceCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant diffs CSV", raceCard.TextContent, StringComparison.Ordinal);
 
         Assert.Contains("Podium mismatch", cut.Markup);
         Assert.Contains("Wrong slot", cut.Markup);

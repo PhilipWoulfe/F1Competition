@@ -161,13 +161,15 @@
                             <th scope="col"></th>
                         </tr>
                     </thead>
-                    <tbody role="listbox" aria-label="Migration runs list">
-                        @foreach (var item in GetSortedItems())
+                    <tbody>
+                        @{
+                            var sortedRuns = GetSortedItems().ToList();
+                            var firstRunId = sortedRuns.FirstOrDefault()?.RunId;
+                        }
+                        @foreach (var item in sortedRuns)
                         {
                             <tr class="@(selectedRunId == item.RunId ? "table-primary" : string.Empty)"
-                                role="option"
-                                aria-selected="@(selectedRunId == item.RunId)"
-                                tabindex="0"
+                                tabindex="@(selectedRunId == item.RunId || (selectedRunId == null && item.RunId == firstRunId) ? 0 : -1)"
                                 @onkeydown="(args) => HandleRunRowKeyDown(args, item.RunId)">
                                 <td><code>@item.RunId</code></td>
                                 <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
@@ -694,11 +696,11 @@
 
                     <div class="card mb-3" data-testid="exports-race-card">
                         <div class="card-body">
-                            <h3 class="h5">Race Reconciliation</h3>
-                            <p class="text-muted mb-3">Focus this package on race-level participant reconciliation artifacts for race sign-off workflows.</p>
+                            <h3 class="h5">Participant Diffs</h3>
+                            <p class="text-muted mb-3">Download participant-level diff exports for this migration run.</p>
                             <div class="d-flex flex-wrap gap-2">
-                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download race participant diffs as CSV" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Race participant diffs CSV</a>
-                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download race participant diffs as JSON" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Race participant diffs JSON</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as CSV" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as JSON" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
                             </div>
                         </div>
                     </div>
