@@ -61,6 +61,7 @@ builder.Services.AddSingleton<IMigrationRaceSelectionParser, MigrationRaceSelect
 builder.Services.AddSingleton<IMigrationRaceRoundMapper, MigrationRaceRoundMapper>();
 builder.Services.AddSingleton<IQuestionScoringStrategy, PreseasonQuestionScoringStrategy>();
 builder.Services.AddSingleton<IQuestionScoringStrategy, H2hQuestionScoringStrategy>();
+builder.Services.AddSingleton<IQuestionScoringStrategy, RaceBonusQuestionScoringStrategy>();
 builder.Services.AddSingleton<IQuestionScoringStrategyRegistry, QuestionScoringStrategyRegistry>();
 builder.Services.AddSingleton<IMigrationScoreRecalculator, MigrationScoreRecalculator>();
 builder.Services.AddSingleton<IMigrationLegacyScoreImporter, MigrationLegacyScoreImporter>();

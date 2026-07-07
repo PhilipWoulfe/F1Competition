@@ -159,6 +159,7 @@ public class F1DbContext : DbContext
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
             entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswerBoolean);
             entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId, x.ParticipantId }).IsUnique();
             entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
 
@@ -179,6 +180,7 @@ public class F1DbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ActualAnswer).HasMaxLength(512);
             entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswerBoolean);
             entity.Property(x => x.NormalizationDiagnosticsJson).HasColumnType("text");
             entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId }).IsUnique();
             entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
@@ -276,6 +278,7 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.RawAnswer).HasMaxLength(512);
             entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswerBoolean);
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()

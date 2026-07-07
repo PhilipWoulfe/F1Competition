@@ -64,8 +64,8 @@ public sealed class MigrationRaceSelectionParserTests
 
         var optionsModel = JsonSerializer.Deserialize<H2hQuestionTemplateOptions>(template.OptionsJson!);
         Assert.NotNull(optionsModel);
-        Assert.Equal("HAM", optionsModel!.LeftDriverId);
-        Assert.Equal("VER", optionsModel.RightDriverId);
+        Assert.Equal("hamilton", optionsModel!.LeftDriverId);
+        Assert.Equal("max_verstappen", optionsModel.RightDriverId);
         Assert.Equal(1, optionsModel.PointsForCorrectPick);
 
         var answers = await dbContext.QuestionAnswers
@@ -73,12 +73,12 @@ public sealed class MigrationRaceSelectionParserTests
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
         Assert.Equal(2, answers.Count);
-        Assert.Equal("HAM", answers.Single(x => x.ParticipantId == "Philip").NormalizedAnswer);
-        Assert.Equal("VER", answers.Single(x => x.ParticipantId == "Andy").NormalizedAnswer);
+        Assert.Equal("hamilton", answers.Single(x => x.ParticipantId == "Philip").NormalizedAnswer);
+        Assert.Equal("max_verstappen", answers.Single(x => x.ParticipantId == "Andy").NormalizedAnswer);
 
         var actual = await dbContext.QuestionActuals
             .SingleAsync(x => x.ImportRunId == runId);
-        Assert.Equal("VER", actual.NormalizedAnswer);
+        Assert.Equal("max_verstappen", actual.NormalizedAnswer);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class MigrationRaceSelectionParserTests
         var philipRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Philip" && !x.IsActualOutcome);
         Assert.Equal("PRE-002", philipRow2.QuestionKey);
         Assert.Equal("At least one driver will win 4 consecutive races?", philipRow2.QuestionText);
-        Assert.Equal("Y", philipRow2.NormalizedAnswer);
+        Assert.Equal("YES", philipRow2.NormalizedAnswer);
 
         var andyRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Andy" && !x.IsActualOutcome);
         Assert.Null(andyRow2.NormalizedAnswer);
@@ -141,13 +141,13 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Null(claireRow2.NormalizedAnswer);
 
         var daveRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Dave" && !x.IsActualOutcome);
-        Assert.Equal("N", daveRow2.NormalizedAnswer);
+        Assert.Equal("NO", daveRow2.NormalizedAnswer);
 
         var actualRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "ACTUAL" && x.IsActualOutcome);
-        Assert.Equal("N", actualRow2.NormalizedAnswer);
+        Assert.Equal("NO", actualRow2.NormalizedAnswer);
 
         var actualRow3 = preseasonAnswers.Single(x => x.RowNumber == 3 && x.Subject == "ACTUAL" && x.IsActualOutcome);
-        Assert.Equal("NOR | VER | PIA", actualRow3.NormalizedAnswer);
+        Assert.Equal("norris | max_verstappen | piastri", actualRow3.NormalizedAnswer);
 
         var questionTemplates = await dbContext.QuestionTemplates
             .OrderBy(x => x.QuestionId)
@@ -164,14 +164,14 @@ public sealed class MigrationRaceSelectionParserTests
         var genericPhilipRow2 = genericAnswers.Single(x => x.SourceRow == 2 && x.ParticipantId == "Philip");
         Assert.Equal(2, genericPhilipRow2.SourceRow);
         Assert.Equal(MigrationPhil2025CsvContractPolicy.ParticipantStartColumnIndex + 1, genericPhilipRow2.SourceColumn);
-        Assert.Equal("Y", genericPhilipRow2.NormalizedAnswer);
+        Assert.Equal("YES", genericPhilipRow2.NormalizedAnswer);
 
         var genericActuals = await dbContext.QuestionActuals
             .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.SourceRow)
             .ToListAsync();
         Assert.Equal(2, genericActuals.Count);
-        Assert.Equal("NOR | VER | PIA", genericActuals.Single(x => x.SourceRow == 3).NormalizedAnswer);
+        Assert.Equal("norris | max_verstappen | piastri", genericActuals.Single(x => x.SourceRow == 3).NormalizedAnswer);
         Assert.Equal("[\"MULTI_TOKEN_ACTUAL_NORMALIZED\"]", genericActuals.Single(x => x.SourceRow == 3).NormalizationDiagnosticsJson);
     }
 
@@ -265,7 +265,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("@@@", malformed.NormalizedAnswer);
 
         var genericActual = await dbContext.QuestionActuals.SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2);
-        Assert.Equal("Y", genericActual.NormalizedAnswer);
+        Assert.Equal("YES", genericActual.NormalizedAnswer);
 
         var genericPhilip = await dbContext.QuestionAnswers
             .SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2 && x.ParticipantId == "Philip");
@@ -313,7 +313,7 @@ public sealed class MigrationRaceSelectionParserTests
         var ausWinner = selections.Single(x => x.RowNumber == 2 && x.Subject == "Philip" && !x.IsActualOutcome);
         Assert.Equal("albert_park", ausWinner.RaceCode);
         Assert.Equal("1", ausWinner.PickType);
-        Assert.Equal("VER", ausWinner.NormalizedValue);
+        Assert.Equal("max_verstappen", ausWinner.NormalizedValue);
 
         var dnfPhilip = selections.Single(x => x.RowNumber == 3 && x.Subject == "Philip" && !x.IsActualOutcome);
         Assert.Null(dnfPhilip.NormalizedValue);
@@ -322,7 +322,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Null(dnfAndy.NormalizedValue);
 
         var dnfActual = selections.Single(x => x.RowNumber == 3 && x.Subject == "ACTUAL" && x.IsActualOutcome);
-        Assert.Equal("SAI DOO", dnfActual.NormalizedValue);
+        Assert.Equal("sainz doohan", dnfActual.NormalizedValue);
         Assert.Empty(await dbContext.MigrationImportUnresolvedTokens
             .Where(x => x.ImportRunId == runId)
             .ToListAsync());
@@ -361,7 +361,7 @@ public sealed class MigrationRaceSelectionParserTests
 
         Assert.Equal("albert_park", lRowActual.RaceCode);
         Assert.Equal("2", lRowActual.PickType);
-        Assert.Equal("NOR", lRowActual.NormalizedValue);
+        Assert.Equal("norris", lRowActual.NormalizedValue);
         Assert.True(lRowActual.IsActualOutcome);
     }
 
@@ -434,10 +434,10 @@ public sealed class MigrationRaceSelectionParserTests
             .OrderBy(x => x.Subject)
             .ToListAsync();
 
-        Assert.Equal("HUL", selections.Single(x => x.Subject == "Andy").NormalizedValue);
-        Assert.Equal("BEA", selections.Single(x => x.Subject == "BINGPT").NormalizedValue);
-        Assert.Equal("BEA", selections.Single(x => x.Subject == "Kevin").NormalizedValue);
-        Assert.Equal("VER", selections.Single(x => x.Subject == "Philip").NormalizedValue);
+        Assert.Equal("hulkenberg", selections.Single(x => x.Subject == "Andy").NormalizedValue);
+        Assert.Equal("bearman", selections.Single(x => x.Subject == "BINGPT").NormalizedValue);
+        Assert.Equal("bearman", selections.Single(x => x.Subject == "Kevin").NormalizedValue);
+        Assert.Equal("max_verstappen", selections.Single(x => x.Subject == "Philip").NormalizedValue);
         Assert.Null(selections.Single(x => x.Subject == "ACTUAL").NormalizedValue);
         Assert.Empty(await dbContext.MigrationImportUnresolvedTokens.ToListAsync());
     }
@@ -525,7 +525,7 @@ public sealed class MigrationRaceSelectionParserTests
 
         var dnfKevin = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Kevin" && x.PickType == "DNF");
-        Assert.Equal("BOR", dnfKevin.NormalizedValue);
+        Assert.Equal("bortoleto", dnfKevin.NormalizedValue);
 
         var dnfVeronica = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "Veronica" && x.PickType == "DNF");
@@ -533,7 +533,7 @@ public sealed class MigrationRaceSelectionParserTests
 
         var dnfActual = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 3 && x.Subject == "ACTUAL" && x.PickType == "DNF");
-        Assert.Equal("SAI DOO BOR LAW ALO HAD", dnfActual.NormalizedValue);
+        Assert.Equal("sainz doohan bortoleto lawson alonso hadjar", dnfActual.NormalizedValue);
 
         var unresolved = await dbContext.MigrationImportUnresolvedTokens
             .Where(x => x.ImportRunId == runId)
@@ -573,7 +573,7 @@ public sealed class MigrationRaceSelectionParserTests
         var participantPick = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "New Sexy Ayrton");
 
-        Assert.Equal("LEC", participantPick.NormalizedValue);
+        Assert.Equal("leclerc", participantPick.NormalizedValue);
         Assert.Empty(await dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId).ToListAsync());
     }
 
@@ -819,7 +819,7 @@ public sealed class MigrationRaceSelectionParserTests
         var participantPick = await dbContext.MigrationImportRaceSelections
             .SingleAsync(x => x.ImportRunId == runId && x.RowNumber == 2 && x.Subject == "Pious");
 
-        Assert.Equal("NOR", participantPick.NormalizedValue);
+        Assert.Equal("norris", participantPick.NormalizedValue);
         Assert.Empty(await dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId).ToListAsync());
     }
 

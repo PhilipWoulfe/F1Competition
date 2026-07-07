@@ -11,6 +11,36 @@ namespace F1.DataSyncWorker.Services;
 public sealed partial class MigrationCanonicalWriteService : IMigrationCanonicalWriteService
 {
     private const string ActualSubject = "ACTUAL";
+    private static readonly Dictionary<string, string> JolpicaDriverIdByCode = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ALB"] = "albon",
+        ["ALO"] = "alonso",
+        ["ANT"] = "antonelli",
+        ["BEA"] = "bearman",
+        ["BOR"] = "bortoleto",
+        ["BOT"] = "bottas",
+        ["COL"] = "colapinto",
+        ["DOO"] = "doohan",
+        ["GAS"] = "gasly",
+        ["HAD"] = "hadjar",
+        ["HAM"] = "hamilton",
+        ["HUL"] = "hulkenberg",
+        ["LAW"] = "lawson",
+        ["LEC"] = "leclerc",
+        ["LIN"] = "lindblad",
+        ["MAG"] = "magnussen",
+        ["NOR"] = "norris",
+        ["OCO"] = "ocon",
+        ["PER"] = "perez",
+        ["PIA"] = "piastri",
+        ["RIC"] = "ricciardo",
+        ["RUS"] = "russell",
+        ["SAI"] = "sainz",
+        ["STR"] = "stroll",
+        ["TSU"] = "tsunoda",
+        ["VER"] = "max_verstappen",
+        ["ZHO"] = "zhou"
+    };
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly MigrationImportOptions _importOptions;
 
@@ -154,16 +184,27 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 nextRoundCursor = Math.Max(nextRoundCursor, desiredRound + 1);
             }
 
+            var existingDrivers = await dbContext.Drivers
+                .AsNoTracking()
+                .Where(x => !string.IsNullOrWhiteSpace(x.DriverId))
+                .Select(x => new { DriverId = x.DriverId!, x.Code })
+                .ToListAsync(cancellationToken);
+
+            var driverIdByCode = existingDrivers
+                .Where(x => !string.IsNullOrWhiteSpace(x.Code))
+                .ToDictionary(
+                    x => x.Code!.Trim().ToUpperInvariant(),
+                    x => x.DriverId.Trim().ToLowerInvariant(),
+                    StringComparer.OrdinalIgnoreCase);
+
             var driverIds = selections
-                .SelectMany(x => ExtractDriverIds(x.NormalizedValue))
+                .SelectMany(x => ExtractDriverIds(x.NormalizedValue, driverIdByCode))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var existingDriverIds = await dbContext.Drivers
-                .Select(x => x.DriverId ?? string.Empty)
-                .ToListAsync(cancellationToken);
-            var existingDriverIdSet = existingDriverIds
+            var existingDriverIdSet = existingDrivers
+                .Select(x => x.DriverId)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -178,7 +219,7 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 {
                     DriverId = driverId,
                     FullName = driverId,
-                    Code = driverId
+                    Code = ResolveDriverCode(driverId)
                 });
             }
 
@@ -288,7 +329,7 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                     .Select(x => new
                     {
                         Pick = int.Parse(x.PickType),
-                        Driver = ExtractDriverIds(x.NormalizedValue).FirstOrDefault()
+                        Driver = ExtractDriverIds(x.NormalizedValue, driverIdByCode).FirstOrDefault()
                     })
                     .Where(x => x.Pick > 0 && x.Driver is not null)
                     .OrderBy(x => x.Pick)
@@ -324,7 +365,7 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
         return id.Length <= 128 ? id : id[..128];
     }
 
-    private static IEnumerable<string> ExtractDriverIds(string? normalizedValue)
+    private static IEnumerable<string> ExtractDriverIds(string? normalizedValue, IReadOnlyDictionary<string, string> driverIdByCode)
     {
         if (string.IsNullOrWhiteSpace(normalizedValue))
         {
@@ -332,9 +373,41 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
         }
 
         return DriverTokenSplitRegex().Split(normalizedValue)
-            .Select(x => x.Trim().ToUpperInvariant())
+            .Select(x => x.Trim())
             .Where(x => x.Length > 0 && x.Length <= 64)
+            .Select(x => ResolveDriverIdToken(x, driverIdByCode))
             .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string ResolveDriverIdToken(string token, IReadOnlyDictionary<string, string> driverIdByCode)
+    {
+        if (token.Length != 3)
+        {
+            return token.Trim().ToLowerInvariant();
+        }
+
+        var code = token.ToUpperInvariant();
+        if (driverIdByCode.TryGetValue(code, out var mappedDriverId))
+        {
+            return mappedDriverId;
+        }
+
+        return JolpicaDriverIdByCode.TryGetValue(code, out var fallbackDriverId)
+            ? fallbackDriverId
+            : token;
+    }
+
+    private static string? ResolveDriverCode(string driverId)
+    {
+        var match = JolpicaDriverIdByCode.FirstOrDefault(x => string.Equals(x.Value, driverId, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(match.Key))
+        {
+            return match.Key;
+        }
+
+        return driverId.Length <= 8
+            ? driverId.ToUpperInvariant()
+            : null;
     }
 
     [GeneratedRegex("[^a-z0-9]+", RegexOptions.Compiled)]

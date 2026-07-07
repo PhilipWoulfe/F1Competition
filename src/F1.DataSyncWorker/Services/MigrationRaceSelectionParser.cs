@@ -30,6 +30,106 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         ["NOT"] = null
     };
 
+    private static readonly Dictionary<string, string?> QuestionTokenAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["YES"] = "YES",
+        ["Y"] = "YES",
+        ["TRUE"] = "YES",
+        ["T"] = "YES",
+        ["1"] = "YES",
+        ["NO"] = "NO",
+        ["N"] = "NO",
+        ["FALSE"] = "NO",
+        ["F"] = "NO",
+        ["0"] = "NO",
+        ["MAX VERSTAPPEN"] = "VER",
+        ["VERSTAPPEN"] = "VER",
+        ["LEWIS HAMILTON"] = "HAM",
+        ["HAMILTON"] = "HAM",
+        ["CHARLES LECLERC"] = "LEC",
+        ["LECLERC"] = "LEC",
+        ["LANDO NORRIS"] = "NOR",
+        ["NORRIS"] = "NOR",
+        ["GEORGE RUSSELL"] = "RUS",
+        ["RUSSELL"] = "RUS",
+        ["OSCAR PIASTRI"] = "PIA",
+        ["PIASTRI"] = "PIA",
+        ["CARLOS SAINZ"] = "SAI",
+        ["SAINZ"] = "SAI",
+        ["FERNANDO ALONSO"] = "ALO",
+        ["ALONSO"] = "ALO",
+        ["LANCE STROLL"] = "STR",
+        ["STROLL"] = "STR",
+        ["PIERRE GASLY"] = "GAS",
+        ["GASLY"] = "GAS",
+        ["ESTEBAN OCON"] = "OCO",
+        ["OCON"] = "OCO",
+        ["ALEX ALBON"] = "ALB",
+        ["ALBON"] = "ALB",
+        ["YUKI TSUNODA"] = "TSU",
+        ["TSUNODA"] = "TSU",
+        ["NICO HULKENBERG"] = "HUL",
+        ["HULKENBERG"] = "HUL",
+        ["DANIEL RICCIARDO"] = "RIC",
+        ["RICCIARDO"] = "RIC",
+        ["VALTTERI BOTTAS"] = "BOT",
+        ["BOTTAS"] = "BOT",
+        ["ZHOU GUANYU"] = "ZHO",
+        ["GUANYU ZHOU"] = "ZHO",
+        ["ZHOU"] = "ZHO",
+        ["KEVIN MAGNUSSEN"] = "MAG",
+        ["MAGNUSSEN"] = "MAG",
+        ["OLIVER BEARMAN"] = "BEA",
+        ["BEARMAN"] = "BEA",
+        ["SERGIO PEREZ"] = "PER",
+        ["PEREZ"] = "PER",
+        ["FRANCO COLAPINTO"] = "COL",
+        ["COLAPINTO"] = "COL",
+        ["JACK DOOHAN"] = "DOO",
+        ["DOOHAN"] = "DOO",
+        ["GABRIEL BORTOLETO"] = "BOR",
+        ["BORTOLETO"] = "BOR",
+        ["ISACK HADJAR"] = "HAD",
+        ["HADJAR"] = "HAD",
+        ["LIAM LAWSON"] = "LAW",
+        ["LAWSON"] = "LAW",
+        ["KIMI ANTONELLI"] = "ANT",
+        ["ANTONELLI"] = "ANT",
+        ["NONE"] = null,
+        ["NOT"] = null
+    };
+
+    private static readonly Dictionary<string, string> JolpicaDriverIdByCode = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ALB"] = "albon",
+        ["ALO"] = "alonso",
+        ["ANT"] = "antonelli",
+        ["BEA"] = "bearman",
+        ["BOR"] = "bortoleto",
+        ["BOT"] = "bottas",
+        ["COL"] = "colapinto",
+        ["DOO"] = "doohan",
+        ["GAS"] = "gasly",
+        ["HAD"] = "hadjar",
+        ["HAM"] = "hamilton",
+        ["HUL"] = "hulkenberg",
+        ["LAW"] = "lawson",
+        ["LEC"] = "leclerc",
+        ["LIN"] = "lindblad",
+        ["MAG"] = "magnussen",
+        ["NOR"] = "norris",
+        ["OCO"] = "ocon",
+        ["PER"] = "perez",
+        ["PIA"] = "piastri",
+        ["RIC"] = "ricciardo",
+        ["RUS"] = "russell",
+        ["SAI"] = "sainz",
+        ["STR"] = "stroll",
+        ["TSU"] = "tsunoda",
+        ["VER"] = "max_verstappen",
+        ["ZHO"] = "zhou"
+    };
+
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly MigrationImportOptions _importOptions;
 
@@ -63,19 +163,27 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
+        var driverIdByCode = await dbContext.Drivers
+            .Where(x => !string.IsNullOrWhiteSpace(x.Code) && !string.IsNullOrWhiteSpace(x.DriverId))
+            .ToDictionaryAsync(
+                x => x.Code!.Trim().ToUpperInvariant(),
+                x => x.DriverId!.Trim().ToLowerInvariant(),
+                cancellationToken);
+
         var headerRow = stagedRows.FirstOrDefault(x => string.Equals(x.SectionType, SectionTypeHeader, StringComparison.Ordinal));
         var participants = ResolveParticipants(headerRow?.RawPayload);
         var preseasonParticipants = usePhil2025SequenceMapping
             ? MigrationPhil2025CsvContractPolicy.ParticipantColumns.ToList()
             : participants;
 
-        var preseasonAnswers = ParsePreseasonQuestionAnswers(runId, stagedRows, preseasonParticipants, usePhil2025SequenceMapping);
+        var preseasonAnswers = ParsePreseasonQuestionAnswers(runId, stagedRows, preseasonParticipants, usePhil2025SequenceMapping, driverIdByCode);
         var genericQuestions = await BuildGenericQuestionDataAsync(
             dbContext,
             runId,
             stagedRows,
             preseasonParticipants,
             usePhil2025SequenceMapping,
+            driverIdByCode,
             cancellationToken);
 
         if (participants.Count == 0)
@@ -147,6 +255,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 var rawValue = index < participantValues.Length ? participantValues[index] : string.Empty;
                 var normalization = NormalizeSelection(rawValue, pickType, usePhil2025SequenceMapping);
+                var mappedSelectionValue = MapSelectionNormalizedValueToDriverIds(normalization.NormalizedValue, pickType, driverIdByCode);
                 selections.Add(new MigrationImportRaceSelectionEntity
                 {
                     ImportRunId = runId,
@@ -155,7 +264,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     PickType = pickType,
                     Subject = participants[index],
                     RawValue = string.IsNullOrWhiteSpace(rawValue) ? null : rawValue.Trim(),
-                    NormalizedValue = normalization.NormalizedValue,
+                    NormalizedValue = mappedSelectionValue,
                     IsActualOutcome = false
                 });
 
@@ -176,6 +285,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
             var actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
             var actualNormalization = NormalizeSelection(actualRaw, pickType, usePhil2025SequenceMapping);
+            var mappedActualSelectionValue = MapSelectionNormalizedValueToDriverIds(actualNormalization.NormalizedValue, pickType, driverIdByCode);
             selections.Add(new MigrationImportRaceSelectionEntity
             {
                 ImportRunId = runId,
@@ -184,7 +294,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 PickType = pickType,
                 Subject = ActualSubject,
                 RawValue = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
-                NormalizedValue = actualNormalization.NormalizedValue,
+                NormalizedValue = mappedActualSelectionValue,
                 IsActualOutcome = true
             });
 
@@ -254,6 +364,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
         IReadOnlyList<string> participants,
         bool usePhil2025Contract,
+        IReadOnlyDictionary<string, string> driverIdByCode,
         CancellationToken cancellationToken)
     {
         var questionRows = stagedRows
@@ -307,7 +418,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             questionIdBySourceRow[row.RowNumber] = questionId;
             var category = ResolveQuestionCategory(row.RawPayload);
             var optionsJson = category == QuestionCategory.H2H
-                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract)
+                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode)
                 : null;
 
             templates.Add(new QuestionTemplateEntity
@@ -333,7 +444,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 var columnIndex = participantStartIndex + index;
                 var raw = columnIndex < columns.Count ? columns[columnIndex] : null;
-                var normalization = NormalizeQuestionAnswer(raw, isActualOutcome: false, category);
+                var normalization = NormalizeQuestionAnswer(raw, isActualOutcome: false, category, driverIdByCode);
                 answers.Add(new QuestionAnswerEntity
                 {
                     ImportRunId = runId,
@@ -341,6 +452,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     ParticipantId = participants[index],
                     ImportedAnswer = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim(),
                     NormalizedAnswer = normalization.NormalizedValue,
+                    NormalizedAnswerBoolean = ToNullableBoolean(normalization.NormalizedValue),
                     SourceRow = row.RowNumber,
                     SourceColumn = columnIndex + 1,
                     RecordedAtUtc = now
@@ -369,13 +481,14 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 actualRaw = actualColumnIndex >= 0 ? columns[actualColumnIndex] : null;
             }
 
-            var actualNormalization = NormalizeQuestionAnswer(actualRaw, isActualOutcome: true, category);
+            var actualNormalization = NormalizeQuestionAnswer(actualRaw, isActualOutcome: true, category, driverIdByCode);
             actuals.Add(new QuestionActualEntity
             {
                 ImportRunId = runId,
                 QuestionTemplateId = existingTemplateIds.TryGetValue(questionId, out var actualTemplateId) ? actualTemplateId : 0,
                 ActualAnswer = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
                 NormalizedAnswer = actualNormalization.NormalizedValue,
+                NormalizedAnswerBoolean = ToNullableBoolean(actualNormalization.NormalizedValue),
                 SourceRow = row.RowNumber,
                 SourceColumn = actualColumnIndex >= 0 ? actualColumnIndex + 1 : 0,
                 NormalizationDiagnosticsJson = actualNormalization.Diagnostics.Count == 0
@@ -521,7 +634,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         Guid runId,
         IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
         IReadOnlyList<string> participants,
-        bool usePhil2025Contract)
+        bool usePhil2025Contract,
+        IReadOnlyDictionary<string, string> driverIdByCode)
     {
         if (participants.Count == 0)
         {
@@ -564,6 +678,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 var columnIndex = participantStartIndex + index;
                 var raw = columnIndex < columns.Count ? columns[columnIndex] : null;
+                var normalized = NormalizePreseasonAnswer(raw, isActualOutcome: false, driverIdByCode);
                 parsed.Add(new MigrationImportPreseasonAnswerEntity
                 {
                     ImportRunId = runId,
@@ -572,7 +687,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                     QuestionText = questionText,
                     Subject = participants[index],
                     RawAnswer = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim(),
-                    NormalizedAnswer = NormalizePreseasonAnswer(raw, isActualOutcome: false).NormalizedValue,
+                    NormalizedAnswer = normalized.NormalizedValue,
+                    NormalizedAnswerBoolean = ToNullableBoolean(normalized.NormalizedValue),
                     IsActualOutcome = false
                 });
             }
@@ -589,6 +705,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 actualRaw = columns.Skip(1 + participants.Count).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
             }
 
+            var normalizedActual = NormalizePreseasonAnswer(actualRaw, isActualOutcome: true, driverIdByCode);
             parsed.Add(new MigrationImportPreseasonAnswerEntity
             {
                 ImportRunId = runId,
@@ -597,7 +714,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 QuestionText = questionText,
                 Subject = ActualSubject,
                 RawAnswer = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
-                NormalizedAnswer = NormalizePreseasonAnswer(actualRaw, isActualOutcome: true).NormalizedValue,
+                NormalizedAnswer = normalizedActual.NormalizedValue,
+                NormalizedAnswerBoolean = ToNullableBoolean(normalizedActual.NormalizedValue),
                 IsActualOutcome = true
             });
         }
@@ -772,14 +890,18 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return MultiWhitespaceRegex().Replace(rawValue.Trim().ToUpperInvariant(), " ");
     }
 
-    private static PreseasonNormalizationResult NormalizeQuestionAnswer(string? rawAnswer, bool isActualOutcome, QuestionCategory category)
+    private static PreseasonNormalizationResult NormalizeQuestionAnswer(
+        string? rawAnswer,
+        bool isActualOutcome,
+        QuestionCategory category,
+        IReadOnlyDictionary<string, string> driverIdByCode)
     {
         return category == QuestionCategory.H2H
-            ? NormalizeH2hAnswer(rawAnswer)
-            : NormalizePreseasonAnswer(rawAnswer, isActualOutcome);
+            ? NormalizeH2hAnswer(rawAnswer, driverIdByCode)
+            : NormalizePreseasonAnswer(rawAnswer, isActualOutcome, driverIdByCode);
     }
 
-    private static PreseasonNormalizationResult NormalizeH2hAnswer(string? rawAnswer)
+    private static PreseasonNormalizationResult NormalizeH2hAnswer(string? rawAnswer, IReadOnlyDictionary<string, string> driverIdByCode)
     {
         if (string.IsNullOrWhiteSpace(rawAnswer))
         {
@@ -787,14 +909,19 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         }
 
         var lookupToken = NormalizeTokenLookup(rawAnswer);
+        if (QuestionTokenAliasDictionary.TryGetValue(lookupToken, out var mappedQuestionToken))
+        {
+            return new PreseasonNormalizationResult(MapDriverCodeToId(mappedQuestionToken, driverIdByCode), []);
+        }
+
         if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
         {
-            return new PreseasonNormalizationResult(mappedToken, []);
+            return new PreseasonNormalizationResult(MapDriverCodeToId(mappedToken, driverIdByCode), []);
         }
 
         if (CanonicalTokenRegex().IsMatch(lookupToken))
         {
-            return new PreseasonNormalizationResult(lookupToken, []);
+            return new PreseasonNormalizationResult(MapDriverCodeToId(lookupToken, driverIdByCode), []);
         }
 
         var normalized = MultiWhitespaceRegex().Replace(rawAnswer.Trim(), " ");
@@ -820,6 +947,11 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             return QuestionCategory.H2H;
         }
 
+        if (RaceBonusPromptRegex().IsMatch(prompt))
+        {
+            return QuestionCategory.RaceBonus;
+        }
+
         return QuestionCategory.Preseason;
     }
 
@@ -837,9 +969,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         string questionText,
         IReadOnlyList<string> columns,
         IReadOnlyList<string> participants,
-        bool usePhil2025Contract)
+        bool usePhil2025Contract,
+        IReadOnlyDictionary<string, string> driverIdByCode)
     {
-        var driverCandidates = ExtractH2hCandidatesFromPrompt(questionText);
+        var driverCandidates = ExtractH2hCandidatesFromPrompt(questionText, driverIdByCode);
         if (driverCandidates.Count < 2)
         {
             var participantStartIndex = usePhil2025Contract
@@ -851,8 +984,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 var columnIndex = participantStartIndex + index;
                 var rawAnswer = columnIndex < columns.Count ? columns[columnIndex] : null;
-                var normalized = NormalizeH2hAnswer(rawAnswer).NormalizedValue;
-                if (!string.IsNullOrWhiteSpace(normalized) && CanonicalTokenRegex().IsMatch(normalized))
+                var normalized = NormalizeH2hAnswer(rawAnswer, driverIdByCode).NormalizedValue;
+                if (!string.IsNullOrWhiteSpace(normalized))
                 {
                     fallbackCandidates.Add(normalized);
                 }
@@ -864,8 +997,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             var actualRaw = actualColumnIndex >= 0 && actualColumnIndex < columns.Count
                 ? columns[actualColumnIndex]
                 : null;
-            var actualNormalized = NormalizeH2hAnswer(actualRaw).NormalizedValue;
-            if (!string.IsNullOrWhiteSpace(actualNormalized) && CanonicalTokenRegex().IsMatch(actualNormalized))
+            var actualNormalized = NormalizeH2hAnswer(actualRaw, driverIdByCode).NormalizedValue;
+            if (!string.IsNullOrWhiteSpace(actualNormalized))
             {
                 fallbackCandidates.Add(actualNormalized);
             }
@@ -899,14 +1032,14 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return JsonSerializer.Serialize(options);
     }
 
-    private static List<string> ExtractH2hCandidatesFromPrompt(string questionText)
+    private static List<string> ExtractH2hCandidatesFromPrompt(string questionText, IReadOnlyDictionary<string, string> driverIdByCode)
     {
         var candidates = new List<string>();
         foreach (Match match in H2hDriverTokenRegex().Matches(questionText))
         {
             var token = match.Value;
-            var normalized = NormalizeH2hAnswer(token).NormalizedValue;
-            if (string.IsNullOrWhiteSpace(normalized) || !CanonicalTokenRegex().IsMatch(normalized))
+            var normalized = NormalizeH2hAnswer(token, driverIdByCode).NormalizedValue;
+            if (string.IsNullOrWhiteSpace(normalized))
             {
                 continue;
             }
@@ -925,7 +1058,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return candidates;
     }
 
-    private static PreseasonNormalizationResult NormalizePreseasonAnswer(string? rawAnswer, bool isActualOutcome)
+    private static PreseasonNormalizationResult NormalizePreseasonAnswer(
+        string? rawAnswer,
+        bool isActualOutcome,
+        IReadOnlyDictionary<string, string> driverIdByCode)
     {
         if (string.IsNullOrWhiteSpace(rawAnswer))
         {
@@ -933,6 +1069,20 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         }
 
         var normalized = MultiWhitespaceRegex().Replace(rawAnswer.Trim(), " ");
+        var mappedAtomic = NormalizeQuestionToken(normalized, driverIdByCode);
+        if (mappedAtomic is null)
+        {
+            var lookupToken = NormalizeTokenLookup(normalized);
+            if (QuestionTokenAliasDictionary.ContainsKey(lookupToken) || TokenAliasDictionary.ContainsKey(lookupToken))
+            {
+                return new PreseasonNormalizationResult(null, ["NULL_EQUIVALENT_TOKEN"]);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(mappedAtomic))
+        {
+            normalized = mappedAtomic;
+        }
+
         if (string.Equals(normalized, "NONE", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "NOT", StringComparison.OrdinalIgnoreCase))
         {
@@ -950,6 +1100,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         var tokens = PreseasonDelimitedAnswerRegex()
             .Split(normalized)
             .Select(token => MultiWhitespaceRegex().Replace(token.Trim(), " "))
+            .Select(token => NormalizeQuestionToken(token, driverIdByCode) ?? string.Empty)
             .Where(token => !string.IsNullOrWhiteSpace(token))
             .Where(token =>
                 !string.Equals(token, "NONE", StringComparison.OrdinalIgnoreCase) &&
@@ -993,6 +1144,9 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     [GeneratedRegex("(head\\s*[- ]?to\\s*[- ]?head|h2h)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex H2hPromptRegex();
 
+    [GeneratedRegex("(dnf|fastest\\s*lap|bonus)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex RaceBonusPromptRegex();
+
     [GeneratedRegex("\\b[A-Za-z]{3}\\b", RegexOptions.Compiled)]
     private static partial Regex H2hDriverTokenRegex();
 
@@ -1006,6 +1160,101 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private readonly record struct NormalizationResult(string? NormalizedValue, IReadOnlyList<string> UnresolvedTokens);
 
     private readonly record struct PreseasonNormalizationResult(string? NormalizedValue, IReadOnlyList<string> Diagnostics);
+
+    private static string? NormalizeQuestionToken(string? token, IReadOnlyDictionary<string, string> driverIdByCode)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        var lookupToken = NormalizeTokenLookup(token);
+        if (QuestionTokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
+        {
+            return MapDriverCodeToId(mappedToken, driverIdByCode);
+        }
+
+        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedSelectionToken))
+        {
+            return MapDriverCodeToId(mappedSelectionToken, driverIdByCode);
+        }
+
+        if (CanonicalTokenRegex().IsMatch(lookupToken))
+        {
+            return MapDriverCodeToId(lookupToken, driverIdByCode);
+        }
+
+        return MultiWhitespaceRegex().Replace(token.Trim(), " ");
+    }
+
+    private static string? MapDriverCodeToId(string? value, IReadOnlyDictionary<string, string> driverIdByCode)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var token = value.Trim();
+        if (token.Length != 3)
+        {
+            return token;
+        }
+
+        var code = token.ToUpperInvariant();
+        if (driverIdByCode.TryGetValue(code, out var mappedDriverIdFromDb))
+        {
+            return mappedDriverIdFromDb;
+        }
+
+        return JolpicaDriverIdByCode.TryGetValue(code, out var mappedDriverId)
+            ? mappedDriverId
+            : token;
+    }
+
+    private static string? MapSelectionNormalizedValueToDriverIds(
+        string? normalizedValue,
+        string pickType,
+        IReadOnlyDictionary<string, string> driverIdByCode)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedValue))
+        {
+            return normalizedValue;
+        }
+
+        var trimmed = normalizedValue.Trim();
+        if (!string.Equals(pickType, "DNF", StringComparison.OrdinalIgnoreCase))
+        {
+            return MapDriverCodeToId(trimmed, driverIdByCode);
+        }
+
+        var mappedTokens = trimmed
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(token => MapDriverCodeToId(token, driverIdByCode) ?? token)
+            .ToArray();
+
+        return mappedTokens.Length == 0 ? null : string.Join(" ", mappedTokens);
+    }
+
+    private static bool? ToNullableBoolean(string? normalizedValue)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedValue))
+        {
+            return null;
+        }
+
+        var token = normalizedValue.Trim().ToUpperInvariant();
+        if (token is "YES" or "TRUE")
+        {
+            return true;
+        }
+
+        if (token is "NO" or "FALSE")
+        {
+            return false;
+        }
+
+        return null;
+    }
 
     private sealed record GenericQuestionData(
         IReadOnlyList<QuestionTemplateEntity> Templates,
