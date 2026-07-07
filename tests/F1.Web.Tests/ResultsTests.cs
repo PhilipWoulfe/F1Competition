@@ -3,6 +3,7 @@ using F1.Web.Configuration;
 using F1.Web.Models;
 using F1.Web.Pages;
 using F1.Web.Services;
+using F1.Web.Services.Api;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Moq.Protected;
@@ -16,6 +17,7 @@ public class ResultsTests : BunitContext
     private readonly Mock<HttpMessageHandler> _handlerMock;
     private readonly HttpClient _httpClient;
     private readonly InMemorySelectionContextStore _selectionContextStore = new();
+    private readonly Mock<IMigrationRunsApiService> _migrationRunsApiMock = new();
 
     public ResultsTests()
     {
@@ -28,6 +30,27 @@ public class ResultsTests : BunitContext
             BaseAddress = new Uri("http://localhost")
         };
         Services.AddSingleton(_httpClient);
+        _migrationRunsApiMock
+            .Setup(api => api.GetRunsAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunListResponse(1, 3, 1,
+            [
+                new AdminMigrationRunListItem(
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                    "Completed",
+                    true,
+                    "/tmp/import.csv",
+                    "abc123",
+                    new DateTime(2026, 7, 7, 10, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 7, 7, 10, 5, 0, DateTimeKind.Utc),
+                    10,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    null)
+            ]));
+        Services.AddSingleton(_migrationRunsApiMock.Object);
         Services.AddSingleton<ISelectionContextStore>(_selectionContextStore);
         Services.AddSingleton<ISelectionContextService, SelectionContextService>();
         Services.Configure<SelectionContextOptions>(options =>
@@ -255,6 +278,8 @@ public class ResultsTests : BunitContext
 
         cut.WaitForAssertion(() => Assert.Contains("Official", cut.Markup));
         Assert.Contains("Recalculated", cut.Markup);
+        Assert.Contains("Recent Migration Runs", cut.Markup);
+        Assert.Contains("Completed", cut.Markup);
     }
 
     [Fact]

@@ -2,9 +2,11 @@
 @using F1.Web.Configuration
 @using F1.Web.Models
 @using F1.Web.Services
+@using F1.Web.Services.Api
 @using Microsoft.AspNetCore.Components.Authorization
 @inject ISelectionContextService SelectionContextService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IMigrationRunsApiService MigrationRunsApi
 @inject HttpClient Http
 
 <PageTitle>Competition Leaderboard</PageTitle>
@@ -43,6 +45,28 @@
                     <button id="results-view-recalculated" class="btn @(selectedScoreView == "recalculated" ? "btn-primary" : "btn-outline-primary")" type="button" @onclick='() => ChangeScoreViewAsync("recalculated")'>Recalculated</button>
                 </div>
             }
+        </div>
+    </div>
+}
+
+@if (isAdmin && recentMigrationRuns.Count > 0)
+{
+    <div class="card mb-3 admin-migration-strip">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h5 mb-0">Recent Migration Runs</h2>
+                <a class="btn btn-sm btn-outline-secondary" href="admin/migration-runs">Open migration workspace</a>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var run in recentMigrationRuns)
+                {
+                    <a class="btn btn-sm btn-outline-dark migration-status-chip" href="@GetMigrationRunLink(run.RunId)">
+                        <span class="@GetRunStatusBadgeClass(run.Status)">@run.Status</span>
+                        <span class="ms-2">@FormatRunId(run.RunId)</span>
+                        <span class="ms-2 @GetRunModeBadgeClass(run.IsDryRun)">@(run.IsDryRun ? "Dry-run" : "Write")</span>
+                    </a>
+                }
+            </div>
         </div>
     </div>
 }
@@ -124,6 +148,7 @@ else
     private int? selectedSeason;
     private string selectedScoreView = "active";
     private bool isAdmin;
+    private IReadOnlyList<AdminMigrationRunListItem> recentMigrationRuns = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -135,7 +160,28 @@ else
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         isAdmin = authState.User.IsInRole("Admin");
 
+        if (isAdmin)
+        {
+            await LoadRecentMigrationRunsAsync();
+        }
+
         await LoadLeaderboardAsync();
+    }
+
+    private async Task LoadRecentMigrationRunsAsync()
+    {
+        try
+        {
+            var response = await MigrationRunsApi.GetRunsAsync(page: 1, pageSize: 3);
+            recentMigrationRuns = response.Items
+                .OrderByDescending(item => item.StartedAtUtc)
+                .Take(3)
+                .ToArray();
+        }
+        catch
+        {
+            recentMigrationRuns = [];
+        }
     }
 
     private async Task LoadLeaderboardAsync()
@@ -251,6 +297,33 @@ else
     private string GetSelectedSeasonValue()
     {
         return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private static string GetRunStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Completed" => "badge bg-success",
+            "Started" or "Queued" => "badge bg-warning text-dark",
+            "Failed" => "badge bg-danger",
+            _ => "badge bg-secondary"
+        };
+    }
+
+    private static string GetRunModeBadgeClass(bool isDryRun)
+    {
+        return isDryRun ? "badge bg-secondary" : "badge bg-dark";
+    }
+
+    private static string FormatRunId(Guid runId)
+    {
+        var runIdText = runId.ToString();
+        return $"{runIdText[..8]}...{runIdText[^6..]}";
+    }
+
+    private static string GetMigrationRunLink(Guid runId)
+    {
+        return $"admin/migration-runs?run={Uri.EscapeDataString(runId.ToString())}";
     }
 
     private RenderFragment RenderSection(CompetitionParticipantSectionSummary section, string emptyStateMessage) => builder =>
