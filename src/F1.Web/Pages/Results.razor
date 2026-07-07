@@ -1,55 +1,217 @@
 @page "/results"
+@using F1.Web.Configuration
 @using F1.Web.Models
+@using F1.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ISelectionContextService SelectionContextService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject HttpClient Http
 
-<PageTitle>Driver Standings</PageTitle>
+<PageTitle>Competition Leaderboard</PageTitle>
 
-<h1>Driver Standings</h1>
+<h1>Competition Leaderboard</h1>
+
+@if (availableContexts.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label" for="results-context-competition">Competition</label>
+                    <select id="results-context-competition" class="form-select" value="@selectedCompetitionSlug" @onchange="OnCompetitionChangedAsync">
+                        @foreach (var competition in GetCompetitionOptions())
+                        {
+                            <option value="@competition.CompetitionSlug">@competition.GetCompetitionLabel()</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="results-context-season">Season</label>
+                    <select id="results-context-season" class="form-select" value="@GetSelectedSeasonValue()" @onchange="OnSeasonChangedAsync">
+                        @foreach (var context in GetSeasonOptions())
+                        {
+                            <option value="@context.Season">@context.Season</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (isAdmin)
+            {
+                <div class="btn-group mt-3" role="group" aria-label="Score view mode">
+                    <button id="results-view-active" class="btn @(selectedScoreView == "active" ? "btn-primary" : "btn-outline-primary")" type="button" @onclick='() => ChangeScoreViewAsync("active")'>Official</button>
+                    <button id="results-view-recalculated" class="btn @(selectedScoreView == "recalculated" ? "btn-primary" : "btn-outline-primary")" type="button" @onclick='() => ChangeScoreViewAsync("recalculated")'>Recalculated</button>
+                </div>
+            }
+        </div>
+    </div>
+}
 
 @if (!string.IsNullOrEmpty(error))
 {
     <p><em>@error</em></p>
 }
-else if (results == null)
+else if (leaderboard == null)
 {
-    <p><em>Loading race results...</em></p>
+    <p><em>Loading leaderboard...</em></p>
+}
+else if (!string.IsNullOrWhiteSpace(leaderboard.ScoreSourceLabel))
+{
+    <div class="alert alert-secondary" role="status">
+        <div class="fw-semibold">@leaderboard.ScoreSourceLabel</div>
+        <div>@leaderboard.ScoreSourceHelperText</div>
+    </div>
+
+    if (!leaderboard.IsDataAvailable)
+    {
+        <div class="alert alert-info" role="status">@leaderboard.EmptyStateMessage</div>
+    }
+    else
+    {
+        <table class="table table-striped leaderboard-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Participant</th>
+                    <th>Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in leaderboard.Items)
+                {
+                    <tr>
+                        <td>@entry.Position</td>
+                        <td>@entry.ParticipantName</td>
+                        <td>@entry.DisplayPoints</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Position</th>
-                <th>Driver</th>
-                <th>Points</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var result in results)
-            {
-                <tr style="background-color: @result.PositionColor">
-                    <td>@result.Position</td>
-                    <td>@result.DriverId</td>
-                    <td>@result.Points</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="alert alert-info" role="status">Leaderboard data is not available.</div>
 }
 
 @code {
-    private List<RaceResult>? results;
+    private CompetitionLeaderboardResponse? leaderboard;
     private string? error;
+    private IReadOnlyList<SelectionContextOption> availableContexts = [];
+    private string? selectedCompetitionSlug;
+    private int? selectedSeason;
+    private string selectedScoreView = "active";
+    private bool isAdmin;
 
     protected override async Task OnInitializedAsync()
     {
+        availableContexts = SelectionContextService.GetAvailableContexts();
+        var restoredContext = await SelectionContextService.GetRestoredOrDefaultAsync();
+        selectedCompetitionSlug = restoredContext.CompetitionSlug;
+        selectedSeason = restoredContext.Season;
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdmin = authState.User.IsInRole("Admin");
+
+        await LoadLeaderboardAsync();
+    }
+
+    private async Task LoadLeaderboardAsync()
+    {
+        error = null;
+        leaderboard = null;
+
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            error = "Leaderboard context is missing.";
+            return;
+        }
+
         try
         {
-            results = await Http.GetFromJsonAsync<List<RaceResult>>("races/results");
+            leaderboard = await Http.GetFromJsonAsync<CompetitionLeaderboardResponse>($"races/results?competition={selectedCompetitionSlug}&season={selectedSeason.Value}&view={selectedScoreView}");
         }
         catch (HttpRequestException ex)
         {
             error = ex.Message;
         }
+    }
+
+    private async Task OnCompetitionChangedAsync(ChangeEventArgs args)
+    {
+        var competitionSlug = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(competitionSlug))
+        {
+            return;
+        }
+
+        selectedCompetitionSlug = competitionSlug;
+        selectedSeason = GetSeasonOptions().FirstOrDefault()?.Season;
+        await PersistContextAndReloadAsync();
+    }
+
+    private async Task OnSeasonChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var season))
+        {
+            return;
+        }
+
+        selectedSeason = season;
+        await PersistContextAndReloadAsync();
+    }
+
+    private async Task ChangeScoreViewAsync(string scoreView)
+    {
+        selectedScoreView = scoreView;
+        await LoadLeaderboardAsync();
+    }
+
+    private async Task PersistContextAndReloadAsync()
+    {
+        var context = GetSelectedContext();
+        if (context is not null)
+        {
+            await SelectionContextService.SaveLastUsedAsync(context);
+        }
+
+        await LoadLeaderboardAsync();
+    }
+
+    private SelectionContextOption? GetSelectedContext()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            return null;
+        }
+
+        return availableContexts.FirstOrDefault(context =>
+            string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal)
+            && context.Season == selectedSeason.Value);
+    }
+
+    private IEnumerable<SelectionContextOption> GetCompetitionOptions()
+    {
+        return availableContexts
+            .GroupBy(context => context.CompetitionSlug, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(context => context.GetCompetitionLabel(), StringComparer.Ordinal);
+    }
+
+    private IEnumerable<SelectionContextOption> GetSeasonOptions()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug))
+        {
+            return Enumerable.Empty<SelectionContextOption>();
+        }
+
+        return availableContexts
+            .Where(context => string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal))
+            .OrderByDescending(context => context.Season);
+    }
+
+    private string GetSelectedSeasonValue()
+    {
+        return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     }
 }

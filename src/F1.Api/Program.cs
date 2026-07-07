@@ -1,5 +1,6 @@
 using F1.Api.Middleware;
 using F1.Api.Infrastructure;
+using F1.Api.Configuration;
 using Serilog;
 using Serilog.Formatting.Compact;
 using F1.Api.Services;
@@ -7,6 +8,7 @@ using F1.Core.Interfaces;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Repositories;
 using F1.Services;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 
@@ -45,6 +47,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddControllers(); // Add this line to register controller services
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IRaceService, RaceService>();
+builder.Services.Configure<CompetitionLeaderboardOptions>(builder.Configuration.GetSection(CompetitionLeaderboardOptions.SectionName));
+builder.Services.AddScoped<ICompetitionLeaderboardService, CompetitionLeaderboardService>();
 builder.Services.AddScoped<IRaceMetadataService, RaceMetadataService>();
 builder.Services.AddScoped<IRaceContextResolver, RaceContextResolver>();
 builder.Services.AddSingleton<ICompetitionRuleCatalog, CompetitionRuleCatalog>();
@@ -137,10 +141,28 @@ app.UseAuthorization();
 
 app.MapControllers(); // This line is crucial for mapping your controllers
 
-app.MapGet("/races/results", (IRaceService raceService) =>
+app.MapGet("/races/results", async (
+    string competition,
+    int season,
+    string? view,
+    ClaimsPrincipal user,
+    ICompetitionLeaderboardService leaderboardService,
+    CancellationToken cancellationToken) =>
 {
-    var results = raceService.GetMockResults();
-    return Results.Ok(results);
+    var normalizedView = string.IsNullOrWhiteSpace(view) ? "active" : view.Trim().ToLowerInvariant();
+    if ((normalizedView == "recalculated" || normalizedView == "imported") && !user.IsInRole("Admin"))
+    {
+        return Results.Forbid();
+    }
+
+    var leaderboard = await leaderboardService.GetLeaderboardAsync(
+        competition,
+        season,
+        normalizedView,
+        user.IsInRole("Admin"),
+        cancellationToken);
+
+    return Results.Ok(leaderboard);
 }).RequireAuthorization();
 
 app.Run();

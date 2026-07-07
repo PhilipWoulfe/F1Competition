@@ -206,6 +206,13 @@ Web competition context config:
 - Visiting `/selection` restores the last-used competition and season from browser storage when the saved context is still configured; otherwise the client falls back to the default configured context.
 - Removing a context from configuration automatically causes stored stale selections to fall back to a valid configured context on the next visit.
 
+Competition leaderboard config:
+
+- `src/F1.Api/appsettings.json` contains the `CompetitionLeaderboard` section used by the standings endpoint.
+- Each context can be backed by a completed migration run or marked unavailable until a leaderboard source is approved.
+- For migration-backed contexts, `MigrationSourcePathContains` selects the latest completed run used for leaderboard totals.
+- Official leaderboard totals currently use imported legacy scores for approved migrated contexts; admins can request recalculated comparison mode from the API/UI.
+
 #### B. Data Sync Worker (`src/F1.DataSyncWorker/appsettings*.json`)
 The worker reads `ConnectionStrings:Postgres` and the `DataSyncWorker` section. Default config includes the three baseline competitions for this epic:
 
