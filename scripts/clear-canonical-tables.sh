@@ -52,7 +52,6 @@ This will permanently delete data from canonical tables:
   - public."SelectionPositions"
   - public."Selections"
   - public."RaceMetadata"
-  - public."Races"
   - public."Drivers"
 WARN
 
@@ -83,7 +82,6 @@ DELETE FROM public."QuestionTemplates";
 DELETE FROM public."SelectionPositions";
 DELETE FROM public."Selections";
 DELETE FROM public."RaceMetadata";
-DELETE FROM public."Races";
 DELETE FROM public."Drivers";
 SQL
 )

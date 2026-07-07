@@ -97,6 +97,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -235,6 +236,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -329,6 +331,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -412,6 +415,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePathA = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -891,6 +895,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -971,6 +976,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -1114,6 +1120,7 @@ public sealed class MigrationImportRunServiceTests
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
         await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
 
         var sourceFilePath = await CreateTempCsvAsync(
             "Question,Philip,,\n" +
@@ -1160,7 +1167,7 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal("Failed", run.Status);
 
             Assert.Empty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.Races.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Races.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
         }
@@ -1366,6 +1373,60 @@ public sealed class MigrationImportRunServiceTests
             .Options;
 
         return new F1DbContext(options);
+    }
+
+    private static async Task SeedCanonicalRacesAsync(F1DbContext context, int season)
+    {
+        var competition = await context.Competitions
+            .FirstOrDefaultAsync(x => x.Year == season && x.Name == $"Migration Import {season}");
+
+        if (competition is null)
+        {
+            competition = new F1.Core.Models.Competition
+            {
+                Name = $"Migration Import {season}",
+                Year = season,
+                Description = "Seeded canonical races for migration write tests"
+            };
+            context.Competitions.Add(competition);
+            await context.SaveChangesAsync();
+        }
+
+        var existingRounds = await context.Races
+            .Where(x => x.CompetitionId == competition.Id && x.Season == season)
+            .Select(x => x.Round)
+            .ToListAsync();
+
+        if (existingRounds.Count == 0)
+        {
+            context.Races.AddRange(
+                new F1.Core.Models.Race
+                {
+                    Id = $"seed-{season}-round-1",
+                    CompetitionId = competition.Id,
+                    Season = season,
+                    Round = 1,
+                    RaceName = "Australian Grand Prix",
+                    CircuitName = "albert_park",
+                    StartTimeUtc = DateTime.UtcNow,
+                    PreQualyDeadlineUtc = DateTime.UtcNow,
+                    FinalDeadlineUtc = DateTime.UtcNow
+                },
+                new F1.Core.Models.Race
+                {
+                    Id = $"seed-{season}-round-2",
+                    CompetitionId = competition.Id,
+                    Season = season,
+                    Round = 2,
+                    RaceName = "Chinese Grand Prix",
+                    CircuitName = "shanghai",
+                    StartTimeUtc = DateTime.UtcNow,
+                    PreQualyDeadlineUtc = DateTime.UtcNow,
+                    FinalDeadlineUtc = DateTime.UtcNow
+                });
+
+            await context.SaveChangesAsync();
+        }
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>
