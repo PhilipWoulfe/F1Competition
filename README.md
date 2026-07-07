@@ -168,6 +168,8 @@ These `DATA_SYNC_*` values are consumed by `docker-compose.yml` and mapped to `D
 - `MIGRATION_IMPORT_UNRESOLVED_TOKEN_FAIL_THRESHOLD`: mapped to `MigrationImport__UnresolvedTokenFailThreshold`; `0` disables fail-fast and values greater than `0` fail the run when unresolved token count is greater than or equal to the threshold.
 - `MIGRATION_EXPECTED_VARIANCE_ENABLED`: mapped to `MigrationExpectedVariance__Enabled`; enables expected variance ruleset loading.
 - `MIGRATION_EXPECTED_VARIANCE_RULE_MANIFEST_PATH`: mapped to `MigrationExpectedVariance__RuleManifestPath`; default is `data/imports/phil-2025/expected-variance-rules.json`.
+  - `f1-data-sync-worker` image bundles `data/imports/phil-2025` under `/app`, so the default relative paths for migration source CSV and expected variance manifest resolve inside the container without manual host file edits.
+  - To use host-managed files instead, keep `HOST_MIGRATION_UPLOAD_PATH` mounted and point paths to `/tmp/f1-imports/<file-name>`.
 
 Optional API values in `.env`:
 
