@@ -108,11 +108,28 @@ Test notes:
 - Add automated accessibility checks for key pages and components.
 - Add keyboard-navigation E2E tests for primary review workflow paths.
 
+### Story E8: Separate migration storage from main domain data
+As an engineer, I want migration-prefixed tables isolated from the main application data model so admin migration workflows do not leak into product read paths and the final data is persisted in the correct canonical tables.
+
+Acceptance criteria:
+- Any table or entity whose name starts with `Migration` or `MigrationImport` is only used by migration/admin workflows, import staging, reconciliation, or audit views.
+- Core product features read from canonical domain tables only and do not depend on migration-prefixed tables for runtime behavior.
+- The migration pipeline explicitly moves or materializes the needed data into the proper canonical tables before the app or UI consumes it.
+- If the implementation chooses a separate schema or separate database, the boundary is documented and enforced so migration storage and canonical storage cannot be mixed accidentally.
+- The storage model includes an explicit mapping from migration tables to their canonical target tables for every persisted data type that needs to survive import.
+- Idempotent re-run behavior is preserved so imports can be repeated without duplicating canonical data or leaving orphaned migration records.
+
+Test notes:
+- Add architecture-level tests or static checks that fail if non-admin code paths reference `Migration*` tables directly.
+- Add import/integration tests proving the required data lands in canonical tables after migration completes.
+- Add rerun/idempotency tests for the migration-to-canonical handoff.
+
 ## Delivery Plan
 1. Finalize role-based post-login destinations and context contract
 2. Implement competition-season selection and remembered context
 3. Deliver leaderboard and participant drilldown with score-source clarity
 4. Add deep-linking, admin migration visibility, and accessibility coverage
+5. Define and enforce the migration-storage boundary between admin/import tables and canonical application data
 
 ## Risks and Mitigations
 - Risk: Users lose context when navigating between leaderboard and participant detail.
@@ -121,8 +138,12 @@ Test notes:
 - Risk: Score-source labels are present but still misunderstood.
 - Mitigation: Use consistent labels, helper copy, and link to scoring truth contract.
 
+- Risk: Migration-prefixed tables become accidental runtime dependencies.
+- Mitigation: Keep migration data isolated to admin/import workflows, enforce a canonical target mapping, and consider a dedicated schema or database boundary if table-level separation is not enough.
+
 ## Definition of Done
 - Post-login flow is role-based and deterministic.
 - Competition-season context is selectable, persisted, and deep-linkable.
 - Leaderboard and participant drilldowns show clear score-source semantics.
 - Accessibility and keyboard flow coverage exists for primary review tasks.
+- Migration-prefixed tables are isolated from main product reads and only feed canonical domain tables through explicit import steps.

@@ -411,7 +411,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             return null;
         }
 
-        var templateKeys = questionRows.Select(row => ResolveQuestionId(row.RowNumber, row.RawPayload)).ToArray();
+        var templateKeys = questionRows.Select(row => ResolveQuestionId(row.RowNumber, row.RawPayload, usePhil2025Contract)).ToArray();
         var existingTemplateIds = await dbContext.QuestionTemplates
             .Where(x => x.CompetitionId == competitionId.Value && x.Season == _importOptions.Season && templateKeys.Contains(x.QuestionId))
             .ToDictionaryAsync(x => x.QuestionId, x => x.Id, StringComparer.OrdinalIgnoreCase, cancellationToken);
@@ -435,8 +435,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 continue;
             }
 
-            var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload);
-            var category = ResolveQuestionCategory(row.RawPayload);
+            var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload, usePhil2025Contract);
+            var category = ResolveQuestionCategory(row.RowNumber, row.RawPayload, usePhil2025Contract);
             var optionsJson = category == QuestionCategory.H2H
                 ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode)
                 : null;
@@ -662,7 +662,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         var preseasonRows = stagedRows
             .Where(x => string.Equals(x.SectionType, SectionTypeSeasonQuestionPrediction, StringComparison.Ordinal))
-            .Where(x => ResolveQuestionCategory(x.RawPayload) == QuestionCategory.Preseason)
+            .Where(x => ResolveQuestionCategory(x.RowNumber, x.RawPayload, usePhil2025Contract) == QuestionCategory.Preseason)
             .OrderBy(x => x.RowNumber)
             .ToList();
 
@@ -946,7 +946,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return new PreseasonNormalizationResult(normalized, ["H2H_UNSUPPORTED_TOKEN_SHAPE_PRESERVED"]);
     }
 
-    private static QuestionCategory ResolveQuestionCategory(string rawPayload)
+    private static QuestionCategory ResolveQuestionCategory(int rowNumber, string rawPayload, bool usePhil2025Contract)
     {
         var columns = CsvLineParser.Parse(rawPayload);
         if (columns.Count == 0)
@@ -965,6 +965,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             return QuestionCategory.H2H;
         }
 
+        if (usePhil2025Contract &&
+            rowNumber >= MigrationPhil2025CsvContractPolicy.PreseasonQuestionStartRow &&
+            rowNumber <= MigrationPhil2025CsvContractPolicy.PreseasonQuestionEndRow)
+        {
+            return QuestionCategory.Preseason;
+        }
+
         if (RaceBonusPromptRegex().IsMatch(prompt))
         {
             return QuestionCategory.RaceBonus;
@@ -973,9 +980,9 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return QuestionCategory.Preseason;
     }
 
-    private static string ResolveQuestionId(int rowNumber, string rawPayload)
+    private static string ResolveQuestionId(int rowNumber, string rawPayload, bool usePhil2025Contract)
     {
-        var category = ResolveQuestionCategory(rawPayload);
+        var category = ResolveQuestionCategory(rowNumber, rawPayload, usePhil2025Contract);
         return category switch
         {
             QuestionCategory.H2H => $"H2H-{rowNumber:D3}",

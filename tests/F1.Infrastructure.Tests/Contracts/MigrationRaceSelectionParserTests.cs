@@ -170,6 +170,50 @@ public sealed class MigrationRaceSelectionParserTests
     }
 
     [Fact]
+    public async Task ParseAndPersistAsync_WhenPhilPreseasonPromptContainsBonus_ClassifiesAsPreseason()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 10,
+            SectionType = "SeasonQuestionPrediction",
+            RawPayload = "On at least one occasion teammates earn bonus points together?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N"
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var result = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.True(result.PreseasonAnswerCount > 0);
+
+        var template = await dbContext.QuestionTemplates.SingleAsync();
+        Assert.Equal("PRE-010", template.QuestionId);
+        Assert.Equal(QuestionCategory.Preseason, template.Category);
+
+        var preseasonAnswers = await dbContext.MigrationImportPreseasonAnswers
+            .Where(x => x.ImportRunId == runId && x.QuestionKey == "PRE-010")
+            .ToListAsync();
+        Assert.NotEmpty(preseasonAnswers);
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenPhilContractAndMultipleSeasonCompetitions_UsesPhilipCompetitionForGenericQuestions()
     {
         var runId = Guid.NewGuid();

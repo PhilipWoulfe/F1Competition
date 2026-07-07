@@ -172,23 +172,26 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             })
             .ToList();
 
-        var preseasonCalculatedScores = questionScoreComputations.Count == 0
-            ? CalculatePreseasonScores(runId, preseasonAnswers, preseasonPolicy?.PointsPerQuestion)
-            : questionScoreComputations
-                .Where(x => x.Category == QuestionCategory.Preseason)
-                .Select(computation => new MigrationImportPreseasonCalculatedScoreEntity
-                {
-                    ImportRunId = runId,
-                    RowNumber = computation.SortOrder,
-                    QuestionKey = computation.QuestionId,
-                    QuestionText = computation.Prompt,
-                    Subject = computation.ParticipantId,
-                    PredictedValue = computation.PredictedAnswer,
-                    ActualValue = computation.ActualAnswer,
-                    Points = computation.CalculatedPoints,
-                    ReasonCode = computation.ReasonCode
-                })
-                .ToList();
+        var fallbackPreseasonCalculatedScores = CalculatePreseasonScores(runId, preseasonAnswers, preseasonPolicy?.PointsPerQuestion);
+        var genericPreseasonCalculatedScores = questionScoreComputations
+            .Where(x => x.Category == QuestionCategory.Preseason)
+            .Select(computation => new MigrationImportPreseasonCalculatedScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = computation.SortOrder,
+                QuestionKey = computation.QuestionId,
+                QuestionText = computation.Prompt,
+                Subject = computation.ParticipantId,
+                PredictedValue = computation.PredictedAnswer,
+                ActualValue = computation.ActualAnswer,
+                Points = computation.CalculatedPoints,
+                ReasonCode = computation.ReasonCode
+            })
+            .ToList();
+
+        var preseasonCalculatedScores = MergePreseasonCalculatedScores(
+            fallbackPreseasonCalculatedScores,
+            genericPreseasonCalculatedScores);
         var preseasonCalculatedTotals = preseasonCalculatedScores
             .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .Select(group => new MigrationImportPreseasonCalculatedTotalEntity
@@ -387,6 +390,40 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         }
 
         return calculated;
+    }
+
+    private static List<MigrationImportPreseasonCalculatedScoreEntity> MergePreseasonCalculatedScores(
+        IReadOnlyCollection<MigrationImportPreseasonCalculatedScoreEntity> fallback,
+        IReadOnlyCollection<MigrationImportPreseasonCalculatedScoreEntity> preferred)
+    {
+        if (fallback.Count == 0)
+        {
+            return preferred.ToList();
+        }
+
+        if (preferred.Count == 0)
+        {
+            return fallback.ToList();
+        }
+
+        var merged = preferred.ToDictionary(
+            x => (QuestionKey: x.QuestionKey?.Trim() ?? string.Empty, Subject: x.Subject?.Trim() ?? string.Empty),
+            new QuestionParticipantKeyComparer());
+
+        foreach (var score in fallback)
+        {
+            var key = (QuestionKey: score.QuestionKey?.Trim() ?? string.Empty, Subject: score.Subject?.Trim() ?? string.Empty);
+            if (!merged.ContainsKey(key))
+            {
+                merged[key] = score;
+            }
+        }
+
+        return merged.Values
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static (int Points, string ReasonCode) ScorePreseasonAnswer(

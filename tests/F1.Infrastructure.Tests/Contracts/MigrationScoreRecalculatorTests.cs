@@ -389,6 +389,80 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenGenericPreseasonDataIsPartial_PreservesRunDerivedPreseasonScores()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 10,
+            ColumnIndex = 12,
+            CellReference = "M10",
+            RawPointsPerQuestion = "20",
+            PointsPerQuestion = 20
+        });
+
+        dbContext.MigrationImportPreseasonAnswers.AddRange(
+            PreseasonAnswer(runId, 10, "PRE-010", "Q10", "ACTUAL", "Y", isActual: true),
+            PreseasonAnswer(runId, 10, "PRE-010", "Q10", "Dave", "Y"));
+
+        // Seed unrelated generic preseason data to force generic scoring path.
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 101,
+            CompetitionId = 1,
+            Season = 2025,
+            QuestionId = "PRE-002",
+            Category = QuestionCategory.Preseason,
+            Prompt = "Q1",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 2,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
+        {
+            QuestionTemplateId = 101,
+            ParticipantId = "Philip",
+            ImportedAnswer = "VER",
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            QuestionTemplateId = 101,
+            ImportedAnswer = "VER",
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var daveScore = await dbContext.MigrationImportPreseasonCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.QuestionKey == "PRE-010" && x.Subject == "Dave");
+
+        AssertPreseasonScore(daveScore, 20, "PRESEASON_EXACT");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenCategoryStrategyMissing_PersistsZeroPointFallbackReason()
     {
         var runId = Guid.NewGuid();
