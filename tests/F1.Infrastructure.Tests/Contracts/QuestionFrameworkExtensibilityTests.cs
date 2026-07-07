@@ -77,7 +77,9 @@ public sealed class QuestionFrameworkExtensibilityTests
     [Fact]
     public void CalculateGenericQuestionScores_ShouldUseStrategyRegistry_WithoutCategorySpecificBranching()
     {
-        var sourcePath = GetRepositoryFilePath("src", "F1.DataSyncWorker", "Services", "MigrationScoreRecalculator.cs");
+        var sourcePath = FindRepositoryFilePath(
+            Path.Combine("src", "F1.DataSyncWorker", "Services", "Scoring", "MigrationScoreRecalculator.cs"),
+            Path.Combine("src", "F1.DataSyncWorker", "Services", "MigrationScoreRecalculator.cs"));
         var source = File.ReadAllText(sourcePath);
 
         var methodStart = source.IndexOf(
@@ -133,6 +135,20 @@ public sealed class QuestionFrameworkExtensibilityTests
         }
 
         throw new InvalidOperationException("Unable to locate repository root.");
+    }
+
+    private static string FindRepositoryFilePath(params string[] candidateRelativePaths)
+    {
+        foreach (var candidate in candidateRelativePaths)
+        {
+            var fullPath = GetRepositoryFilePath(candidate.Split(Path.DirectorySeparatorChar));
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+
+        throw new FileNotFoundException($"Unable to locate any expected source file path. Candidates: {string.Join(", ", candidateRelativePaths)}");
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>
