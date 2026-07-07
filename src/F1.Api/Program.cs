@@ -165,6 +165,22 @@ app.MapGet("/races/results", async (
     return Results.Ok(leaderboard);
 }).RequireAuthorization();
 
+app.MapGet("/races/results/participants/{participantName}", async (
+    string competition,
+    int season,
+    string participantName,
+    ICompetitionLeaderboardService leaderboardService,
+    CancellationToken cancellationToken) =>
+{
+    var detail = await leaderboardService.GetParticipantDetailAsync(
+        competition,
+        season,
+        participantName,
+        cancellationToken);
+
+    return Results.Ok(detail);
+}).RequireAuthorization();
+
 app.Run();
 
 static string? ResolveWritableLogPath(string? preferredPath, string fallbackPath, out string? fallbackReason)

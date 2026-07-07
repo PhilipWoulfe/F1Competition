@@ -9,6 +9,8 @@ namespace F1.Api.Services;
 public interface ICompetitionLeaderboardService
 {
     Task<CompetitionLeaderboardResponseDto> GetLeaderboardAsync(string competitionSlug, int season, string scoreView, bool isAdmin, CancellationToken cancellationToken = default);
+
+    Task<CompetitionParticipantDetailResponseDto> GetParticipantDetailAsync(string competitionSlug, int season, string participantName, CancellationToken cancellationToken = default);
 }
 
 public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOptions<CompetitionLeaderboardOptions> options) : ICompetitionLeaderboardService
@@ -30,15 +32,8 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
 
         var normalizedCompetitionSlug = competitionSlug.Trim().ToLowerInvariant();
         var normalizedScoreView = NormalizeScoreView(scoreView);
-        var context = options.Value.Contexts.FirstOrDefault(option =>
-            string.Equals(option.CompetitionSlug, normalizedCompetitionSlug, StringComparison.OrdinalIgnoreCase)
-            && option.Season == season);
-
-        var displayName = context?.DisplayName?.Trim();
-        if (string.IsNullOrWhiteSpace(displayName))
-        {
-            displayName = $"{ToDisplayName(normalizedCompetitionSlug)} {season}";
-        }
+        var context = ResolveContextOption(normalizedCompetitionSlug, season);
+        var displayName = GetDisplayName(context, normalizedCompetitionSlug, season);
 
         if (context is null || string.Equals(context.SourceType, SourceTypeUnavailable, StringComparison.OrdinalIgnoreCase))
         {
@@ -72,10 +67,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             completedRuns = completedRuns.Where(run => run.SourceFilePath.ToLower().Contains(sourcePathToken));
         }
 
-        var sourceRun = await completedRuns
-            .OrderByDescending(run => run.FinishedAtUtc ?? run.StartedAtUtc)
-            .ThenByDescending(run => run.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        var sourceRun = await GetLatestCompletedRunAsync(context, cancellationToken);
 
         if (sourceRun is null)
         {
@@ -156,6 +148,69 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             Items: leaderboardItems);
     }
 
+    public async Task<CompetitionParticipantDetailResponseDto> GetParticipantDetailAsync(string competitionSlug, int season, string participantName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(competitionSlug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(participantName);
+        if (season <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(season));
+        }
+
+        var normalizedCompetitionSlug = competitionSlug.Trim().ToLowerInvariant();
+        var normalizedParticipantName = participantName.Trim();
+        var context = ResolveContextOption(normalizedCompetitionSlug, season);
+        var displayName = GetDisplayName(context, normalizedCompetitionSlug, season);
+
+        var sourceRun = context is not null
+            ? await GetLatestCompletedRunAsync(context, cancellationToken)
+            : null;
+
+        var racePickItems = sourceRun is null
+            ? []
+            : await dbContext.MigrationImportPickDiffs
+                .AsNoTracking()
+                .Where(item => item.ImportRunId == sourceRun.Id && item.Subject == normalizedParticipantName)
+                .OrderBy(item => item.RaceCode)
+                .ThenBy(item => item.PickType)
+                .Select(item => new CompetitionParticipantDetailItemDto(
+                    item.RaceCode,
+                    item.PickType,
+                    item.ImportedPoints,
+                    item.CalculatedPoints ?? 0,
+                    item.DeltaPoints,
+                    item.ReasonCode,
+                    item.Explanation))
+                .ToArrayAsync(cancellationToken);
+
+        var preseasonItems = sourceRun is null
+            ? []
+            : await dbContext.MigrationImportPreseasonQuestionDiffs
+                .AsNoTracking()
+                .Where(item => item.ImportRunId == sourceRun.Id && item.Subject == normalizedParticipantName)
+                .OrderBy(item => item.RowNumber)
+                .Select(item => new CompetitionParticipantDetailItemDto(
+                    item.QuestionKey,
+                    item.QuestionText,
+                    item.ImportedPoints,
+                    item.CalculatedPoints ?? 0,
+                    item.DeltaPoints,
+                    item.ReasonCode,
+                    item.Explanation))
+                .ToArrayAsync(cancellationToken);
+
+        var h2hItems = await BuildH2hItemsAsync(displayName, season, normalizedParticipantName, cancellationToken);
+
+        return new CompetitionParticipantDetailResponseDto(
+            CompetitionSlug: normalizedCompetitionSlug,
+            Season: season,
+            DisplayName: displayName,
+            ParticipantName: normalizedParticipantName,
+            RacePicks: BuildSection("Race Picks", racePickItems),
+            Preseason: BuildSection("Preseason Questions", preseasonItems),
+            H2h: BuildSection("H2H Questions", h2hItems));
+    }
+
     private static CompetitionLeaderboardResponseDto CreateUnavailableResponse(
         string competitionSlug,
         int season,
@@ -230,6 +285,80 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
     private static string ToDisplayName(string value)
     {
         return string.Join(' ', value.Split('-', StringSplitOptions.RemoveEmptyEntries).Select(segment => char.ToUpperInvariant(segment[0]) + segment[1..]));
+    }
+
+    private CompetitionLeaderboardContextOption? ResolveContextOption(string competitionSlug, int season)
+    {
+        return options.Value.Contexts.FirstOrDefault(option =>
+            string.Equals(option.CompetitionSlug, competitionSlug, StringComparison.OrdinalIgnoreCase)
+            && option.Season == season);
+    }
+
+    private static string GetDisplayName(CompetitionLeaderboardContextOption? context, string competitionSlug, int season)
+    {
+        var displayName = context?.DisplayName?.Trim();
+        return string.IsNullOrWhiteSpace(displayName)
+            ? $"{ToDisplayName(competitionSlug)} {season}"
+            : displayName;
+    }
+
+    private async Task<F1.Infrastructure.Data.Entities.MigrationImportRunEntity?> GetLatestCompletedRunAsync(CompetitionLeaderboardContextOption context, CancellationToken cancellationToken)
+    {
+        var completedRuns = dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .Where(run => string.Equals(run.Status, "Completed", StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(context.MigrationSourcePathContains))
+        {
+            var sourcePathToken = context.MigrationSourcePathContains.Trim().ToLowerInvariant();
+            completedRuns = completedRuns.Where(run => run.SourceFilePath.ToLower().Contains(sourcePathToken));
+        }
+
+        return await completedRuns
+            .OrderByDescending(run => run.FinishedAtUtc ?? run.StartedAtUtc)
+            .ThenByDescending(run => run.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<CompetitionParticipantDetailItemDto[]> BuildH2hItemsAsync(string competitionDisplayName, int season, string participantName, CancellationToken cancellationToken)
+    {
+        var competition = await dbContext.Competitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Name == competitionDisplayName && item.Year == season, cancellationToken);
+
+        if (competition is null)
+        {
+            return [];
+        }
+
+        var rows = await dbContext.QuestionScores
+            .AsNoTracking()
+            .Where(score => score.ParticipantId == participantName)
+            .Join(
+                dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season && template.Category == F1.Core.Models.QuestionCategory.H2H),
+                score => score.QuestionTemplateId,
+                template => template.Id,
+                (score, template) => new CompetitionParticipantDetailItemDto(
+                    template.QuestionId,
+                    template.Prompt,
+                    score.ImportedPoints,
+                    score.CalculatedPoints,
+                    score.DeltaPoints,
+                    null,
+                    null))
+            .OrderBy(item => item.Label)
+            .ToArrayAsync(cancellationToken);
+
+        return rows;
+    }
+
+    private static CompetitionParticipantSectionSummaryDto BuildSection(string title, IReadOnlyList<CompetitionParticipantDetailItemDto> items)
+    {
+        return new CompetitionParticipantSectionSummaryDto(
+            Title: title,
+            ImportedTotalPoints: items.Sum(item => item.ImportedPoints ?? 0),
+            RecalculatedTotalPoints: items.Sum(item => item.CalculatedPoints),
+            Items: items);
     }
 
     private sealed record ScoreTotals(int ImportedPoints, int RecalculatedPoints);

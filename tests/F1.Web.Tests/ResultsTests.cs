@@ -257,6 +257,71 @@ public class ResultsTests : BunitContext
         Assert.Contains("Recalculated", cut.Markup);
     }
 
+    [Fact]
+    public void Results_ShouldRenderParticipantDrilldown_WhenParticipantIsSelected()
+    {
+        var leaderboardResponse = new CompetitionLeaderboardResponse(
+            CompetitionSlug: "philip",
+            Season: 2025,
+            DisplayName: "Philip 2025",
+            ActiveScoreSource: "ImportedLegacy",
+            ScoreView: "active",
+            ScoreSourceLabel: "Official Source: Imported legacy scores",
+            ScoreSourceHelperText: "Official standings use imported legacy totals.",
+            IsComparisonAvailable: false,
+            IsDataAvailable: true,
+            EmptyStateMessage: null,
+            SourceRunId: Guid.NewGuid(),
+            Items: [new CompetitionLeaderboardEntry(1, "Alice", 25, 25, 20)]);
+
+        var detailResponse = new CompetitionParticipantDetailResponse(
+            CompetitionSlug: "philip",
+            Season: 2025,
+            DisplayName: "Philip 2025",
+            ParticipantName: "Alice",
+            RacePicks: new CompetitionParticipantSectionSummary(
+                "Race Picks",
+                3,
+                5,
+                [new CompetitionParticipantDetailItem("AUS", "1", 3, 5, 2, "RACE_CORRECT", "Exact pick")]),
+            Preseason: new CompetitionParticipantSectionSummary(
+                "Preseason Questions",
+                4,
+                6,
+                [new CompetitionParticipantDetailItem("WDC", "Who wins the championship?", 4, 6, 2, "PRESEASON_CORRECT", "Matched answer")]),
+            H2h: new CompetitionParticipantSectionSummary(
+                "H2H Questions",
+                0,
+                0,
+                []));
+
+        _handlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(leaderboardResponse))
+            })
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(detailResponse))
+            });
+
+        var cut = Render<Results>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Alice", cut.Markup));
+        cut.Find("button.participant-drilldown").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Race Picks", cut.Markup));
+        Assert.Contains("Preseason Questions", cut.Markup);
+        Assert.Contains("No H2H question data is available for this participant.", cut.Markup);
+    }
+
     private sealed class InMemorySelectionContextStore : ISelectionContextStore
     {
         public StoredSelectionContext? StoredContext { get; set; }

@@ -102,6 +102,99 @@ public sealed class CompetitionLeaderboardServiceTests
         Assert.Empty(result.Items);
     }
 
+    [Fact]
+    public async Task GetParticipantDetailAsync_ReturnsRacePreseasonAndH2hSections()
+    {
+        var options = CreateOptions();
+        var runId = Guid.NewGuid();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.Competitions.Add(new F1.Core.Models.Competition
+            {
+                Id = 42,
+                Name = "Philip 2025",
+                Year = 2025,
+                Description = "Philip 2025 season competition"
+            });
+
+            dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+            {
+                Id = 100,
+                CompetitionId = 42,
+                Season = 2025,
+                QuestionId = "h2h-aus-1",
+                Category = F1.Core.Models.QuestionCategory.H2H,
+                Prompt = "Who finishes higher?",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionScores.Add(new QuestionScoreEntity
+            {
+                QuestionTemplateId = 100,
+                ParticipantId = "Alice",
+                ImportedPoints = 1,
+                CalculatedPoints = 2,
+                DeltaPoints = 1,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+                SourceFileChecksum = "abc123",
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                FinishedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportPickDiffs.Add(new MigrationImportPickDiffEntity
+            {
+                ImportRunId = runId,
+                RaceCode = "AUS",
+                PickType = "1",
+                Subject = "Alice",
+                ImportedPoints = 3,
+                CalculatedPoints = 5,
+                DeltaPoints = 2,
+                ReasonCode = "RACE_CORRECT",
+                Explanation = "Exact pick"
+            });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                QuestionKey = "WDC",
+                QuestionText = "Who wins the championship?",
+                Subject = "Alice",
+                ImportedPoints = 4,
+                CalculatedPoints = 6,
+                DeltaPoints = 2,
+                ReasonCode = "PRESEASON_CORRECT",
+                Explanation = "Matched answer"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = CreateService(serviceContext);
+
+        var result = await service.GetParticipantDetailAsync("philip", 2025, "Alice", CancellationToken.None);
+
+        Assert.Single(result.RacePicks.Items);
+        Assert.Single(result.Preseason.Items);
+        Assert.Single(result.H2h.Items);
+        Assert.Equal(3, result.RacePicks.ImportedTotalPoints);
+        Assert.Equal(6, result.Preseason.RecalculatedTotalPoints);
+        Assert.Equal("Who finishes higher?", result.H2h.Items[0].Description);
+    }
+
     private static CompetitionLeaderboardService CreateService(F1DbContext dbContext)
     {
         var options = Options.Create(new CompetitionLeaderboardOptions

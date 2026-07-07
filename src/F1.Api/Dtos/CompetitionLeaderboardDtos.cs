@@ -20,3 +20,27 @@ public sealed record CompetitionLeaderboardEntryDto(
     int DisplayPoints,
     int ImportedPoints,
     int RecalculatedPoints);
+
+public sealed record CompetitionParticipantDetailResponseDto(
+    string CompetitionSlug,
+    int Season,
+    string DisplayName,
+    string ParticipantName,
+    CompetitionParticipantSectionSummaryDto RacePicks,
+    CompetitionParticipantSectionSummaryDto Preseason,
+    CompetitionParticipantSectionSummaryDto H2h);
+
+public sealed record CompetitionParticipantSectionSummaryDto(
+    string Title,
+    int ImportedTotalPoints,
+    int RecalculatedTotalPoints,
+    IReadOnlyList<CompetitionParticipantDetailItemDto> Items);
+
+public sealed record CompetitionParticipantDetailItemDto(
+    string Label,
+    string Description,
+    int? ImportedPoints,
+    int CalculatedPoints,
+    int DeltaPoints,
+    string? ReasonCode,
+    string? Explanation);

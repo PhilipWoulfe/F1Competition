@@ -81,12 +81,33 @@ else if (!string.IsNullOrWhiteSpace(leaderboard.ScoreSourceLabel))
                 {
                     <tr>
                         <td>@entry.Position</td>
-                        <td>@entry.ParticipantName</td>
+                        <td>
+                            <button class="btn btn-link p-0 participant-drilldown" type="button" @onclick='() => LoadParticipantDetailAsync(entry.ParticipantName)'>@entry.ParticipantName</button>
+                        </td>
                         <td>@entry.DisplayPoints</td>
                     </tr>
                 }
             </tbody>
         </table>
+
+        @if (participantDetail is not null)
+        {
+            <section class="card mt-4 participant-detail" aria-label="Participant detail">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h2 class="h4 mb-1">@participantDetail.ParticipantName</h2>
+                            <div class="text-muted">@participantDetail.DisplayName leaderboard detail</div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ClearParticipantDetail">Back to leaderboard</button>
+                    </div>
+
+                    @RenderSection(participantDetail.RacePicks, "No race pick data is available for this participant.")
+                    @RenderSection(participantDetail.Preseason, "No preseason question data is available for this participant.")
+                    @RenderSection(participantDetail.H2h, "No H2H question data is available for this participant.")
+                </div>
+            </section>
+        }
     }
 }
 else
@@ -96,6 +117,7 @@ else
 
 @code {
     private CompetitionLeaderboardResponse? leaderboard;
+    private CompetitionParticipantDetailResponse? participantDetail;
     private string? error;
     private IReadOnlyList<SelectionContextOption> availableContexts = [];
     private string? selectedCompetitionSlug;
@@ -130,6 +152,7 @@ else
         try
         {
             leaderboard = await Http.GetFromJsonAsync<CompetitionLeaderboardResponse>($"races/results?competition={selectedCompetitionSlug}&season={selectedSeason.Value}&view={selectedScoreView}");
+            participantDetail = null;
         }
         catch (HttpRequestException ex)
         {
@@ -165,6 +188,21 @@ else
     {
         selectedScoreView = scoreView;
         await LoadLeaderboardAsync();
+    }
+
+    private async Task LoadParticipantDetailAsync(string participantName)
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            return;
+        }
+
+        participantDetail = await Http.GetFromJsonAsync<CompetitionParticipantDetailResponse>($"races/results/participants/{Uri.EscapeDataString(participantName)}?competition={selectedCompetitionSlug}&season={selectedSeason.Value}");
+    }
+
+    private void ClearParticipantDetail()
+    {
+        participantDetail = null;
     }
 
     private async Task PersistContextAndReloadAsync()
@@ -214,4 +252,46 @@ else
     {
         return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     }
+
+    private RenderFragment RenderSection(CompetitionParticipantSectionSummary section, string emptyStateMessage) => builder =>
+    {
+        builder.OpenElement(0, "section");
+        builder.AddAttribute(1, "class", "mb-4");
+        builder.OpenElement(2, "h3");
+        builder.AddAttribute(3, "class", "h5");
+        builder.AddContent(4, section.Title);
+        builder.CloseElement();
+        builder.OpenElement(5, "div");
+        builder.AddAttribute(6, "class", "text-muted mb-2");
+        builder.AddContent(7, $"Imported total: {section.ImportedTotalPoints} | Recalculated total: {section.RecalculatedTotalPoints}");
+        builder.CloseElement();
+
+        if (section.Items.Count == 0)
+        {
+            builder.OpenElement(8, "div");
+            builder.AddAttribute(9, "class", "alert alert-light");
+            builder.AddContent(10, emptyStateMessage);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(11, "table");
+            builder.AddAttribute(12, "class", "table table-sm");
+            builder.OpenElement(13, "thead");
+            builder.AddMarkupContent(14, "<tr><th>Item</th><th>Description</th><th>Imported</th><th>Recalculated</th><th>Delta</th></tr>");
+            builder.CloseElement();
+            builder.OpenElement(15, "tbody");
+            var seq = 16;
+            foreach (var item in section.Items)
+            {
+                builder.OpenElement(seq++, "tr");
+                builder.AddMarkupContent(seq++, $"<td>{item.Label}</td><td>{item.Description}</td><td>{item.ImportedPoints?.ToString() ?? string.Empty}</td><td>{item.CalculatedPoints}</td><td>{item.DeltaPoints}</td>");
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
 }
