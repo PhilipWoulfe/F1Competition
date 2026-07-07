@@ -221,6 +221,9 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.PreseasonParseStatus).HasMaxLength(32).IsRequired();
             entity.Property(x => x.PreseasonScoringStatus).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ParitySnapshotChecksum).HasMaxLength(128);
+            entity.Property(x => x.ParityStatus).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ParityComparedChecksum).HasMaxLength(128);
             entity.Property(x => x.ErrorMessage).HasMaxLength(4000);
             entity.HasIndex(x => x.SourceFileChecksum);
             entity.HasIndex(x => x.StartedAtUtc);

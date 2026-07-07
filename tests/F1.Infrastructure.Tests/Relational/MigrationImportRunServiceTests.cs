@@ -201,9 +201,9 @@ public sealed class MigrationImportRunServiceTests
             Assert.Empty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Races.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.MigrationImportJolpicaRaceSnapshots.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.MigrationImportRaceRoundMappings.AsNoTracking().ToListAsync());
-            Assert.Equal(0, jolpicaClient.GetRacesCallCount);
+            Assert.NotEmpty(await verificationContext.MigrationImportJolpicaRaceSnapshots.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.MigrationImportRaceRoundMappings.AsNoTracking().ToListAsync());
+            Assert.True(jolpicaClient.GetRacesCallCount > 0);
 
             var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
             Assert.True(run.IsDryRun);
@@ -214,6 +214,8 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal(0, run.PreseasonWarningCount);
             Assert.Equal(0, run.PreseasonErrorCount);
             Assert.True(run.PreseasonIsolationGuardPassed);
+            Assert.NotNull(run.ParitySnapshotChecksum);
+            Assert.Equal("NotCompared", run.ParityStatus);
 
             var stagedRows = await verificationContext.MigrationImportRawRows.AsNoTracking().OrderBy(x => x.RowNumber).ToListAsync();
             Assert.Equal(3, stagedRows.Count);
@@ -221,6 +223,100 @@ public sealed class MigrationImportRunServiceTests
             Assert.Equal("RacePick", stagedRows[1].SectionType);
             Assert.Equal("RacePick", stagedRows[2].SectionType);
             Assert.Equal("Mapped special label to DNF pick type.", stagedRows[2].ClassificationReason);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenDryAndWriteUseSameSource_ParityChecksumsMatch()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var dryRunOrchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            var writeRunOrchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await dryRunOrchestrator.RunOnceAsync(CancellationToken.None);
+            await writeRunOrchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var runs = await verificationContext.MigrationImportRuns
+                .AsNoTracking()
+                .OrderBy(x => x.StartedAtUtc)
+                .ToListAsync();
+
+            Assert.Equal(2, runs.Count);
+            Assert.Equal("Completed", runs[0].Status);
+            Assert.Equal("Completed", runs[1].Status);
+            Assert.NotNull(runs[0].ParitySnapshotChecksum);
+            Assert.NotNull(runs[1].ParitySnapshotChecksum);
+            Assert.Equal(runs[0].ParitySnapshotChecksum, runs[1].ParitySnapshotChecksum);
+            Assert.Equal("NotCompared", runs[0].ParityStatus);
+            Assert.Equal("Matched", runs[1].ParityStatus);
+            Assert.Equal(runs[0].Id, runs[1].ParityComparedRunId);
+            Assert.Equal(runs[0].ParitySnapshotChecksum, runs[1].ParityComparedChecksum);
         }
         finally
         {

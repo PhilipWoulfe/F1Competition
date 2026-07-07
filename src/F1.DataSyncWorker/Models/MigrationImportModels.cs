@@ -48,4 +48,8 @@ public sealed record MigrationImportRunCompletionMetadata(
     int PreseasonScoredQuestionCount = 0,
     int PreseasonQuestionDiffCount = 0,
     int PreseasonTotalDeltaPoints = 0,
-    bool PreseasonIsolationGuardPassed = true);
+    bool PreseasonIsolationGuardPassed = true,
+    string? ParitySnapshotChecksum = null,
+    string ParityStatus = "NotCompared",
+    string? ParityComparedChecksum = null,
+    Guid? ParityComparedRunId = null);
