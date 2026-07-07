@@ -119,11 +119,13 @@ public sealed record AdminMigrationPickDiffDto(
 
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequestDto(
     IFormFile? SourceFile,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponseDto(
     Guid RunId,
@@ -133,7 +135,15 @@ public sealed record AdminMigrationRunKickoffResponseDto(
     string SourceFilePath,
     string SourceFileChecksum,
     DateTime TriggeredAtUtc,
-    string RequestedBy);
+    string RequestedBy,
+    string NonEmptyDbStrategy = "merge_upsert_active_records",
+    bool CanonicalDataPresent = false,
+    int ExistingDriverCount = 0,
+    int ExistingRaceCount = 0,
+    int ExistingSelectionCount = 0,
+    int EstimatedAffectedRaceCount = 0,
+    int EstimatedAffectedParticipantCount = 0,
+    int EstimatedAffectedSelectionCount = 0);
 
 public sealed record AdminMigrationQuestionDiffListResponseDto(
     int Page,

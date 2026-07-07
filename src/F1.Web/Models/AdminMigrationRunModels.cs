@@ -117,12 +117,14 @@ public sealed record AdminMigrationPickDiff(
 
 public sealed record AdminMigrationRunKickoffRequest(
     string? SourceFilePath,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequest(
     string FileName,
     Stream Content,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponse(
     Guid RunId,
@@ -132,7 +134,15 @@ public sealed record AdminMigrationRunKickoffResponse(
     string SourceFilePath,
     string SourceFileChecksum,
     DateTime TriggeredAtUtc,
-    string RequestedBy);
+    string RequestedBy,
+    string NonEmptyDbStrategy,
+    bool CanonicalDataPresent,
+    int ExistingDriverCount,
+    int ExistingRaceCount,
+    int ExistingSelectionCount,
+    int EstimatedAffectedRaceCount,
+    int EstimatedAffectedParticipantCount,
+    int EstimatedAffectedSelectionCount);
 
 public sealed record AdminMigrationQuestionDiffListResponse(
     int Page,

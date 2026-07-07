@@ -206,7 +206,8 @@ public sealed class MigrationRunsController : ControllerBase
             new MigrationRunKickoffCommand(
                 request.SourceFilePath,
                 request.Mode,
-                ResolveActor()),
+                ResolveActor(),
+                request.ConfirmNonEmptyStrategy),
             cancellationToken);
 
         if (!result.Success)
@@ -283,7 +284,8 @@ public sealed class MigrationRunsController : ControllerBase
             new MigrationRunKickoffCommand(
                 persistedPath,
                 request.Mode,
-                ResolveActor()),
+                ResolveActor(),
+                request.ConfirmNonEmptyStrategy),
             cancellationToken);
 
         if (!result.Success)

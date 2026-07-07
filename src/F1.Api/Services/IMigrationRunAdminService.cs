@@ -19,7 +19,8 @@ public sealed record MigrationRunDiffExportResponse(
 public sealed record MigrationRunKickoffCommand(
     string? SourceFilePath,
     string RequestedMode,
-    string RequestedBy);
+    string RequestedBy,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record MigrationRunKickoffResult(
     bool Success,

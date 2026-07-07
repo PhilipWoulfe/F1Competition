@@ -4,12 +4,110 @@ using F1.Api.Services;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace F1.Api.Tests.Services;
 
 public sealed class MigrationRunAdminServiceTests
 {
+    [Fact]
+    public async Task KickoffRunAsync_WhenWriteModeAndCanonicalDataExistsWithoutConfirmation_FailsValidation()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip\n" +
+            "AUS-1,VER\n");
+
+        try
+        {
+            await using (var dbContext = new F1DbContext(options))
+            {
+                dbContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "VER", FullName = "Max Verstappen" });
+                await dbContext.SaveChangesAsync();
+            }
+
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(sourcePath, "write", "admin@example.com", ConfirmNonEmptyStrategy: false),
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.False(result.Conflict);
+            Assert.NotNull(result.Error);
+            Assert.Contains("confirmNonEmptyStrategy", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(result.Run);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public async Task KickoffRunAsync_ReturnsNonEmptyStrategyPreviewMetadata()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip,Andy\n" +
+            "AUS-1,VER,NOR\n" +
+            "AUS-2,PIA,RUS\n" +
+            "BHR-1,LEC,HAM\n");
+
+        try
+        {
+            await using (var dbContext = new F1DbContext(options))
+            {
+                dbContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "VER", FullName = "Max Verstappen" });
+                dbContext.Races.Add(new F1.Core.Models.Race
+                {
+                    Id = "race-1",
+                    CompetitionId = 1,
+                    Season = 2025,
+                    Round = 1,
+                    RaceName = "Australian Grand Prix",
+                    CircuitName = "Albert Park",
+                    StartTimeUtc = DateTime.UtcNow,
+                    PreQualyDeadlineUtc = DateTime.UtcNow,
+                    FinalDeadlineUtc = DateTime.UtcNow
+                });
+                dbContext.Selections.Add(new F1.Core.Models.Selection
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = "Philip",
+                    RaceId = "race-1",
+                    BetType = F1.Core.Models.BetType.Regular,
+                    SubmittedAtUtc = DateTime.UtcNow
+                });
+                await dbContext.SaveChangesAsync();
+            }
+
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(sourcePath, "write", "admin@example.com", ConfirmNonEmptyStrategy: true),
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.Run);
+            Assert.Equal("merge_upsert_active_records", result.Run!.NonEmptyDbStrategy);
+            Assert.True(result.Run.CanonicalDataPresent);
+            Assert.Equal(1, result.Run.ExistingDriverCount);
+            Assert.Equal(1, result.Run.ExistingRaceCount);
+            Assert.Equal(1, result.Run.ExistingSelectionCount);
+            Assert.Equal(2, result.Run.EstimatedAffectedRaceCount);
+            Assert.Equal(2, result.Run.EstimatedAffectedParticipantCount);
+            Assert.Equal(4, result.Run.EstimatedAffectedSelectionCount);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
     [Fact]
     public async Task GetRunsAsync_IncludesPreseasonParticipantDelta_InTotalDeltaPoints()
     {
@@ -760,6 +858,14 @@ public sealed class MigrationRunAdminServiceTests
     {
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"migration-run-admin-service-{Guid.NewGuid():N}")
+            .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
+    }
+
+    private static string CreateTempCsv(string content)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"f1-admin-migration-{Guid.NewGuid():N}.csv");
+        File.WriteAllText(path, content);
+        return path;
     }
 }

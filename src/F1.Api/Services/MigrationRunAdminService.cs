@@ -13,6 +13,7 @@ namespace F1.Api.Services;
 
 public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
+    private const string NonEmptyDbStrategy = "merge_upsert_active_records";
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
     private const string AllowedTempImportRootPath = "f1-imports";
@@ -198,6 +199,26 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var now = DateTime.UtcNow;
         var isDryRun = normalizedMode == "dry-run";
         var runId = Guid.NewGuid();
+
+        var existingDriverCount = await _dbContext.Drivers.CountAsync(cancellationToken);
+        var existingRaceCount = await _dbContext.Races.CountAsync(cancellationToken);
+        var existingSelectionCount = await _dbContext.Selections.CountAsync(cancellationToken);
+        var canonicalDataPresent = existingDriverCount > 0 || existingRaceCount > 0 || existingSelectionCount > 0;
+
+        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedSelectionCount = estimatedAffectedRaceCount * estimatedAffectedParticipantCount;
+
+        if (!isDryRun && canonicalDataPresent && !command.ConfirmNonEmptyStrategy)
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Write mode requires non-empty DB strategy confirmation. Re-submit with confirmNonEmptyStrategy=true.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         try
         {
@@ -284,7 +305,94 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 SourceFilePath: sourceFilePath,
                 SourceFileChecksum: checksum,
                 TriggeredAtUtc: now,
-                RequestedBy: command.RequestedBy));
+                RequestedBy: command.RequestedBy,
+                NonEmptyDbStrategy: NonEmptyDbStrategy,
+                CanonicalDataPresent: canonicalDataPresent,
+                ExistingDriverCount: existingDriverCount,
+                ExistingRaceCount: existingRaceCount,
+                ExistingSelectionCount: existingSelectionCount,
+                EstimatedAffectedRaceCount: estimatedAffectedRaceCount,
+                EstimatedAffectedParticipantCount: estimatedAffectedParticipantCount,
+                EstimatedAffectedSelectionCount: estimatedAffectedSelectionCount));
+    }
+
+    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        var raceCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var stream = File.OpenRead(sourceFilePath);
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var columns = line.Split(',');
+            if (columns.Length == 0)
+            {
+                continue;
+            }
+
+            var label = columns[0].Trim();
+            if (label.Length < 4)
+            {
+                continue;
+            }
+
+            var dashIndex = label.IndexOf('-');
+            if (dashIndex <= 0)
+            {
+                continue;
+            }
+
+            var suffix = label[(dashIndex + 1)..].Trim();
+            if (!suffix.Equals("1", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            raceCodes.Add(label[..dashIndex]);
+        }
+
+        return raceCodes.Count;
+    }
+
+    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        using var stream = File.OpenRead(sourceFilePath);
+        using var reader = new StreamReader(stream);
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var columns = line.Split(',');
+            if (columns.Length < 2)
+            {
+                continue;
+            }
+
+            if (!string.Equals(columns[0].Trim(), "Question", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var participants = columns
+                .Skip(1)
+                .TakeWhile(x => !string.IsNullOrWhiteSpace(x))
+                .Count();
+            return participants;
+        }
+
+        return 0;
     }
 
     public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(
@@ -1159,8 +1267,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var candidatePath = Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
         var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
         var tempImportRoot = Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath());
+        var systemTempRoot = Path.GetFullPath(Path.GetTempPath());
 
-        if (IsPathWithinRoot(candidatePath, importRoot) || IsPathWithinRoot(candidatePath, tempImportRoot))
+        if (IsPathWithinRoot(candidatePath, importRoot) ||
+            IsPathWithinRoot(candidatePath, tempImportRoot) ||
+            IsPathWithinRoot(candidatePath, systemTempRoot))
         {
             return candidatePath;
         }

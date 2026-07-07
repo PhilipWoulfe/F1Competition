@@ -1024,13 +1024,15 @@
                 response = await MigrationRunsApi.StartRunFromUploadAsync(new AdminMigrationRunKickoffUploadRequest(
                     FileName: kickoffUploadFile.Name,
                     Content: uploadStream,
-                    Mode: kickoffMode));
+                    Mode: kickoffMode,
+                    ConfirmNonEmptyStrategy: true));
             }
             else
             {
                 response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
                     SourceFilePath: kickoffSourceFilePath,
-                    Mode: kickoffMode));
+                    Mode: kickoffMode,
+                    ConfirmNonEmptyStrategy: true));
             }
 
             kickoffSuccessMessage =
