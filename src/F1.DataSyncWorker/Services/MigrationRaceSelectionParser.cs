@@ -16,6 +16,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private const string SectionTypeSeasonQuestionPrediction = "SeasonQuestionPrediction";
     private const string SectionTypeHeader = "Header";
     private const string ActualSubject = "ACTUAL";
+    private const int DefaultH2hPointsForCorrectPick = 1;
     private static readonly Dictionary<string, string?> TokenAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
     {
         ["MAX"] = "VER",
@@ -68,15 +69,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             : participants;
 
         var preseasonAnswers = ParsePreseasonQuestionAnswers(runId, stagedRows, preseasonParticipants, usePhil2025SequenceMapping);
-        var genericPreseason = preseasonAnswers.Count == 0
-            ? null
-            : await BuildGenericPreseasonQuestionDataAsync(
-                dbContext,
-                runId,
-                stagedRows,
-                preseasonParticipants,
-                usePhil2025SequenceMapping,
-                cancellationToken);
+        var genericQuestions = await BuildGenericQuestionDataAsync(
+            dbContext,
+            runId,
+            stagedRows,
+            preseasonParticipants,
+            usePhil2025SequenceMapping,
+            cancellationToken);
 
         if (participants.Count == 0)
         {
@@ -84,7 +83,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 dbContext.MigrationImportPreseasonAnswers.RemoveRange(
                     dbContext.MigrationImportPreseasonAnswers.Where(x => x.ImportRunId == runId));
-                if (genericPreseason is not null)
+                if (genericQuestions is not null)
                 {
                     dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => x.ImportRunId == runId));
                     dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => x.ImportRunId == runId));
@@ -92,12 +91,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 await dbContext.SaveChangesAsync(cancellationToken);
 
                 await dbContext.MigrationImportPreseasonAnswers.AddRangeAsync(preseasonAnswers, cancellationToken);
-                if (genericPreseason is not null)
+                if (genericQuestions is not null)
                 {
-                    var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericPreseason.Templates, cancellationToken);
-                    ApplyTemplateIds(genericPreseason, templateIds);
-                    await dbContext.QuestionAnswers.AddRangeAsync(genericPreseason.Answers, cancellationToken);
-                    await dbContext.QuestionActuals.AddRangeAsync(genericPreseason.Actuals, cancellationToken);
+                    var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
+                    ApplyTemplateIds(genericQuestions, templateIds);
+                    await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
+                    await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
                 }
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -203,7 +202,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             }
         }
 
-        if (selections.Count == 0 && preseasonAnswers.Count == 0)
+        if (selections.Count == 0 && preseasonAnswers.Count == 0 && genericQuestions is null)
         {
             return new MigrationRaceSelectionParseResult(
                 SelectionCount: 0,
@@ -227,13 +226,14 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         if (preseasonAnswers.Count > 0)
         {
             await dbContext.MigrationImportPreseasonAnswers.AddRangeAsync(preseasonAnswers, cancellationToken);
-            if (genericPreseason is not null)
-            {
-                var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericPreseason.Templates, cancellationToken);
-                ApplyTemplateIds(genericPreseason, templateIds);
-                await dbContext.QuestionAnswers.AddRangeAsync(genericPreseason.Answers, cancellationToken);
-                await dbContext.QuestionActuals.AddRangeAsync(genericPreseason.Actuals, cancellationToken);
-            }
+        }
+
+        if (genericQuestions is not null)
+        {
+            var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
+            ApplyTemplateIds(genericQuestions, templateIds);
+            await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
+            await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
         }
         if (unresolvedTokens.Count > 0)
         {
@@ -247,7 +247,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             PreseasonAnswerCount: preseasonAnswers.Count);
     }
 
-    private async Task<GenericPreseasonQuestionData?> BuildGenericPreseasonQuestionDataAsync(
+    private async Task<GenericQuestionData?> BuildGenericQuestionDataAsync(
         F1DbContext dbContext,
         Guid runId,
         IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
@@ -255,12 +255,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         bool usePhil2025Contract,
         CancellationToken cancellationToken)
     {
-        var preseasonRows = stagedRows
+        var questionRows = stagedRows
             .Where(x => string.Equals(x.SectionType, SectionTypeSeasonQuestionPrediction, StringComparison.Ordinal))
             .OrderBy(x => x.RowNumber)
             .ToList();
 
-        if (preseasonRows.Count == 0)
+        if (questionRows.Count == 0)
         {
             return null;
         }
@@ -277,7 +277,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         }
 
         var competitionId = competitionIds[0];
-        var templateKeys = preseasonRows.Select(row => $"PRE-{row.RowNumber:D3}").ToArray();
+        var templateKeys = questionRows.Select(row => ResolveQuestionId(row.RowNumber, row.RawPayload)).ToArray();
         var existingTemplateIds = await dbContext.QuestionTemplates
             .Where(x => x.CompetitionId == competitionId && x.Season == _importOptions.Season && templateKeys.Contains(x.QuestionId))
             .ToDictionaryAsync(x => x.QuestionId, x => x.Id, StringComparer.OrdinalIgnoreCase, cancellationToken);
@@ -287,7 +287,9 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         var answers = new List<QuestionAnswerEntity>();
         var actuals = new List<QuestionActualEntity>();
 
-        foreach (var row in preseasonRows)
+        var questionIdBySourceRow = new Dictionary<int, string>();
+
+        foreach (var row in questionRows)
         {
             var columns = CsvLineParser.Parse(row.RawPayload);
             if (columns.Count == 0)
@@ -301,16 +303,22 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 continue;
             }
 
-            var questionId = $"PRE-{row.RowNumber:D3}";
+            var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload);
+            questionIdBySourceRow[row.RowNumber] = questionId;
+            var category = ResolveQuestionCategory(row.RawPayload);
+            var optionsJson = category == QuestionCategory.H2H
+                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract)
+                : null;
+
             templates.Add(new QuestionTemplateEntity
             {
                 Id = existingTemplateIds.TryGetValue(questionId, out var existingTemplateId) ? existingTemplateId : 0,
                 CompetitionId = competitionId,
                 Season = _importOptions.Season,
                 QuestionId = questionId,
-                Category = QuestionCategory.Preseason,
+                Category = category,
                 Prompt = questionText,
-                OptionsJson = null,
+                OptionsJson = optionsJson,
                 Status = QuestionTemplateStatus.Published,
                 SortOrder = row.RowNumber,
                 CreatedAtUtc = now,
@@ -325,7 +333,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 var columnIndex = participantStartIndex + index;
                 var raw = columnIndex < columns.Count ? columns[columnIndex] : null;
-                var normalization = NormalizePreseasonAnswer(raw, isActualOutcome: false);
+                var normalization = NormalizeQuestionAnswer(raw, isActualOutcome: false, category);
                 answers.Add(new QuestionAnswerEntity
                 {
                     ImportRunId = runId,
@@ -361,7 +369,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 actualRaw = actualColumnIndex >= 0 ? columns[actualColumnIndex] : null;
             }
 
-            var actualNormalization = NormalizePreseasonAnswer(actualRaw, isActualOutcome: true);
+            var actualNormalization = NormalizeQuestionAnswer(actualRaw, isActualOutcome: true, category);
             actuals.Add(new QuestionActualEntity
             {
                 ImportRunId = runId,
@@ -379,7 +387,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         return templates.Count == 0
             ? null
-            : new GenericPreseasonQuestionData(templates, answers, actuals);
+            : new GenericQuestionData(templates, answers, actuals, questionIdBySourceRow);
     }
 
     private static async Task<Dictionary<string, long>> UpsertQuestionTemplatesAsync(
@@ -442,16 +450,16 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return persistedIds;
     }
 
-    private static void ApplyTemplateIds(GenericPreseasonQuestionData genericPreseason, IReadOnlyDictionary<string, long> templateIds)
+    private static void ApplyTemplateIds(GenericQuestionData genericQuestions, IReadOnlyDictionary<string, long> templateIds)
     {
-        foreach (var answer in genericPreseason.Answers)
+        foreach (var answer in genericQuestions.Answers)
         {
-            answer.QuestionTemplateId = templateIds[$"PRE-{answer.SourceRow:D3}"];
+            answer.QuestionTemplateId = templateIds[genericQuestions.QuestionIdBySourceRow[answer.SourceRow]];
         }
 
-        foreach (var actual in genericPreseason.Actuals)
+        foreach (var actual in genericQuestions.Actuals)
         {
-            actual.QuestionTemplateId = templateIds[$"PRE-{actual.SourceRow:D3}"];
+            actual.QuestionTemplateId = templateIds[genericQuestions.QuestionIdBySourceRow[actual.SourceRow]];
         }
     }
 
@@ -468,6 +476,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         var preseasonRows = stagedRows
             .Where(x => string.Equals(x.SectionType, SectionTypeSeasonQuestionPrediction, StringComparison.Ordinal))
+            .Where(x => ResolveQuestionCategory(x.RawPayload) == QuestionCategory.Preseason)
             .OrderBy(x => x.RowNumber)
             .ToList();
 
@@ -709,6 +718,159 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return MultiWhitespaceRegex().Replace(rawValue.Trim().ToUpperInvariant(), " ");
     }
 
+    private static PreseasonNormalizationResult NormalizeQuestionAnswer(string? rawAnswer, bool isActualOutcome, QuestionCategory category)
+    {
+        return category == QuestionCategory.H2H
+            ? NormalizeH2hAnswer(rawAnswer)
+            : NormalizePreseasonAnswer(rawAnswer, isActualOutcome);
+    }
+
+    private static PreseasonNormalizationResult NormalizeH2hAnswer(string? rawAnswer)
+    {
+        if (string.IsNullOrWhiteSpace(rawAnswer))
+        {
+            return new PreseasonNormalizationResult(null, ["NULL_OR_WHITESPACE"]);
+        }
+
+        var lookupToken = NormalizeTokenLookup(rawAnswer);
+        if (TokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
+        {
+            return new PreseasonNormalizationResult(mappedToken, []);
+        }
+
+        if (CanonicalTokenRegex().IsMatch(lookupToken))
+        {
+            return new PreseasonNormalizationResult(lookupToken, []);
+        }
+
+        var normalized = MultiWhitespaceRegex().Replace(rawAnswer.Trim(), " ");
+        return new PreseasonNormalizationResult(normalized, ["H2H_UNSUPPORTED_TOKEN_SHAPE_PRESERVED"]);
+    }
+
+    private static QuestionCategory ResolveQuestionCategory(string rawPayload)
+    {
+        var columns = CsvLineParser.Parse(rawPayload);
+        if (columns.Count == 0)
+        {
+            return QuestionCategory.Preseason;
+        }
+
+        var prompt = columns[0].Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return QuestionCategory.Preseason;
+        }
+
+        if (H2hPromptRegex().IsMatch(prompt))
+        {
+            return QuestionCategory.H2H;
+        }
+
+        return QuestionCategory.Preseason;
+    }
+
+    private static string ResolveQuestionId(int rowNumber, string rawPayload)
+    {
+        var category = ResolveQuestionCategory(rawPayload);
+        return category switch
+        {
+            QuestionCategory.H2H => $"H2H-{rowNumber:D3}",
+            _ => $"PRE-{rowNumber:D3}"
+        };
+    }
+
+    private static string? BuildH2hOptionsJson(
+        string questionText,
+        IReadOnlyList<string> columns,
+        IReadOnlyList<string> participants,
+        bool usePhil2025Contract)
+    {
+        var driverCandidates = ExtractH2hCandidatesFromPrompt(questionText);
+        if (driverCandidates.Count < 2)
+        {
+            var participantStartIndex = usePhil2025Contract
+                ? MigrationPhil2025CsvContractPolicy.ParticipantStartColumnIndex
+                : 1;
+
+            var fallbackCandidates = new List<string>();
+            for (var index = 0; index < participants.Count; index++)
+            {
+                var columnIndex = participantStartIndex + index;
+                var rawAnswer = columnIndex < columns.Count ? columns[columnIndex] : null;
+                var normalized = NormalizeH2hAnswer(rawAnswer).NormalizedValue;
+                if (!string.IsNullOrWhiteSpace(normalized) && CanonicalTokenRegex().IsMatch(normalized))
+                {
+                    fallbackCandidates.Add(normalized);
+                }
+            }
+
+            var actualColumnIndex = usePhil2025Contract
+                ? MigrationPhil2025CsvContractPolicy.ActualAnswerColumnIndex
+                : columns.Count - 1;
+            var actualRaw = actualColumnIndex >= 0 && actualColumnIndex < columns.Count
+                ? columns[actualColumnIndex]
+                : null;
+            var actualNormalized = NormalizeH2hAnswer(actualRaw).NormalizedValue;
+            if (!string.IsNullOrWhiteSpace(actualNormalized) && CanonicalTokenRegex().IsMatch(actualNormalized))
+            {
+                fallbackCandidates.Add(actualNormalized);
+            }
+
+            foreach (var candidate in fallbackCandidates)
+            {
+                if (!driverCandidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                {
+                    driverCandidates.Add(candidate);
+                }
+
+                if (driverCandidates.Count == 2)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (driverCandidates.Count < 2)
+        {
+            return null;
+        }
+
+        var options = new H2hQuestionTemplateOptions
+        {
+            LeftDriverId = driverCandidates[0],
+            RightDriverId = driverCandidates[1],
+            PointsForCorrectPick = DefaultH2hPointsForCorrectPick
+        };
+
+        return JsonSerializer.Serialize(options);
+    }
+
+    private static List<string> ExtractH2hCandidatesFromPrompt(string questionText)
+    {
+        var candidates = new List<string>();
+        foreach (Match match in H2hDriverTokenRegex().Matches(questionText))
+        {
+            var token = match.Value;
+            var normalized = NormalizeH2hAnswer(token).NormalizedValue;
+            if (string.IsNullOrWhiteSpace(normalized) || !CanonicalTokenRegex().IsMatch(normalized))
+            {
+                continue;
+            }
+
+            if (!candidates.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                candidates.Add(normalized);
+            }
+
+            if (candidates.Count == 2)
+            {
+                break;
+            }
+        }
+
+        return candidates;
+    }
+
     private static PreseasonNormalizationResult NormalizePreseasonAnswer(string? rawAnswer, bool isActualOutcome)
     {
         if (string.IsNullOrWhiteSpace(rawAnswer))
@@ -774,6 +936,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     [GeneratedRegex("[|,;/]+", RegexOptions.Compiled)]
     private static partial Regex PreseasonDelimitedAnswerRegex();
 
+    [GeneratedRegex("(head\\s*[- ]?to\\s*[- ]?head|h2h)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex H2hPromptRegex();
+
+    [GeneratedRegex("\\b[A-Za-z]{3}\\b", RegexOptions.Compiled)]
+    private static partial Regex H2hDriverTokenRegex();
+
     private static readonly HashSet<string> PodiumPickTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "1",
@@ -785,8 +953,9 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
     private readonly record struct PreseasonNormalizationResult(string? NormalizedValue, IReadOnlyList<string> Diagnostics);
 
-    private sealed record GenericPreseasonQuestionData(
+    private sealed record GenericQuestionData(
         IReadOnlyList<QuestionTemplateEntity> Templates,
         IReadOnlyList<QuestionAnswerEntity> Answers,
-        IReadOnlyList<QuestionActualEntity> Actuals);
+        IReadOnlyList<QuestionActualEntity> Actuals,
+        IReadOnlyDictionary<int, string> QuestionIdBySourceRow);
 }

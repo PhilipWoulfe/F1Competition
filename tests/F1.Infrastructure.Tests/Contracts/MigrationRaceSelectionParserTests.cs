@@ -3,11 +3,84 @@ using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace F1.Infrastructure.Tests.Contracts;
 
 public sealed class MigrationRaceSelectionParserTests
 {
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenSeasonQuestionIsH2h_PersistsGenericH2hTemplateAnswersAndActual()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,Andy,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "Head to head: HAM vs VER,HAM,VER,VER"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        var result = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(0, result.PreseasonAnswerCount);
+
+        var preseasonAnswers = await dbContext.MigrationImportPreseasonAnswers
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+        Assert.Empty(preseasonAnswers);
+
+        var template = await dbContext.QuestionTemplates
+            .SingleAsync(x => x.QuestionId == "H2H-002");
+
+        Assert.Equal(QuestionCategory.H2H, template.Category);
+        Assert.Equal("Head to head: HAM vs VER", template.Prompt);
+
+        var optionsModel = JsonSerializer.Deserialize<H2hQuestionTemplateOptions>(template.OptionsJson!);
+        Assert.NotNull(optionsModel);
+        Assert.Equal("HAM", optionsModel!.LeftDriverId);
+        Assert.Equal("VER", optionsModel.RightDriverId);
+        Assert.Equal(1, optionsModel.PointsForCorrectPick);
+
+        var answers = await dbContext.QuestionAnswers
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.ParticipantId)
+            .ToListAsync();
+        Assert.Equal(2, answers.Count);
+        Assert.Equal("HAM", answers.Single(x => x.ParticipantId == "Philip").NormalizedAnswer);
+        Assert.Equal("VER", answers.Single(x => x.ParticipantId == "Andy").NormalizedAnswer);
+
+        var actual = await dbContext.QuestionActuals
+            .SingleAsync(x => x.ImportRunId == runId);
+        Assert.Equal("VER", actual.NormalizedAnswer);
+    }
+
     [Fact]
     public async Task ParseAndPersistAsync_WhenPreseasonQuestionRowsExist_PersistsParticipantAndActualAnswersWithRowTraceability()
     {
