@@ -971,7 +971,6 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     {
         var rows = await _dbContext.QuestionScores
             .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
             .Join(
                 _dbContext.QuestionTemplates.AsNoTracking(),
                 score => score.QuestionTemplateId,

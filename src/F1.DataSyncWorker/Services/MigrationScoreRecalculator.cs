@@ -67,21 +67,17 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
         dbContext.MigrationImportCalculatedScores.RemoveRange(
             dbContext.MigrationImportCalculatedScores.Where(x => x.ImportRunId == runId));
-        dbContext.QuestionScores.RemoveRange(
-            dbContext.QuestionScores.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonCalculatedScores.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedScores.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonCalculatedTotals.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
         var genericQuestionAnswers = await dbContext.QuestionAnswers
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.SourceRow)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
         var genericQuestionActuals = await dbContext.QuestionActuals
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.SourceRow)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
@@ -100,6 +96,12 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 .ThenBy(x => x.QuestionId)
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
+
+            if (genericQuestionTemplateIds.Length > 0)
+            {
+                dbContext.QuestionScores.RemoveRange(
+                dbContext.QuestionScores.Where(x => genericQuestionTemplateIds.Contains(x.QuestionTemplateId)));
+            }
 
         if (selections.Count == 0 && preseasonAnswers.Count == 0 && genericQuestionAnswers.Count == 0 && genericQuestionActuals.Count == 0)
         {
@@ -160,7 +162,6 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         var questionScores = questionScoreComputations
             .Select(computation => new QuestionScoreEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = computation.QuestionTemplateId,
                 ParticipantId = computation.ParticipantId,
                 ImportedPoints = computation.ImportedPoints,

@@ -1036,7 +1036,6 @@ public sealed class MigrationRunAdminServiceTests
                 new QuestionScoreEntity
                 {
                     Id = 1,
-                    ImportRunId = runId,
                     QuestionTemplateId = 2,
                     ParticipantId = "Morgan",
                     ImportedPoints = 20,
@@ -1048,7 +1047,6 @@ public sealed class MigrationRunAdminServiceTests
                 new QuestionScoreEntity
                 {
                     Id = 2,
-                    ImportRunId = runId,
                     QuestionTemplateId = 2,
                     ParticipantId = "Taylor",
                     ImportedPoints = 20,
@@ -1060,7 +1058,6 @@ public sealed class MigrationRunAdminServiceTests
                 new QuestionScoreEntity
                 {
                     Id = 3,
-                    ImportRunId = runId,
                     QuestionTemplateId = 1,
                     ParticipantId = "Morgan",
                     ImportedPoints = 10,
@@ -1147,7 +1144,6 @@ public sealed class MigrationRunAdminServiceTests
             dbContext.QuestionScores.Add(new QuestionScoreEntity
             {
                 Id = 21,
-                ImportRunId = runId,
                 QuestionTemplateId = 11,
                 ParticipantId = "Philip",
                 ImportedPoints = 5,

@@ -350,7 +350,6 @@ public sealed class MigrationScoreRecalculatorTests
         dbContext.QuestionAnswers.AddRange(
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 101,
                 ParticipantId = "Philip",
                 ImportedAnswer = "VER",
@@ -361,7 +360,6 @@ public sealed class MigrationScoreRecalculatorTests
             },
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 101,
                 ParticipantId = "Andy",
                 ImportedAnswer = "NOR",
@@ -373,7 +371,6 @@ public sealed class MigrationScoreRecalculatorTests
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 101,
             ActualAnswer = "VER",
             NormalizedAnswer = "VER",
@@ -388,7 +385,6 @@ public sealed class MigrationScoreRecalculatorTests
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var questionScores = await dbContext.QuestionScores
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
 
@@ -438,7 +434,6 @@ public sealed class MigrationScoreRecalculatorTests
 
         dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 201,
             ParticipantId = "Philip",
             ImportedAnswer = "NOR",
@@ -450,7 +445,6 @@ public sealed class MigrationScoreRecalculatorTests
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 201,
             ActualAnswer = "LEC",
             NormalizedAnswer = "LEC",
@@ -467,7 +461,7 @@ public sealed class MigrationScoreRecalculatorTests
 
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
-        var score = await dbContext.QuestionScores.SingleAsync(x => x.ImportRunId == runId && x.ParticipantId == "Philip");
+        var score = await dbContext.QuestionScores.SingleAsync(x => x.ParticipantId == "Philip");
         Assert.Equal(0, score.CalculatedPoints);
         Assert.Equal("QUESTION_CATEGORY_STRATEGY_MISSING", score.ReasonCode);
     }
@@ -509,7 +503,6 @@ public sealed class MigrationScoreRecalculatorTests
         dbContext.QuestionAnswers.AddRange(
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 301,
                 ParticipantId = "Philip",
                 ImportedAnswer = "HAM",
@@ -520,7 +513,6 @@ public sealed class MigrationScoreRecalculatorTests
             },
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 301,
                 ParticipantId = "Andy",
                 ImportedAnswer = "VER",
@@ -532,7 +524,6 @@ public sealed class MigrationScoreRecalculatorTests
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 301,
             ActualAnswer = "VER",
             NormalizedAnswer = "VER",
@@ -547,7 +538,6 @@ public sealed class MigrationScoreRecalculatorTests
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var scores = await dbContext.QuestionScores
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
 

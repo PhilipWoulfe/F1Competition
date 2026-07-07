@@ -49,7 +49,6 @@ public sealed class QuestionFrameworkExtensibilityTests
 
         dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 900,
             ParticipantId = "Philip",
             ImportedAnswer = "YES",
@@ -61,7 +60,6 @@ public sealed class QuestionFrameworkExtensibilityTests
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 900,
             ActualAnswer = "YES",
             NormalizedAnswer = "YES",
@@ -78,7 +76,7 @@ public sealed class QuestionFrameworkExtensibilityTests
 
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
-        var score = await dbContext.QuestionScores.SingleAsync(x => x.ImportRunId == runId && x.ParticipantId == "Philip");
+        var score = await dbContext.QuestionScores.SingleAsync(x => x.ParticipantId == "Philip");
         Assert.Equal(7, score.CalculatedPoints);
         Assert.Equal("MOCK_MATCH", score.ReasonCode);
     }

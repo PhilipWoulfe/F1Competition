@@ -4,8 +4,6 @@ public sealed class QuestionAnswer
 {
     public long Id { get; set; }
 
-    public Guid ImportRunId { get; set; }
-
     public long QuestionTemplateId { get; set; }
 
     public string ParticipantId { get; set; } = string.Empty;

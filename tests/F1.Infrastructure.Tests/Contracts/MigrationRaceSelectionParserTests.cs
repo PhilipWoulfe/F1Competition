@@ -69,7 +69,6 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal(1, optionsModel.PointsForCorrectPick);
 
         var answers = await dbContext.QuestionAnswers
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
         Assert.Equal(2, answers.Count);
@@ -77,7 +76,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("max_verstappen", answers.Single(x => x.ParticipantId == "Andy").NormalizedAnswer);
 
         var actual = await dbContext.QuestionActuals
-            .SingleAsync(x => x.ImportRunId == runId);
+            .SingleAsync();
         Assert.Equal("max_verstappen", actual.NormalizedAnswer);
     }
 
@@ -155,7 +154,6 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal(new[] { "PRE-002", "PRE-003" }, questionTemplates.Select(x => x.QuestionId).ToArray());
 
         var genericAnswers = await dbContext.QuestionAnswers
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.SourceRow)
             .ThenBy(x => x.ParticipantId)
             .ToListAsync();
@@ -167,7 +165,6 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("YES", genericPhilipRow2.NormalizedAnswer);
 
         var genericActuals = await dbContext.QuestionActuals
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.SourceRow)
             .ToListAsync();
         Assert.Equal(2, genericActuals.Count);
@@ -264,11 +261,11 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("@@@", malformed.RawAnswer);
         Assert.Equal("@@@", malformed.NormalizedAnswer);
 
-        var genericActual = await dbContext.QuestionActuals.SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2);
+        var genericActual = await dbContext.QuestionActuals.SingleAsync(x => x.SourceRow == 2);
         Assert.Equal("YES", genericActual.NormalizedAnswer);
 
         var genericPhilip = await dbContext.QuestionAnswers
-            .SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2 && x.ParticipantId == "Philip");
+            .SingleAsync(x => x.SourceRow == 2 && x.ParticipantId == "Philip");
         Assert.Equal("@@@", genericPhilip.NormalizedAnswer);
     }
 

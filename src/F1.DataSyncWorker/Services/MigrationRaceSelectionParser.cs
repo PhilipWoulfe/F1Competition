@@ -192,11 +192,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             {
                 dbContext.MigrationImportPreseasonAnswers.RemoveRange(
                     dbContext.MigrationImportPreseasonAnswers.Where(x => x.ImportRunId == runId));
-                if (genericQuestions is not null)
-                {
-                    dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => x.ImportRunId == runId));
-                    dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => x.ImportRunId == runId));
-                }
                 await dbContext.SaveChangesAsync(cancellationToken);
 
                 await dbContext.MigrationImportPreseasonAnswers.AddRangeAsync(preseasonAnswers, cancellationToken);
@@ -204,6 +199,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 {
                     var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
                     ApplyTemplateIds(genericQuestions, templateIds);
+                    var templateIdSet = templateIds.Values.Distinct().ToArray();
+                    dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+                    dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+                    await dbContext.SaveChangesAsync(cancellationToken);
                     await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
                     await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
                 }
@@ -325,10 +324,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             dbContext.MigrationImportRaceSelections.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonAnswers.RemoveRange(
             dbContext.MigrationImportPreseasonAnswers.Where(x => x.ImportRunId == runId));
-        dbContext.QuestionAnswers.RemoveRange(
-            dbContext.QuestionAnswers.Where(x => x.ImportRunId == runId));
-        dbContext.QuestionActuals.RemoveRange(
-            dbContext.QuestionActuals.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportUnresolvedTokens.RemoveRange(
             dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId));
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -343,6 +338,10 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         {
             var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
             ApplyTemplateIds(genericQuestions, templateIds);
+            var templateIdSet = templateIds.Values.Distinct().ToArray();
+            dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+            dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+            await dbContext.SaveChangesAsync(cancellationToken);
             await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
             await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
         }
@@ -447,7 +446,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 var normalization = NormalizeQuestionAnswer(raw, isActualOutcome: false, category, driverIdByCode);
                 answers.Add(new QuestionAnswerEntity
                 {
-                    ImportRunId = runId,
                     QuestionTemplateId = existingTemplateIds.TryGetValue(questionId, out var templateId) ? templateId : 0,
                     ParticipantId = participants[index],
                     ImportedAnswer = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim(),
@@ -484,7 +482,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             var actualNormalization = NormalizeQuestionAnswer(actualRaw, isActualOutcome: true, category, driverIdByCode);
             actuals.Add(new QuestionActualEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = existingTemplateIds.TryGetValue(questionId, out var actualTemplateId) ? actualTemplateId : 0,
                 ActualAnswer = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
                 NormalizedAnswer = actualNormalization.NormalizedValue,
