@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using F1.Core.Models;
 using F1.DataSyncWorker.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
@@ -17,10 +18,23 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     };
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
+    private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
 
-    public MigrationScoreRecalculator(IDbContextFactory<F1DbContext> dbContextFactory)
+    public MigrationScoreRecalculator(
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IQuestionScoringStrategyRegistry questionScoringStrategyRegistry)
     {
         _dbContextFactory = dbContextFactory;
+        _questionScoringStrategyRegistry = questionScoringStrategyRegistry;
+    }
+
+    public MigrationScoreRecalculator(IDbContextFactory<F1DbContext> dbContextFactory)
+        : this(
+            dbContextFactory,
+            new QuestionScoringStrategyRegistry([
+                new PreseasonQuestionScoringStrategy()
+            ]))
+    {
     }
 
     public async Task<MigrationScoreRecalculationResult> RecalculateAndPersistAsync(Guid runId, CancellationToken cancellationToken)
@@ -46,12 +60,41 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
         dbContext.MigrationImportCalculatedScores.RemoveRange(
             dbContext.MigrationImportCalculatedScores.Where(x => x.ImportRunId == runId));
+        dbContext.QuestionScores.RemoveRange(
+            dbContext.QuestionScores.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonCalculatedScores.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedScores.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonCalculatedTotals.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
-        if (selections.Count == 0 && preseasonAnswers.Count == 0)
+        var genericQuestionAnswers = await dbContext.QuestionAnswers
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.SourceRow)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var genericQuestionActuals = await dbContext.QuestionActuals
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.SourceRow)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var genericQuestionTemplateIds = genericQuestionAnswers.Select(x => x.QuestionTemplateId)
+            .Concat(genericQuestionActuals.Select(x => x.QuestionTemplateId))
+            .Where(x => x != 0)
+            .Distinct()
+            .ToArray();
+
+        var genericQuestionTemplates = genericQuestionTemplateIds.Length == 0
+            ? []
+            : await dbContext.QuestionTemplates
+                .Where(x => genericQuestionTemplateIds.Contains(x.Id))
+                .OrderBy(x => x.SortOrder)
+                .ThenBy(x => x.QuestionId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+        if (selections.Count == 0 && preseasonAnswers.Count == 0 && genericQuestionAnswers.Count == 0 && genericQuestionActuals.Count == 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
             return new MigrationScoreRecalculationResult(
@@ -97,7 +140,46 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             }
         }
 
-        var preseasonCalculatedScores = CalculatePreseasonScores(runId, preseasonAnswers, preseasonPolicy?.PointsPerQuestion);
+        var questionScoreComputations = genericQuestionAnswers.Count == 0 && genericQuestionActuals.Count == 0
+            ? []
+            : CalculateGenericQuestionScores(
+                runId,
+                genericQuestionTemplates,
+                genericQuestionAnswers,
+                genericQuestionActuals,
+                preseasonPolicy);
+
+        var questionScores = questionScoreComputations
+            .Select(computation => new QuestionScoreEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = computation.QuestionTemplateId,
+                ParticipantId = computation.ParticipantId,
+                ImportedPoints = computation.ImportedPoints,
+                CalculatedPoints = computation.CalculatedPoints,
+                DeltaPoints = computation.DeltaPoints,
+                ReasonCode = computation.ReasonCode,
+                RecordedAtUtc = DateTime.UtcNow
+            })
+            .ToList();
+
+        var preseasonCalculatedScores = questionScoreComputations.Count == 0
+            ? CalculatePreseasonScores(runId, preseasonAnswers, preseasonPolicy?.PointsPerQuestion)
+            : questionScoreComputations
+                .Where(x => x.Category == QuestionCategory.Preseason)
+                .Select(computation => new MigrationImportPreseasonCalculatedScoreEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = computation.SortOrder,
+                    QuestionKey = computation.QuestionId,
+                    QuestionText = computation.Prompt,
+                    Subject = computation.ParticipantId,
+                    PredictedValue = computation.PredictedAnswer,
+                    ActualValue = computation.ActualAnswer,
+                    Points = computation.CalculatedPoints,
+                    ReasonCode = computation.ReasonCode
+                })
+                .ToList();
         var preseasonCalculatedTotals = preseasonCalculatedScores
             .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .Select(group => new MigrationImportPreseasonCalculatedTotalEntity
@@ -111,6 +193,11 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         if (calculatedScores.Count > 0)
         {
             await dbContext.MigrationImportCalculatedScores.AddRangeAsync(calculatedScores, cancellationToken);
+        }
+
+        if (questionScores.Count > 0)
+        {
+            await dbContext.QuestionScores.AddRangeAsync(questionScores, cancellationToken);
         }
 
         if (preseasonCalculatedScores.Count > 0)
@@ -135,6 +222,62 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             PreseasonScoredQuestionCount: preseasonCalculatedScores.Count,
             PreseasonTotalPoints: preseasonCalculatedScores.Sum(x => x.Points),
             PreseasonScoringWarningCount: preseasonScoringWarningCount);
+    }
+
+    private IReadOnlyList<QuestionScoreComputation> CalculateGenericQuestionScores(
+        Guid runId,
+        IReadOnlyList<QuestionTemplateEntity> templates,
+        IReadOnlyList<QuestionAnswerEntity> answers,
+        IReadOnlyList<QuestionActualEntity> actuals,
+        MigrationImportPreseasonPolicyEntity? preseasonPolicy)
+    {
+        if (templates.Count == 0 || answers.Count == 0)
+        {
+            return [];
+        }
+
+        var scored = new List<QuestionScoreComputation>();
+        foreach (var categoryGroup in templates.GroupBy(x => x.Category))
+        {
+            var strategy = _questionScoringStrategyRegistry.Resolve(categoryGroup.Key);
+            var categoryTemplateIds = categoryGroup.Select(x => x.Id).ToHashSet();
+            var categoryTemplates = categoryGroup.OrderBy(x => x.SortOrder).ThenBy(x => x.QuestionId).ToList();
+            var categoryAnswers = answers.Where(x => categoryTemplateIds.Contains(x.QuestionTemplateId)).ToList();
+            var categoryActuals = actuals.Where(x => categoryTemplateIds.Contains(x.QuestionTemplateId)).ToList();
+
+            if (strategy is null)
+            {
+                scored.AddRange(categoryAnswers.Select(answer =>
+                {
+                    var template = categoryTemplates.Single(x => x.Id == answer.QuestionTemplateId);
+                    var actual = categoryActuals.SingleOrDefault(x => x.QuestionTemplateId == answer.QuestionTemplateId);
+                    return new QuestionScoreComputation(
+                        QuestionTemplateId: answer.QuestionTemplateId,
+                        QuestionId: template.QuestionId,
+                        Prompt: template.Prompt,
+                        Category: template.Category,
+                        ParticipantId: answer.ParticipantId,
+                        PredictedAnswer: answer.NormalizedAnswer,
+                        ActualAnswer: actual?.NormalizedAnswer,
+                        ImportedPoints: null,
+                        CalculatedPoints: 0,
+                        DeltaPoints: 0,
+                        ReasonCode: "QUESTION_CATEGORY_STRATEGY_MISSING",
+                        SortOrder: template.SortOrder);
+                }));
+
+                continue;
+            }
+
+            scored.AddRange(strategy.Score(new QuestionScoringContext(
+                runId,
+                categoryTemplates,
+                categoryAnswers,
+                categoryActuals,
+                preseasonPolicy)));
+        }
+
+        return scored;
     }
 
     private static List<MigrationImportPreseasonCalculatedScoreEntity> CalculatePreseasonScores(
