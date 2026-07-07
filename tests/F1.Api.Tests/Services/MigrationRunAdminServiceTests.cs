@@ -328,6 +328,69 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_WhenRunRawRowCountIsZero_UsesStagedRowFallbackCount()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Failed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 0
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Philip",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "AUS-1,VER",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportPickDiffs.Add(new MigrationImportPickDiffEntity
+            {
+                ImportRunId = runId,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                ImportedPoints = 10,
+                CalculatedPoints = 5,
+                DeltaPoints = -5,
+                ReasonCode = "PODIUM_RULE_VARIANCE",
+                Explanation = "fallback-count"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.Equal(2, detail!.RawRowCount);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_IncludesConflictDiagnosticsForAdmins()
     {
         var runId = Guid.NewGuid();

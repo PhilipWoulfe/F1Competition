@@ -79,6 +79,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
             var runIds = pagedRuns.Select(run => run.Id).ToArray();
 
+            var rawRowFallbackCounts = await _dbContext.MigrationImportRawRows
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
+
             var unresolvedCounts = await _dbContext.MigrationImportUnresolvedTokens
                 .AsNoTracking()
                 .Where(x => runIds.Contains(x.ImportRunId))
@@ -130,7 +137,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     run.SourceFileChecksum,
                     run.StartedAtUtc,
                     run.FinishedAtUtc,
-                    run.RawRowCount,
+                    run.RawRowCount > 0 ? run.RawRowCount : rawRowFallbackCounts.GetValueOrDefault(run.Id, 0),
                     unresolvedCounts.GetValueOrDefault(run.Id, 0),
                     pickDiffCounts.GetValueOrDefault(run.Id, 0),
                     raceDiffCounts.GetValueOrDefault(run.Id, 0),
@@ -539,6 +546,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 requestedBy,
                 DateTime.UtcNow);
 
+        var rawRowFallbackCount = run.RawRowCount > 0
+            ? run.RawRowCount
+            : await _dbContext.MigrationImportRawRows
+                .AsNoTracking()
+                .CountAsync(x => x.ImportRunId == runId, cancellationToken);
+
         var unresolvedTokenSummaryRows = await _dbContext.MigrationImportUnresolvedTokens
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
@@ -713,7 +726,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 SourceFileChecksum: run.SourceFileChecksum,
                 StartedAtUtc: run.StartedAtUtc,
                 FinishedAtUtc: run.FinishedAtUtc,
-                RawRowCount: run.RawRowCount,
+                RawRowCount: rawRowFallbackCount,
                 ErrorMessage: run.ErrorMessage,
                 UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
                 PickDiffCount: pickDiffs.Length,
