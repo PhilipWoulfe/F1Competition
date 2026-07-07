@@ -203,6 +203,89 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task RollbackRunAsync_WhenRunIsInProgress_ReturnsValidationError()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Running",
+                StartedAtUtc = DateTime.UtcNow,
+                RawRowCount = 1
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var rollback = await service.RollbackRunAsync(
+            new MigrationRunRollbackCommand(runId, "admin@example.com", "not allowed in running state"),
+            CancellationToken.None);
+
+        Assert.False(rollback.Success);
+        Assert.Equal("Only completed or failed runs can be rolled back.", rollback.Error);
+        Assert.Null(rollback.Rollback);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_IncludesRollbackAuditsWhenPresent()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "RolledBack",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportRollbackAudits.Add(new MigrationImportRollbackAuditEntity
+            {
+                ImportRunId = runId,
+                Actor = "admin@example.com",
+                Reason = "compensating canonical write",
+                RequestedAtUtc = DateTime.UtcNow,
+                AffectedRaceCount = 1,
+                AffectedSelectionCount = 2,
+                AffectedSelectionPositionCount = 4,
+                Outcome = "Completed"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(detail);
+        Assert.NotNull(detail!.RollbackAudits);
+        var audit = Assert.Single(detail.RollbackAudits!);
+        Assert.Equal("admin@example.com", audit.Actor);
+        Assert.Equal("Completed", audit.Outcome);
+        Assert.Equal(1, audit.AffectedRaceCount);
+        Assert.Equal(2, audit.AffectedSelectionCount);
+        Assert.Equal(4, audit.AffectedSelectionPositionCount);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_IncludesConflictDiagnosticsForAdmins()
     {
         var runId = Guid.NewGuid();
