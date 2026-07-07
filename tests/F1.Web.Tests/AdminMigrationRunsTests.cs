@@ -218,8 +218,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
             .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), "unexpected"))
             .ReturnsAsync(unexpectedDetailResponse);
         apiMock
-            .Setup(x => x.GetRunDiffExportUrl(runId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
-            .Returns((Guid id, string exportType, string format, string? expectedStatus) =>
+            .Setup(x => x.GetRunDiffExportUrl(runId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns((Guid id, string exportType, string format, string? expectedStatus, string? category, string? participant, bool nonZeroDeltaOnly) =>
                 $"admin/migration-runs/{id}/exports/{exportType}?format={format}");
 
         Services.AddSingleton(apiMock.Object);

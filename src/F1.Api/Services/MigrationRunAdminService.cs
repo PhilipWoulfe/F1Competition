@@ -486,8 +486,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         string exportType,
         string format,
         string requestedBy,
-        CancellationToken cancellationToken,
-        string? expectedStatus)
+        CancellationToken cancellationToken = default,
+        string? expectedStatus = null,
+        string? category = null,
+        string? participant = null,
+        bool nonZeroDeltaOnly = false)
     {
         var runExists = await _dbContext.MigrationImportRuns
             .AsNoTracking()
@@ -515,15 +518,255 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         {
             "participant-diffs" => await ExportParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
             "pick-diffs" => await ExportPickDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, expectedStatus),
+            "question-diffs" => await ExportQuestionDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken, category, participant, expectedStatus, nonZeroDeltaOnly),
             "preseason-question-diffs" => await ExportPreseasonQuestionDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
             "preseason-participant-diffs" => await ExportPreseasonParticipantDiffsAsync(runId, normalizedFormat, requestedBy, cancellationToken),
             _ => new MigrationRunDiffExportResponse(
                 Success: false,
-                Error: "exportType must be participant-diffs, pick-diffs, preseason-question-diffs, or preseason-participant-diffs.",
+                Error: "exportType must be participant-diffs, pick-diffs, question-diffs, preseason-question-diffs, or preseason-participant-diffs.",
                 FileName: string.Empty,
                 ContentType: "text/plain",
                 Payload: [])
         };
+    }
+
+    public async Task<AdminMigrationQuestionDiffListResponseDto?> GetQuestionDiffsAsync(
+        Guid runId,
+        int page,
+        int pageSize,
+        string requestedBy,
+        CancellationToken cancellationToken = default,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false)
+    {
+        var runExists = await _dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == runId, cancellationToken);
+
+        if (!runExists)
+        {
+            return null;
+        }
+
+        var normalizedPage = page <= 0 ? DefaultPage : page;
+        var normalizedPageSize = pageSize <= 0 ? DefaultPageSize : Math.Min(pageSize, MaxPageSize);
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} category={Category} participant={Participant} expectedStatus={ExpectedStatus} nonZeroDeltaOnly={NonZeroDeltaOnly} page={Page} pageSize={PageSize}",
+            "view_question_diffs",
+            runId,
+            requestedBy,
+            DateTime.UtcNow,
+            category,
+            participant,
+            expectedStatus,
+            nonZeroDeltaOnly,
+            normalizedPage,
+            normalizedPageSize);
+
+        var allRows = await BuildQuestionDiffRowsAsync(runId, cancellationToken);
+        var filteredRows = ApplyQuestionFilters(allRows, category, participant, expectedStatus, nonZeroDeltaOnly)
+            .ToArray();
+
+        var pagedRows = filteredRows
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToArray();
+
+        return new AdminMigrationQuestionDiffListResponseDto(
+            Page: normalizedPage,
+            PageSize: normalizedPageSize,
+            TotalCount: filteredRows.Length,
+            Items: pagedRows);
+    }
+
+    public async Task<AdminMigrationQuestionDiffSummaryResponseDto?> GetQuestionDiffSummaryAsync(
+        Guid runId,
+        string requestedBy,
+        CancellationToken cancellationToken = default,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false)
+    {
+        var runExists = await _dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == runId, cancellationToken);
+
+        if (!runExists)
+        {
+            return null;
+        }
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} category={Category} participant={Participant} expectedStatus={ExpectedStatus} nonZeroDeltaOnly={NonZeroDeltaOnly}",
+            "view_question_summary",
+            runId,
+            requestedBy,
+            DateTime.UtcNow,
+            category,
+            participant,
+            expectedStatus,
+            nonZeroDeltaOnly);
+
+        var allRows = await BuildQuestionDiffRowsAsync(runId, cancellationToken);
+        var filteredRows = ApplyQuestionFilters(allRows, category, participant, expectedStatus, nonZeroDeltaOnly)
+            .ToArray();
+
+        var categorySummary = filteredRows
+            .GroupBy(x => x.Category, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new AdminMigrationQuestionDiffCategorySummaryDto(
+                Category: group.Key,
+                Count: group.Count(),
+                TotalDeltaPoints: group.Sum(x => x.DeltaPoints)))
+            .ToArray();
+
+        return new AdminMigrationQuestionDiffSummaryResponseDto(
+            TotalCount: filteredRows.Length,
+            NonZeroDeltaCount: filteredRows.Count(x => x.DeltaPoints != 0),
+            TotalDeltaPoints: filteredRows.Sum(x => x.DeltaPoints),
+            Categories: categorySummary);
+    }
+
+    private async Task<MigrationRunDiffExportResponse> ExportQuestionDiffsAsync(
+        Guid runId,
+        string format,
+        string requestedBy,
+        CancellationToken cancellationToken,
+        string? category,
+        string? participant,
+        string? expectedStatus,
+        bool nonZeroDeltaOnly)
+    {
+        var rows = ApplyQuestionFilters(
+                await BuildQuestionDiffRowsAsync(runId, cancellationToken),
+                category,
+                participant,
+                expectedStatus,
+                nonZeroDeltaOnly)
+            .ToArray();
+
+        var extension = format == "json" ? "json" : "csv";
+        var fileName = $"migration-run-{runId}-question-diffs.{extension}";
+
+        _logger.LogInformation(
+            "MigrationRunAdminAudit action={Action} runId={RunId} requestedBy={RequestedBy} timestampUtc={TimestampUtc} format={Format} exportType={ExportType} rowCount={RowCount}",
+            "export",
+            runId,
+            requestedBy,
+            DateTime.UtcNow,
+            format,
+            "question-diffs",
+            rows.Length);
+
+        if (format == "json")
+        {
+            return new MigrationRunDiffExportResponse(
+                Success: true,
+                Error: null,
+                FileName: fileName,
+                ContentType: "application/json",
+                Payload: JsonSerializer.SerializeToUtf8Bytes(rows, ExportJsonOptions));
+        }
+
+        var csv = new StringBuilder();
+        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode");
+        foreach (var row in rows)
+        {
+            csv.Append(EscapeCsv(row.Category)).Append(',')
+                .Append(EscapeCsv(row.QuestionId)).Append(',')
+                .Append(EscapeCsv(row.QuestionText)).Append(',')
+                .Append(EscapeCsv(row.Participant)).Append(',')
+                .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
+                .Append(row.CalculatedPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.ReasonCode))
+                .AppendLine();
+        }
+
+        return new MigrationRunDiffExportResponse(
+            Success: true,
+            Error: null,
+            FileName: fileName,
+            ContentType: "text/csv",
+            Payload: Encoding.UTF8.GetBytes(csv.ToString()));
+    }
+
+    private async Task<AdminMigrationQuestionDiffDto[]> BuildQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.QuestionScores
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .Join(
+                _dbContext.QuestionTemplates.AsNoTracking(),
+                score => score.QuestionTemplateId,
+                template => template.Id,
+                (score, template) => new
+                {
+                    template.Category,
+                    template.QuestionId,
+                    template.Prompt,
+                    score.ParticipantId,
+                    score.ImportedPoints,
+                    score.CalculatedPoints,
+                    score.DeltaPoints,
+                    score.ReasonCode
+                })
+            .OrderBy(x => x.Category)
+            .ThenBy(x => x.QuestionId)
+            .ThenBy(x => x.ParticipantId)
+            .ThenBy(x => x.ReasonCode)
+            .ToArrayAsync(cancellationToken);
+
+        return rows
+            .Select(x => new AdminMigrationQuestionDiffDto(
+                x.Category.ToString(),
+                x.QuestionId,
+                x.Prompt,
+                x.ParticipantId,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode))
+            .ToArray();
+    }
+
+    private static IEnumerable<AdminMigrationQuestionDiffDto> ApplyQuestionFilters(
+        IEnumerable<AdminMigrationQuestionDiffDto> rows,
+        string? category,
+        string? participant,
+        string? expectedStatus,
+        bool nonZeroDeltaOnly)
+    {
+        if (!string.IsNullOrWhiteSpace(category) && !string.Equals(category, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            rows = rows.Where(x => string.Equals(x.Category, category.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant))
+        {
+            var participantFilter = participant.Trim();
+            rows = rows.Where(x => x.Participant.Contains(participantFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (nonZeroDeltaOnly)
+        {
+            rows = rows.Where(x => x.DeltaPoints != 0);
+        }
+
+        if (string.Equals(expectedStatus, "expected", StringComparison.OrdinalIgnoreCase))
+        {
+            rows = rows.Where(x => x.DeltaPoints == 0);
+        }
+        else if (string.Equals(expectedStatus, "unexpected", StringComparison.OrdinalIgnoreCase))
+        {
+            rows = rows.Where(x => x.DeltaPoints != 0);
+        }
+
+        return rows;
     }
 
     private async Task<MigrationRunDiffExportResponse> ExportPreseasonQuestionDiffsAsync(

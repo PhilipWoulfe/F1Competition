@@ -24,6 +24,9 @@ public class AdminTests : BunitContext
         {
             RaceId = RaceId,
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
+            H2HLeftDriverId = "LEC",
+            H2HRightDriverId = "NOR",
+            H2HPoints = 5,
             BonusQuestion = "How many safety-car laps?",
             IsPublished = false,
             ETag = "etag-1",
@@ -36,6 +39,8 @@ public class AdminTests : BunitContext
 
         cut.WaitForAssertion(() => Assert.Contains("Race Question Admin", cut.Markup));
         Assert.Contains("Who finishes higher: Leclerc or Norris?", cut.Markup);
+        Assert.Contains("LEC", cut.Markup);
+        Assert.Contains("NOR", cut.Markup);
         Assert.Contains("How many safety-car laps?", cut.Markup);
     }
 
@@ -52,6 +57,9 @@ public class AdminTests : BunitContext
         {
             RaceId = RaceId,
             H2HQuestion = "Who finishes higher: Leclerc or Norris?",
+            H2HLeftDriverId = "LEC",
+            H2HRightDriverId = "NOR",
+            H2HPoints = 5,
             BonusQuestion = "How many safety-car laps?",
             IsPublished = true,
             ETag = "etag-2",
@@ -64,6 +72,9 @@ public class AdminTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("Race Question Admin", cut.Markup));
 
         cut.Find("#h2h-question").Change("Who finishes higher: Russell or Hamilton?");
+    cut.Find("#h2h-left-driver").Change("RUS");
+    cut.Find("#h2h-right-driver").Change("HAM");
+    cut.Find("#h2h-points").Change("7");
         cut.Find("#bonus-question").Change("How many DNFs?");
         cut.Find("#publish-toggle").Change(true);
         cut.Find("button[type='submit']").Click();

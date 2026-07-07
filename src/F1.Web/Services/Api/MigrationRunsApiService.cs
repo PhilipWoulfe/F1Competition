@@ -67,6 +67,105 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             cancellationToken);
     }
 
+    public async Task<AdminMigrationQuestionDiffListResponse?> GetQuestionDiffsAsync(
+        Guid runId,
+        int page,
+        int pageSize,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        var queryParts = new List<string>
+        {
+            $"page={Math.Max(1, page)}",
+            $"pageSize={Math.Max(1, pageSize)}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(category) && !string.Equals(category, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            queryParts.Add($"category={Uri.EscapeDataString(category)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant))
+        {
+            queryParts.Add($"participant={Uri.EscapeDataString(participant)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedStatus) && !string.Equals(expectedStatus, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            queryParts.Add($"expectedStatus={Uri.EscapeDataString(expectedStatus)}");
+        }
+
+        if (nonZeroDeltaOnly)
+        {
+            queryParts.Add("nonZeroDeltaOnly=true");
+        }
+
+        var path = $"admin/migration-runs/{runId}/question-diffs?{string.Join("&", queryParts)}";
+        using var response = await httpClient.GetAsync(path, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        return await ApiResponseParser.ReadOptionalJsonAsync<AdminMigrationQuestionDiffListResponse?>(
+            response,
+            null,
+            "Loading question diffs",
+            cancellationToken);
+    }
+
+    public async Task<AdminMigrationQuestionDiffSummaryResponse?> GetQuestionSummaryAsync(
+        Guid runId,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        var queryParts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(category) && !string.Equals(category, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            queryParts.Add($"category={Uri.EscapeDataString(category)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant))
+        {
+            queryParts.Add($"participant={Uri.EscapeDataString(participant)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedStatus) && !string.Equals(expectedStatus, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            queryParts.Add($"expectedStatus={Uri.EscapeDataString(expectedStatus)}");
+        }
+
+        if (nonZeroDeltaOnly)
+        {
+            queryParts.Add("nonZeroDeltaOnly=true");
+        }
+
+        var path = $"admin/migration-runs/{runId}/question-summary";
+        if (queryParts.Count > 0)
+        {
+            path += $"?{string.Join("&", queryParts)}";
+        }
+
+        using var response = await httpClient.GetAsync(path, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        return await ApiResponseParser.ReadOptionalJsonAsync<AdminMigrationQuestionDiffSummaryResponse?>(
+            response,
+            null,
+            "Loading question summary",
+            cancellationToken);
+    }
+
     public async Task<AdminMigrationRunKickoffResponse> StartRunAsync(AdminMigrationRunKickoffRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await httpClient.PostAsJsonAsync("admin/migration-runs/kickoff", request, cancellationToken);
@@ -91,7 +190,14 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             cancellationToken);
     }
 
-    public string GetRunDiffExportUrl(Guid runId, string exportType, string format, string? expectedStatus = null)
+    public string GetRunDiffExportUrl(
+        Guid runId,
+        string exportType,
+        string format,
+        string? expectedStatus = null,
+        string? category = null,
+        string? participant = null,
+        bool nonZeroDeltaOnly = false)
     {
         var safeExportType = Uri.EscapeDataString(exportType.Trim().ToLowerInvariant());
         var safeFormat = Uri.EscapeDataString(format.Trim().ToLowerInvariant());
@@ -100,6 +206,22 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
         {
             relativePath += $"&expectedStatus={Uri.EscapeDataString(expectedStatus)}";
         }
+
+        if (!string.IsNullOrWhiteSpace(category) && !string.Equals(category, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath += $"&category={Uri.EscapeDataString(category)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant))
+        {
+            relativePath += $"&participant={Uri.EscapeDataString(participant)}";
+        }
+
+        if (nonZeroDeltaOnly)
+        {
+            relativePath += "&nonZeroDeltaOnly=true";
+        }
+
         return new Uri(httpClient.BaseAddress!, relativePath).ToString();
     }
 }

@@ -69,7 +69,10 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>(),
-                It.IsAny<string?>()))
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>()))
             .ReturnsAsync((MigrationRunDiffExportResponse?)null);
         service
             .Setup(x => x.KickoffRunAsync(

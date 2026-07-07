@@ -558,6 +558,204 @@ public sealed class MigrationRunAdminServiceTests
         Assert.Equal(new[] { "PRESEASON_RULE_VARIANCE", "PRESEASON_IMPORTED_MISSING" }, detail.PreseasonReasonCategorySummaries.Select(x => x.ReasonCode).ToArray());
     }
 
+    [Fact]
+    public async Task GetQuestionDiffsAsync_AppliesFiltersAndReturnsStablePagination()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 7, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 7, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.QuestionTemplates.AddRange(
+                new QuestionTemplateEntity
+                {
+                    Id = 1,
+                    CompetitionId = 1,
+                    Season = 2025,
+                    QuestionId = "H2H-001",
+                    Category = F1.Core.Models.QuestionCategory.H2H,
+                    Prompt = "H2H prompt",
+                    Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                    SortOrder = 1,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new QuestionTemplateEntity
+                {
+                    Id = 2,
+                    CompetitionId = 1,
+                    Season = 2025,
+                    QuestionId = "PRE-022",
+                    Category = F1.Core.Models.QuestionCategory.Preseason,
+                    Prompt = "Preseason prompt",
+                    Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                    SortOrder = 2,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.QuestionScores.AddRange(
+                new QuestionScoreEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    QuestionTemplateId = 2,
+                    ParticipantId = "Morgan",
+                    ImportedPoints = 20,
+                    CalculatedPoints = 0,
+                    DeltaPoints = -20,
+                    ReasonCode = "PRESEASON_RULE_VARIANCE",
+                    RecordedAtUtc = DateTime.UtcNow
+                },
+                new QuestionScoreEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    QuestionTemplateId = 2,
+                    ParticipantId = "Taylor",
+                    ImportedPoints = 20,
+                    CalculatedPoints = 20,
+                    DeltaPoints = 0,
+                    ReasonCode = "PRESEASON_POINTS_MATCH",
+                    RecordedAtUtc = DateTime.UtcNow
+                },
+                new QuestionScoreEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    QuestionTemplateId = 1,
+                    ParticipantId = "Morgan",
+                    ImportedPoints = 10,
+                    CalculatedPoints = 5,
+                    DeltaPoints = -5,
+                    ReasonCode = "H2H_RULE_VARIANCE",
+                    RecordedAtUtc = DateTime.UtcNow
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var page1 = await service.GetQuestionDiffsAsync(
+            runId,
+            page: 1,
+            pageSize: 1,
+            requestedBy: "admin@example.com",
+            category: "Preseason",
+            participant: "mor",
+            expectedStatus: "unexpected",
+            nonZeroDeltaOnly: true,
+            cancellationToken: CancellationToken.None);
+
+        Assert.NotNull(page1);
+        Assert.Equal(1, page1!.TotalCount);
+        Assert.Single(page1.Items);
+        Assert.Equal("Preseason", page1.Items[0].Category);
+        Assert.Equal("PRE-022", page1.Items[0].QuestionId);
+        Assert.Equal("Morgan", page1.Items[0].Participant);
+
+        var summary = await service.GetQuestionDiffSummaryAsync(
+            runId,
+            "admin@example.com",
+            CancellationToken.None,
+            category: "all",
+            participant: null,
+            expectedStatus: "all",
+            nonZeroDeltaOnly: false);
+
+        Assert.NotNull(summary);
+        Assert.Equal(3, summary!.TotalCount);
+        Assert.Equal(2, summary.NonZeroDeltaCount);
+        Assert.Equal(-25, summary.TotalDeltaPoints);
+        Assert.Equal(new[] { "H2H", "Preseason" }, summary.Categories.Select(x => x.Category).ToArray());
+    }
+
+    [Fact]
+    public async Task ExportRunDiffsAsync_WhenQuestionDiffExportRequested_IncludesRequiredColumns()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 7, 11, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 7, 11, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 1
+            });
+
+            dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+            {
+                Id = 11,
+                CompetitionId = 1,
+                Season = 2025,
+                QuestionId = "PRE-001",
+                Category = F1.Core.Models.QuestionCategory.Preseason,
+                Prompt = "Will Team X win?",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionScores.Add(new QuestionScoreEntity
+            {
+                Id = 21,
+                ImportRunId = runId,
+                QuestionTemplateId = 11,
+                ParticipantId = "Philip",
+                ImportedPoints = 5,
+                CalculatedPoints = 0,
+                DeltaPoints = -5,
+                ReasonCode = "PRESEASON_RULE_VARIANCE",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var export = await service.ExportRunDiffsAsync(
+            runId,
+            "question-diffs",
+            "csv",
+            "admin@example.com",
+            CancellationToken.None,
+            expectedStatus: "all",
+            category: "Preseason",
+            participant: "phil",
+            nonZeroDeltaOnly: true);
+
+        Assert.NotNull(export);
+        Assert.True(export!.Success);
+
+        var csv = System.Text.Encoding.UTF8.GetString(export.Payload);
+        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode", csv, StringComparison.Ordinal);
+        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5,PRESEASON_RULE_VARIANCE", csv, StringComparison.Ordinal);
+    }
+
     private static DbContextOptions<F1DbContext> CreateOptions()
     {
         return new DbContextOptionsBuilder<F1DbContext>()

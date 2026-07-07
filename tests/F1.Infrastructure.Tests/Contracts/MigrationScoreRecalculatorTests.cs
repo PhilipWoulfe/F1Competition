@@ -1,4 +1,5 @@
 using F1.DataSyncWorker.Services;
+using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -84,6 +85,8 @@ public sealed class MigrationScoreRecalculatorTests
         var runId = Guid.NewGuid();
         var options = CreateOptions();
         await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
 
         dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
         {
@@ -301,6 +304,260 @@ public sealed class MigrationScoreRecalculatorTests
         AssertScore(dnfScore, 5, "DNF_BLANK_NO_ACTUAL");
     }
 
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenGenericPreseasonQuestionsPresent_PersistsQuestionScoresThroughStrategyDispatch()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            ColumnIndex = 12,
+            CellReference = "M2",
+            RawPointsPerQuestion = "20",
+            PointsPerQuestion = 20
+        });
+
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 101,
+            CompetitionId = 1,
+            Season = 2025,
+            QuestionId = "PRE-002",
+            Category = QuestionCategory.Preseason,
+            Prompt = "Q1",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 2,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.AddRange(
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 101,
+                ParticipantId = "Philip",
+                ImportedAnswer = "VER",
+                NormalizedAnswer = "VER",
+                SourceRow = 2,
+                SourceColumn = 2,
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 101,
+                ParticipantId = "Andy",
+                ImportedAnswer = "NOR",
+                NormalizedAnswer = "NOR",
+                SourceRow = 2,
+                SourceColumn = 3,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            ImportRunId = runId,
+            QuestionTemplateId = 101,
+            ActualAnswer = "VER",
+            NormalizedAnswer = "VER",
+            SourceRow = 2,
+            SourceColumn = 12,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var questionScores = await dbContext.QuestionScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.ParticipantId)
+            .ToListAsync();
+
+        Assert.Equal(2, questionScores.Count);
+        Assert.Equal(20, questionScores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
+        Assert.Equal("PRESEASON_EXACT", questionScores.Single(x => x.ParticipantId == "Philip").ReasonCode);
+        Assert.Equal(0, questionScores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
+        Assert.Equal("PRESEASON_MISMATCH", questionScores.Single(x => x.ParticipantId == "Andy").ReasonCode);
+
+        var legacyScore = await dbContext.MigrationImportPreseasonCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");
+        AssertPreseasonScore(legacyScore, 20, "PRESEASON_EXACT");
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenCategoryStrategyMissing_PersistsZeroPointFallbackReason()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 201,
+            CompetitionId = 1,
+            Season = 2025,
+            QuestionId = "H2H-001",
+            Category = QuestionCategory.H2H,
+            Prompt = "Who finishes higher?",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 1,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
+        {
+            ImportRunId = runId,
+            QuestionTemplateId = 201,
+            ParticipantId = "Philip",
+            ImportedAnswer = "NOR",
+            NormalizedAnswer = "NOR",
+            SourceRow = 10,
+            SourceColumn = 2,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            ImportRunId = runId,
+            QuestionTemplateId = 201,
+            ActualAnswer = "LEC",
+            NormalizedAnswer = "LEC",
+            SourceRow = 10,
+            SourceColumn = 3,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(
+            new TestDbContextFactory(options),
+            new QuestionScoringStrategyRegistry([]));
+
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var score = await dbContext.QuestionScores.SingleAsync(x => x.ImportRunId == runId && x.ParticipantId == "Philip");
+        Assert.Equal(0, score.CalculatedPoints);
+        Assert.Equal("QUESTION_CATEGORY_STRATEGY_MISSING", score.ReasonCode);
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenH2hQuestionConfigured_ScoresCorrectChosenDriver()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 301,
+            CompetitionId = 1,
+            Season = 2025,
+            QuestionId = "H2H-301",
+            Category = QuestionCategory.H2H,
+            Prompt = "HAM or VER?",
+            OptionsJson = "{\"LeftDriverId\":\"HAM\",\"RightDriverId\":\"VER\",\"PointsForCorrectPick\":5}",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 30,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.AddRange(
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 301,
+                ParticipantId = "Philip",
+                ImportedAnswer = "HAM",
+                NormalizedAnswer = "HAM",
+                SourceRow = 30,
+                SourceColumn = 2,
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 301,
+                ParticipantId = "Andy",
+                ImportedAnswer = "VER",
+                NormalizedAnswer = "VER",
+                SourceRow = 30,
+                SourceColumn = 3,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            ImportRunId = runId,
+            QuestionTemplateId = 301,
+            ActualAnswer = "VER",
+            NormalizedAnswer = "VER",
+            SourceRow = 30,
+            SourceColumn = 10,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var scores = await dbContext.QuestionScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.ParticipantId)
+            .ToListAsync();
+
+        Assert.Equal(2, scores.Count);
+        Assert.Equal(0, scores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
+        Assert.Equal("H2H_WRONG_PICK", scores.Single(x => x.ParticipantId == "Philip").ReasonCode);
+        Assert.Equal(5, scores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
+        Assert.Equal("H2H_CORRECT_PICK", scores.Single(x => x.ParticipantId == "Andy").ReasonCode);
+    }
+
     private static MigrationImportRaceSelectionEntity Selection(
         Guid runId,
         int rowNumber,
@@ -364,6 +621,19 @@ public sealed class MigrationScoreRecalculatorTests
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"m6-score-{Guid.NewGuid():N}")
             .Options;
+    }
+
+    private static void SeedCompetition(F1DbContext dbContext, int competitionId, int year)
+    {
+        dbContext.Competitions.Add(new Competition
+        {
+            Id = competitionId,
+            Name = $"Competition {competitionId}",
+            Year = year,
+            Description = "Score test competition"
+        });
+
+        dbContext.SaveChanges();
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>

@@ -214,12 +214,87 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
+    public async Task GetQuestionDiffs_ForwardsFiltersToService()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var runId = Guid.NewGuid();
+
+        service.Setup(x => x.GetQuestionDiffsAsync(
+                runId,
+                2,
+                10,
+                "admin@example.com",
+                It.IsAny<CancellationToken>(),
+                "Preseason",
+                "phil",
+                "unexpected",
+                true))
+            .ReturnsAsync(new AdminMigrationQuestionDiffListResponseDto(
+                Page: 2,
+                PageSize: 10,
+                TotalCount: 1,
+                Items:
+                [
+                    new AdminMigrationQuestionDiffDto(
+                        Category: "Preseason",
+                        QuestionId: "PRE-001",
+                        QuestionText: "Question",
+                        Participant: "Philip",
+                        ImportedPoints: 20,
+                        CalculatedPoints: 0,
+                        DeltaPoints: -20,
+                        ReasonCode: "PRESEASON_RULE_VARIANCE")
+                ]));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.GetQuestionDiffs(
+            runId,
+            page: 2,
+            pageSize: 10,
+            category: "Preseason",
+            participant: "phil",
+            expectedStatus: "unexpected",
+            nonZeroDeltaOnly: true);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<AdminMigrationQuestionDiffListResponseDto>(okResult.Value);
+        Assert.Equal(2, payload.Page);
+        Assert.Single(payload.Items);
+    }
+
+    [Fact]
+    public async Task GetQuestionSummary_WhenExpectedStatusInvalid_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        var result = await controller.GetQuestionSummary(Guid.NewGuid(), expectedStatus: "oops");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var details = Assert.IsType<ProblemDetails>(badRequest.Value);
+        Assert.Equal("Invalid expected status filter", details.Title);
+    }
+
+    [Fact]
     public async Task ExportRunDiffs_WhenServiceReturnsPayload_ReturnsFileResult()
     {
         var runId = Guid.NewGuid();
         var service = new Mock<IMigrationRunAdminService>();
         service
-            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>(), "all"))
+            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>(), "all", null, null, false))
             .ReturnsAsync(new MigrationRunDiffExportResponse(
                 Success: true,
                 Error: null,
@@ -248,7 +323,7 @@ public sealed class MigrationRunsControllerTests
         var runId = Guid.NewGuid();
         var service = new Mock<IMigrationRunAdminService>();
         service
-            .Setup(x => x.ExportRunDiffsAsync(runId, "bad-export", "xml", "admin@example.com", It.IsAny<CancellationToken>(), "all"))
+            .Setup(x => x.ExportRunDiffsAsync(runId, "bad-export", "xml", "admin@example.com", It.IsAny<CancellationToken>(), "all", null, null, false))
             .ReturnsAsync(new MigrationRunDiffExportResponse(
                 Success: false,
                 Error: "format must be either csv or json.",
@@ -277,7 +352,7 @@ public sealed class MigrationRunsControllerTests
         var runId = Guid.NewGuid();
         var service = new Mock<IMigrationRunAdminService>();
         service
-            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>(), "all"))
+            .Setup(x => x.ExportRunDiffsAsync(runId, "pick-diffs", "csv", "admin@example.com", It.IsAny<CancellationToken>(), "all", null, null, false))
             .ReturnsAsync((MigrationRunDiffExportResponse?)null);
 
         var controller = new MigrationRunsController(service.Object)
@@ -317,7 +392,10 @@ public sealed class MigrationRunsControllerTests
             It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<CancellationToken>(),
-            It.IsAny<string?>()), Times.Never);
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<bool>()), Times.Never);
     }
 
     [Fact]

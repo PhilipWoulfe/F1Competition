@@ -29,6 +29,21 @@ else
 			<textarea id="h2h-question" class="form-control" rows="3" @bind="h2hQuestion"></textarea>
 		</div>
 
+		<div class="row g-3 mb-3">
+			<div class="col-md-4">
+				<label class="form-label" for="h2h-left-driver">H2H driver A</label>
+				<input id="h2h-left-driver" class="form-control" @bind="h2hLeftDriverId" />
+			</div>
+			<div class="col-md-4">
+				<label class="form-label" for="h2h-right-driver">H2H driver B</label>
+				<input id="h2h-right-driver" class="form-control" @bind="h2hRightDriverId" />
+			</div>
+			<div class="col-md-4">
+				<label class="form-label" for="h2h-points">H2H points</label>
+				<input id="h2h-points" class="form-control" type="number" min="1" @bind="h2hPoints" />
+			</div>
+		</div>
+
 		<div class="mb-3">
 			<label class="form-label" for="bonus-question">Bonus question</label>
 			<textarea id="bonus-question" class="form-control" rows="3" @bind="bonusQuestion"></textarea>
@@ -54,6 +69,9 @@ else
 	private bool isLoading = true;
 	private bool isSaving;
 	private string h2hQuestion = string.Empty;
+	private string? h2hLeftDriverId;
+	private string? h2hRightDriverId;
+	private int? h2hPoints;
 	private string bonusQuestion = string.Empty;
 	private bool isPublished;
 	private string? etag;
@@ -90,6 +108,9 @@ else
 			}
 
 			h2hQuestion = metadata.H2HQuestion;
+			h2hLeftDriverId = metadata.H2HLeftDriverId;
+			h2hRightDriverId = metadata.H2HRightDriverId;
+			h2hPoints = metadata.H2HPoints;
 			bonusQuestion = metadata.BonusQuestion;
 			isPublished = metadata.IsPublished;
 			etag = metadata.ETag;
@@ -115,6 +136,9 @@ else
 			var request = new RaceQuestionMetadataUpdateRequest
 			{
 				H2HQuestion = h2hQuestion,
+				H2HLeftDriverId = h2hLeftDriverId,
+				H2HRightDriverId = h2hRightDriverId,
+				H2HPoints = h2hPoints,
 				BonusQuestion = bonusQuestion,
 				IsPublished = isPublished,
 				ExpectedEtag = etag

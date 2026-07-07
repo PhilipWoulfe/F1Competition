@@ -32,6 +32,9 @@ public abstract class RaceMetadataRepositoryContractTests
         {
             RaceId = raceId,
             H2HQuestion = "Who finishes higher: Norris or Leclerc?",
+            H2HLeftDriverId = "NOR",
+            H2HRightDriverId = "LEC",
+            H2HPoints = 5,
             BonusQuestion = "How many safety car laps?",
             IsPublished = true,
             UpdatedAtUtc = new DateTime(2026, 3, 14, 12, 0, 0, DateTimeKind.Utc)
@@ -44,6 +47,9 @@ public abstract class RaceMetadataRepositoryContractTests
         Assert.NotNull(result);
         Assert.Equal(raceId, result!.RaceId);
         Assert.Equal("Who finishes higher: Norris or Leclerc?", result.H2HQuestion);
+        Assert.Equal("NOR", result.H2HLeftDriverId);
+        Assert.Equal("LEC", result.H2HRightDriverId);
+        Assert.Equal(5, result.H2HPoints);
         Assert.Equal("How many safety car laps?", result.BonusQuestion);
         Assert.True(result.IsPublished);
     }
@@ -56,6 +62,9 @@ public abstract class RaceMetadataRepositoryContractTests
         {
             RaceId = raceId,
             H2HQuestion = "Old H2H",
+            H2HLeftDriverId = "HAM",
+            H2HRightDriverId = "VER",
+            H2HPoints = 3,
             BonusQuestion = "Old bonus",
             IsPublished = false,
             UpdatedAtUtc = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -67,6 +76,9 @@ public abstract class RaceMetadataRepositoryContractTests
         {
             RaceId = raceId,
             H2HQuestion = "New H2H",
+            H2HLeftDriverId = "NOR",
+            H2HRightDriverId = "PIA",
+            H2HPoints = 7,
             BonusQuestion = "New bonus",
             IsPublished = true,
             UpdatedAtUtc = new DateTime(2026, 3, 14, 12, 0, 0, DateTimeKind.Utc)
@@ -76,6 +88,9 @@ public abstract class RaceMetadataRepositoryContractTests
 
         Assert.NotNull(result);
         Assert.Equal("New H2H", result.H2HQuestion);
+        Assert.Equal("NOR", result.H2HLeftDriverId);
+        Assert.Equal("PIA", result.H2HRightDriverId);
+        Assert.Equal(7, result.H2HPoints);
         Assert.Equal("New bonus", result.BonusQuestion);
         Assert.True(result.IsPublished);
     }
@@ -89,6 +104,9 @@ public abstract class RaceMetadataRepositoryContractTests
             repo.UpsertMetadataAsync("no-such-race", new RaceQuestionMetadata
             {
                 H2HQuestion = "irrelevant",
+                H2HLeftDriverId = "HAM",
+                H2HRightDriverId = "VER",
+                H2HPoints = 5,
                 BonusQuestion = "irrelevant",
                 IsPublished = false
             }));
