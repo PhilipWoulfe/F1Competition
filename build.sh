@@ -16,6 +16,7 @@ DATA_SYNC_PROJECT="src/F1.DataSyncWorker/F1.DataSyncWorker.csproj"
 API_TEST_PROJECT="tests/F1.Api.Tests/F1.Api.Tests.csproj"
 WEB_TEST_PROJECT="tests/F1.Web.Tests/F1.Web.Tests.csproj"
 INFRA_TEST_PROJECT="tests/F1.Infrastructure.Tests/F1.Infrastructure.Tests.csproj"
+INFRA_DATA_PROJECT="src/F1.Infrastructure/F1.Infrastructure.csproj"
 
 FORMAT_INCLUDE_PATHS=(
   "src/F1.Api"
@@ -69,6 +70,12 @@ run_quality_gate() {
     if ! CI=true dotnet build "$API_TEST_PROJECT" --configuration Release --no-restore; then return 1; fi
     if ! CI=true dotnet build "$WEB_TEST_PROJECT" --configuration Release --no-restore; then return 1; fi
     if ! CI=true dotnet build "$INFRA_TEST_PROJECT" --configuration Release --no-restore; then return 1; fi
+
+    if ! dotnet tool update --global dotnet-ef --version 9.* && ! dotnet tool install --global dotnet-ef --version 9.*; then return 1; fi
+    if ! dotnet ef migrations has-pending-model-changes --project "$INFRA_DATA_PROJECT" --startup-project "$API_PROJECT" --no-build; then
+        printf "\033[0;31m❌ EF model has pending changes. Add a migration before continuing.\033[0m\n"
+        return 1
+    fi
 
     echo "✅ Quality gate passed."
 }
