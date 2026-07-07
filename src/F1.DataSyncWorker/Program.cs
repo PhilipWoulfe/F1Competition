@@ -59,6 +59,8 @@ builder.Services.AddSingleton<IMigrationImportOrchestrator, MigrationImportOrche
 builder.Services.AddSingleton<IMigrationImportRowClassifier, MigrationImportRowClassifier>();
 builder.Services.AddSingleton<IMigrationRaceSelectionParser, MigrationRaceSelectionParser>();
 builder.Services.AddSingleton<IMigrationRaceRoundMapper, MigrationRaceRoundMapper>();
+builder.Services.AddSingleton<IQuestionScoringStrategy, PreseasonQuestionScoringStrategy>();
+builder.Services.AddSingleton<IQuestionScoringStrategyRegistry, QuestionScoringStrategyRegistry>();
 builder.Services.AddSingleton<IMigrationScoreRecalculator, MigrationScoreRecalculator>();
 builder.Services.AddSingleton<IMigrationLegacyScoreImporter, MigrationLegacyScoreImporter>();
 builder.Services.AddSingleton<IMigrationReconciliationService, MigrationReconciliationService>();
