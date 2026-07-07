@@ -221,7 +221,7 @@ Measure after rollout using telemetry and operator feedback:
 
 **Acceptance Criteria:**
 - Tab nav: `role="tablist"` on the `<ul>`, `role="tab"` and `aria-selected` on each button, `aria-controls` pointing to the corresponding `tab-pane` id, `id` on each button matching the `aria-labelledby` of its pane.
-- Run list: `role="listbox"` on the `<ul>`, `role="option"` and `aria-selected` on each `<li>`.
+- Run list: native `<table>` semantics are preserved; roving tabindex ensures only the selected row (or the first row when nothing is selected) has `tabindex="0"`, with all other rows at `tabindex="-1"`.
 - Right pane container: `aria-live="polite"`.
 - All filter `<input>` and `<select>` elements have an `aria-label`.
 - All table headers have `scope="col"`.
