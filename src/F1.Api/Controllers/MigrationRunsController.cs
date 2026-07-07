@@ -77,6 +77,9 @@ public sealed class MigrationRunsController : ControllerBase
         string exportType,
         [FromQuery] string format = "csv",
         [FromQuery] string? expectedStatus = "all",
+        [FromQuery] string? category = null,
+        [FromQuery] string? participant = null,
+        [FromQuery] bool nonZeroDeltaOnly = false,
         CancellationToken cancellationToken = default)
     {
         if (!IsValidExpectedStatus(expectedStatus))
@@ -95,7 +98,10 @@ public sealed class MigrationRunsController : ControllerBase
             format,
             ResolveActor(),
             cancellationToken,
-            expectedStatus);
+            expectedStatus,
+            category,
+            participant,
+            nonZeroDeltaOnly);
 
         if (export is null)
         {
@@ -113,6 +119,82 @@ public sealed class MigrationRunsController : ControllerBase
         }
 
         return File(export.Payload, export.ContentType, export.FileName);
+    }
+
+    [HttpGet("{runId:guid}/question-diffs")]
+    public async Task<ActionResult<AdminMigrationQuestionDiffListResponseDto>> GetQuestionDiffs(
+        Guid runId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        [FromQuery] string? category = null,
+        [FromQuery] string? participant = null,
+        [FromQuery] string? expectedStatus = "all",
+        [FromQuery] bool nonZeroDeltaOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidExpectedStatus(expectedStatus))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid expected status filter",
+                Detail = "expectedStatus must be one of: all, expected, unexpected.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var response = await _migrationRunAdminService.GetQuestionDiffsAsync(
+            runId,
+            page,
+            pageSize,
+            ResolveActor(),
+            cancellationToken,
+            category,
+            participant,
+            expectedStatus,
+            nonZeroDeltaOnly);
+
+        if (response is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(response);
+    }
+
+    [HttpGet("{runId:guid}/question-summary")]
+    public async Task<ActionResult<AdminMigrationQuestionDiffSummaryResponseDto>> GetQuestionSummary(
+        Guid runId,
+        [FromQuery] string? category = null,
+        [FromQuery] string? participant = null,
+        [FromQuery] string? expectedStatus = "all",
+        [FromQuery] bool nonZeroDeltaOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidExpectedStatus(expectedStatus))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid expected status filter",
+                Detail = "expectedStatus must be one of: all, expected, unexpected.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var response = await _migrationRunAdminService.GetQuestionDiffSummaryAsync(
+            runId,
+            ResolveActor(),
+            cancellationToken,
+            category,
+            participant,
+            expectedStatus,
+            nonZeroDeltaOnly);
+
+        if (response is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(response);
     }
 
     [HttpPost("kickoff")]

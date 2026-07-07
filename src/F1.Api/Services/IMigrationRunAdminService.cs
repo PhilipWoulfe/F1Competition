@@ -44,7 +44,30 @@ public interface IMigrationRunAdminService
         string format,
         string requestedBy,
         CancellationToken cancellationToken = default,
-        string? expectedStatus = null);
+        string? expectedStatus = null,
+        string? category = null,
+        string? participant = null,
+        bool nonZeroDeltaOnly = false);
+
+    Task<AdminMigrationQuestionDiffListResponseDto?> GetQuestionDiffsAsync(
+        Guid runId,
+        int page,
+        int pageSize,
+        string requestedBy,
+        CancellationToken cancellationToken = default,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false);
+
+    Task<AdminMigrationQuestionDiffSummaryResponseDto?> GetQuestionDiffSummaryAsync(
+        Guid runId,
+        string requestedBy,
+        CancellationToken cancellationToken = default,
+        string? category = null,
+        string? participant = null,
+        string? expectedStatus = null,
+        bool nonZeroDeltaOnly = false);
 
     Task<MigrationRunKickoffResult> KickoffRunAsync(
         MigrationRunKickoffCommand command,

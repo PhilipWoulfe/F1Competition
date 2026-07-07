@@ -290,6 +290,9 @@
                     <button id="tab-pick-diffs" type="button" role="tab" aria-selected="@GetAriaSelected("pick-diffs")" aria-controls="pane-pick-diffs" class="@GetTabButtonClass("pick-diffs")" @onclick='() => SetActiveTab("pick-diffs")'>Pick Diffs</button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button id="tab-question-diffs" type="button" role="tab" aria-selected="@GetAriaSelected("question-diffs")" aria-controls="pane-question-diffs" class="@GetTabButtonClass("question-diffs")" @onclick='() => SetActiveTab("question-diffs")'>Question Diffs</button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button id="tab-exports" type="button" role="tab" aria-selected="@GetAriaSelected("exports")" aria-controls="pane-exports" class="@GetTabButtonClass("exports")" @onclick='() => SetActiveTab("exports")'>Exports</button>
                 </li>
             </ul>
@@ -674,6 +677,146 @@
                     }
                 </div>
 
+                <div id="pane-question-diffs" role="tabpanel" aria-labelledby="tab-question-diffs" class="@GetTabPaneClass("question-diffs")">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h3 class="h5">Question Reconciliation</h3>
+                            <div class="row g-3 align-items-end mb-2">
+                                <div class="col-md-3">
+                                    <label class="form-label" for="question-category-filter">Category</label>
+                                    <select id="question-category-filter" class="form-select" aria-label="Question category filter" @bind="questionCategoryFilter">
+                                        <option value="all">All categories</option>
+                                        <option value="Preseason">Preseason</option>
+                                        <option value="H2H">H2H</option>
+                                        <option value="RaceBonus">RaceBonus</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="question-participant-filter">Participant</label>
+                                    <input id="question-participant-filter" class="form-control" aria-label="Question participant filter" @bind="questionParticipantFilter" placeholder="Filter participant" />
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-check">
+                                        <input id="question-non-zero-only" class="form-check-input" type="checkbox" aria-label="Question non-zero delta only" @bind="questionNonZeroOnly" />
+                                        <label class="form-check-label" for="question-non-zero-only">Non-zero delta only</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2 d-grid">
+                                    <button class="btn btn-primary" @onclick="ApplyQuestionFiltersAsync" disabled="@(isLoadingQuestionDiffs || selectedRunId is null)">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (isLoadingQuestionDiffs)
+                    {
+                        <p><em>Loading question diffs...</em></p>
+                    }
+                    else if (questionSummary is null || questionDiffs is null)
+                    {
+                        <p>Select Apply to load question reconciliation data for the current run.</p>
+                    }
+                    else
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <div class="card h-100 bg-light">
+                                    <div class="card-body">
+                                        <div class="text-muted small">Rows</div>
+                                        <div class="fs-5">@questionSummary.TotalCount</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card h-100 bg-light">
+                                    <div class="card-body">
+                                        <div class="text-muted small">Non-zero Deltas</div>
+                                        <div class="fs-5">@questionSummary.NonZeroDeltaCount</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card h-100 bg-light">
+                                    <div class="card-body">
+                                        <div class="text-muted small">Total Delta</div>
+                                        <div class="fs-5">@questionSummary.TotalDeltaPoints</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (questionSummary.Categories.Count > 0)
+                        {
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Category</th>
+                                            <th scope="col">Count</th>
+                                            <th scope="col">Total Delta</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var category in questionSummary.Categories)
+                                        {
+                                            <tr>
+                                                <td>@category.Category</td>
+                                                <td>@category.Count</td>
+                                                <td>@category.TotalDeltaPoints</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        @if (questionDiffs.Items.Count == 0)
+                        {
+                            <p>No question diff rows match the selected filters.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Category</th>
+                                            <th scope="col">Question Id</th>
+                                            <th scope="col">Question</th>
+                                            <th scope="col">Participant</th>
+                                            <th scope="col">Imported</th>
+                                            <th scope="col">Calculated</th>
+                                            <th scope="col">Delta</th>
+                                            <th scope="col">Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in questionDiffs.Items)
+                                        {
+                                            <tr>
+                                                <td>@row.Category</td>
+                                                <td>@row.QuestionId</td>
+                                                <td>@row.QuestionText</td>
+                                                <td>@row.Participant</td>
+                                                <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
+                                                <td>@row.CalculatedPoints</td>
+                                                <td>@row.DeltaPoints</td>
+                                                <td>@row.ReasonCode</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center">
+                                <button class="btn btn-outline-secondary" @onclick="PreviousQuestionPageAsync" disabled="@(questionPage <= 1 || isLoadingQuestionDiffs)">Previous</button>
+                                <span>Page @questionPage of @QuestionTotalPages</span>
+                                <button class="btn btn-outline-secondary" @onclick="NextQuestionPageAsync" disabled="@(questionPage >= QuestionTotalPages || isLoadingQuestionDiffs)">Next</button>
+                            </div>
+                        }
+                    }
+                </div>
+
                 <div id="pane-exports" role="tabpanel" aria-labelledby="tab-exports" class="@GetTabPaneClass("exports")">
                     <div class="card mb-3" data-testid="exports-signoff-card">
                         <div class="card-body">
@@ -693,6 +836,8 @@
                             <h3 class="h5">Preseason Reconciliation</h3>
                             <p class="text-muted mb-3">Use these exports to validate preseason question scoring and participant total reconciliation.</p>
                             <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download generic question diffs as CSV" href="@GetQuestionExportUrl("csv")" target="_blank" rel="noopener noreferrer">Question diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download generic question diffs as JSON" href="@GetQuestionExportUrl("json")" target="_blank" rel="noopener noreferrer">Question diffs JSON</a>
                                 <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason question diffs as CSV" href="@GetExportUrl("preseason-question-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason question diffs CSV</a>
                                 <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason question diffs as JSON" href="@GetExportUrl("preseason-question-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason question diffs JSON</a>
                                 <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason participant diffs as CSV" href="@GetExportUrl("preseason-participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason participant diffs CSV</a>
@@ -732,9 +877,12 @@
 
     private AdminMigrationRunListResponse? runList;
     private AdminMigrationRunDetailResponse? selectedRunDetail;
+    private AdminMigrationQuestionDiffListResponse? questionDiffs;
+    private AdminMigrationQuestionDiffSummaryResponse? questionSummary;
     private Guid? selectedRunId;
     private bool isLoadingRuns;
     private bool isLoadingDetail;
+    private bool isLoadingQuestionDiffs;
     private bool isKickoffSubmitting;
     private bool showKickoffPanel = true;
     private bool showKickoffConfirmation;
@@ -762,10 +910,19 @@
     private string preseasonReasonFilter = string.Empty;
     private bool detailNonZeroOnly;
     private bool preseasonNonZeroOnly;
+    private string questionCategoryFilter = "all";
+    private string questionParticipantFilter = string.Empty;
+    private bool questionNonZeroOnly = true;
+    private int questionPage = 1;
+    private int questionPageSize = 25;
 
     private int TotalPages => runList is null || runList.TotalCount == 0
         ? 1
         : (int)Math.Ceiling(runList.TotalCount / (double)runList.PageSize);
+
+    private int QuestionTotalPages => questionDiffs is null || questionDiffs.TotalCount == 0
+        ? 1
+        : (int)Math.Ceiling(questionDiffs.TotalCount / (double)questionDiffs.PageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -928,6 +1085,12 @@
             preseasonReasonFilter = string.Empty;
             detailNonZeroOnly = false;
             preseasonNonZeroOnly = true;
+            questionCategoryFilter = "all";
+            questionParticipantFilter = string.Empty;
+            questionNonZeroOnly = true;
+            questionPage = 1;
+            questionDiffs = null;
+            questionSummary = null;
 
             if (syncUrl)
             {
@@ -970,6 +1133,11 @@
         if (selectedRunId.HasValue)
         {
             await ReloadSelectedRunDetailAsync(selectedRunId.Value);
+
+            if (questionDiffs is not null || questionSummary is not null)
+            {
+                await LoadQuestionDiffsAsync();
+            }
         }
     }
 
@@ -1214,6 +1382,72 @@
         SyncQueryString();
     }
 
+    private async Task ApplyQuestionFiltersAsync()
+    {
+        questionPage = 1;
+        await LoadQuestionDiffsAsync();
+    }
+
+    private async Task PreviousQuestionPageAsync()
+    {
+        if (questionPage <= 1)
+        {
+            return;
+        }
+
+        questionPage--;
+        await LoadQuestionDiffsAsync();
+    }
+
+    private async Task NextQuestionPageAsync()
+    {
+        if (questionPage >= QuestionTotalPages)
+        {
+            return;
+        }
+
+        questionPage++;
+        await LoadQuestionDiffsAsync();
+    }
+
+    private async Task LoadQuestionDiffsAsync()
+    {
+        if (!selectedRunId.HasValue)
+        {
+            return;
+        }
+
+        isLoadingQuestionDiffs = true;
+        errorMessage = null;
+
+        try
+        {
+            questionDiffs = await MigrationRunsApi.GetQuestionDiffsAsync(
+                selectedRunId.Value,
+                questionPage,
+                questionPageSize,
+                category: questionCategoryFilter,
+                participant: questionParticipantFilter,
+                expectedStatus: detailExpectedStatusFilter,
+                nonZeroDeltaOnly: questionNonZeroOnly);
+
+            questionSummary = await MigrationRunsApi.GetQuestionSummaryAsync(
+                selectedRunId.Value,
+                category: questionCategoryFilter,
+                participant: questionParticipantFilter,
+                expectedStatus: detailExpectedStatusFilter,
+                nonZeroDeltaOnly: questionNonZeroOnly);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load question reconciliation data: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingQuestionDiffs = false;
+        }
+    }
+
     private string GetTabButtonClass(string tab)
     {
         return string.Equals(activeTab, tab, StringComparison.OrdinalIgnoreCase)
@@ -1240,6 +1474,7 @@
             || string.Equals(tab, "race-participants", StringComparison.OrdinalIgnoreCase)
             || string.Equals(tab, "race-diffs", StringComparison.OrdinalIgnoreCase)
             || string.Equals(tab, "pick-diffs", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tab, "question-diffs", StringComparison.OrdinalIgnoreCase)
             || string.Equals(tab, "exports", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1280,6 +1515,23 @@
         }
 
         return MigrationRunsApi.GetRunDiffExportUrl(selectedRunId.Value, exportType, format, detailExpectedStatusFilter);
+    }
+
+    private string GetQuestionExportUrl(string format)
+    {
+        if (selectedRunId is null)
+        {
+            return "#";
+        }
+
+        return MigrationRunsApi.GetRunDiffExportUrl(
+            selectedRunId.Value,
+            "question-diffs",
+            format,
+            detailExpectedStatusFilter,
+            questionCategoryFilter,
+            questionParticipantFilter,
+            questionNonZeroOnly);
     }
 
     private async Task<AdminMigrationRunDetailResponse?> LoadRunDetailAsync(Guid runId)

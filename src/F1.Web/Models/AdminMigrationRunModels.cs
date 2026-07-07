@@ -133,3 +133,30 @@ public sealed record AdminMigrationRunKickoffResponse(
     string SourceFileChecksum,
     DateTime TriggeredAtUtc,
     string RequestedBy);
+
+public sealed record AdminMigrationQuestionDiffListResponse(
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyList<AdminMigrationQuestionDiff> Items);
+
+public sealed record AdminMigrationQuestionDiff(
+    string Category,
+    string QuestionId,
+    string QuestionText,
+    string Participant,
+    int? ImportedPoints,
+    int CalculatedPoints,
+    int DeltaPoints,
+    string ReasonCode);
+
+public sealed record AdminMigrationQuestionDiffSummaryResponse(
+    int TotalCount,
+    int NonZeroDeltaCount,
+    int TotalDeltaPoints,
+    IReadOnlyList<AdminMigrationQuestionDiffCategorySummary> Categories);
+
+public sealed record AdminMigrationQuestionDiffCategorySummary(
+    string Category,
+    int Count,
+    int TotalDeltaPoints);
