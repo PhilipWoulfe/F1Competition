@@ -29,12 +29,12 @@ public sealed class QuestionFrameworkModelContractTests
 
         Assert.False(answer!.FindProperty(nameof(QuestionAnswerEntity.ParticipantId))!.IsNullable);
         Assert.False(actual!.FindProperty(nameof(QuestionActualEntity.QuestionTemplateId))!.IsNullable);
-        Assert.False(score!.FindProperty(nameof(QuestionScoreEntity.ReasonCode))!.IsNullable);
+        Assert.False(score!.FindProperty(nameof(QuestionScoreEntity.ParticipantId))!.IsNullable);
 
         Assert.Contains(template.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionTemplateEntity.CompetitionId), nameof(QuestionTemplateEntity.Season), nameof(QuestionTemplateEntity.QuestionId)));
-        Assert.Contains(answer.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionAnswerEntity.ImportRunId), nameof(QuestionAnswerEntity.QuestionTemplateId), nameof(QuestionAnswerEntity.ParticipantId)));
-        Assert.Contains(actual.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionActualEntity.ImportRunId), nameof(QuestionActualEntity.QuestionTemplateId)));
-        Assert.Contains(score.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionScoreEntity.ImportRunId), nameof(QuestionScoreEntity.QuestionTemplateId), nameof(QuestionScoreEntity.ParticipantId)));
+        Assert.Contains(answer.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionAnswerEntity.QuestionTemplateId), nameof(QuestionAnswerEntity.ParticipantId)));
+        Assert.Contains(actual.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionActualEntity.QuestionTemplateId)));
+        Assert.Contains(score.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionScoreEntity.QuestionTemplateId), nameof(QuestionScoreEntity.ParticipantId)));
     }
 
     [Fact]

@@ -87,6 +87,15 @@ jobs:
           dotnet build tests/F1.Api.Tests/F1.Api.Tests.csproj --configuration Release --no-restore /warnaserror
           dotnet build tests/F1.Web.Tests/F1.Web.Tests.csproj --configuration Release --no-restore /warnaserror
 
+      - name: Verify EF Migrations Are Up To Date
+        run: |
+          dotnet tool install --global dotnet-ef --version 9.* || dotnet tool update --global dotnet-ef --version 9.*
+          dotnet ef migrations has-pending-model-changes \
+            --project src/F1.Infrastructure/F1.Infrastructure.csproj \
+            --startup-project src/F1.Api/F1.Api.csproj \
+            --configuration Release \
+            --no-build
+
   unit-tests:
     runs-on: ubuntu-latest
     needs: build

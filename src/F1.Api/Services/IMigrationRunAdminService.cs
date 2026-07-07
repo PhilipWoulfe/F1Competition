@@ -19,7 +19,8 @@ public sealed record MigrationRunDiffExportResponse(
 public sealed record MigrationRunKickoffCommand(
     string? SourceFilePath,
     string RequestedMode,
-    string RequestedBy);
+    string RequestedBy,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record MigrationRunKickoffResult(
     bool Success,
@@ -27,6 +28,16 @@ public sealed record MigrationRunKickoffResult(
     string? Error,
     Guid? ExistingRunId,
     AdminMigrationRunKickoffResponseDto? Run);
+
+public sealed record MigrationRunRollbackCommand(
+    Guid RunId,
+    string RequestedBy,
+    string Reason);
+
+public sealed record MigrationRunRollbackResult(
+    bool Success,
+    string? Error,
+    AdminMigrationRollbackResponseDto? Rollback);
 
 public interface IMigrationRunAdminService
 {
@@ -71,5 +82,9 @@ public interface IMigrationRunAdminService
 
     Task<MigrationRunKickoffResult> KickoffRunAsync(
         MigrationRunKickoffCommand command,
+        CancellationToken cancellationToken);
+
+    Task<MigrationRunRollbackResult> RollbackRunAsync(
+        MigrationRunRollbackCommand command,
         CancellationToken cancellationToken);
 }

@@ -60,6 +60,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             PreseasonParticipantDeltas: [],
             PreseasonQuestionDiffs: [],
             PreseasonReasonCategorySummaries: [],
+            ConflictDiagnostics: [],
             RaceDiffs: [],
             PickDiffs: []);
 
@@ -151,6 +152,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             [
                 new AdminMigrationPreseasonReasonCategorySummary("PRESEASON_RULE_VARIANCE", 1, -20)
             ],
+            ConflictDiagnostics: [],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
@@ -198,6 +200,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             [
                 new AdminMigrationPreseasonReasonCategorySummary("PRESEASON_RULE_VARIANCE", 1, -20)
             ],
+            ConflictDiagnostics: [],
             RaceDiffs:
             [
                 new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
@@ -463,7 +466,15 @@ public sealed class AdminMigrationRunsTests : BunitContext
                 SourceFilePath: "/tmp/import.csv",
                 SourceFileChecksum: "abc123",
                 TriggeredAtUtc: new DateTime(2026, 7, 6, 14, 0, 0, DateTimeKind.Utc),
-                RequestedBy: "admin@example.com"));
+                RequestedBy: "admin@example.com",
+                NonEmptyDbStrategy: "append-with-report",
+                CanonicalDataPresent: false,
+                ExistingDriverCount: 0,
+                ExistingRaceCount: 0,
+                ExistingSelectionCount: 0,
+                EstimatedAffectedRaceCount: 0,
+                EstimatedAffectedParticipantCount: 0,
+                EstimatedAffectedSelectionCount: 0));
 
         Services.AddSingleton(apiMock.Object);
 
@@ -481,8 +492,33 @@ public sealed class AdminMigrationRunsTests : BunitContext
         apiMock.Verify(x => x.StartRunAsync(
             It.Is<AdminMigrationRunKickoffRequest>(request =>
                 request.SourceFilePath == "/tmp/import.csv" &&
-                request.Mode == "dry-run"),
+                request.Mode == "dry-run" &&
+                !request.ConfirmNonEmptyStrategy),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void AdminMigrationRuns_WriteKickoff_ShouldRequireExplicitNonEmptyConfirmation()
+    {
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunListResponse(1, 25, 0, []));
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Start Migration Run", cut.Markup));
+
+        cut.Find("#kickoff-mode").Change("write");
+        cut.Find("button.btn.btn-success").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Confirm Migration Kickoff", cut.Markup));
+
+        cut.Find("button.btn.btn-danger").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Write mode requires explicit non-empty DB strategy confirmation.", cut.Markup));
+        apiMock.Verify(x => x.StartRunAsync(It.IsAny<AdminMigrationRunKickoffRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

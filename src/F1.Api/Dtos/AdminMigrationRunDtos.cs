@@ -46,7 +46,40 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonQuestionDiffDto> PreseasonQuestionDiffs,
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
-    IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs);
+    IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
+    IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null,
+    IReadOnlyList<AdminMigrationRollbackAuditDto>? RollbackAudits = null);
+
+public sealed record AdminMigrationRollbackRequestDto(
+    string Reason);
+
+public sealed record AdminMigrationRollbackResponseDto(
+    Guid RunId,
+    string Status,
+    DateTime RequestedAtUtc,
+    string RequestedBy,
+    string Outcome,
+    int AffectedRaceCount,
+    int AffectedSelectionCount,
+    int AffectedSelectionPositionCount);
+
+public sealed record AdminMigrationRollbackAuditDto(
+    DateTime RequestedAtUtc,
+    string Actor,
+    string Reason,
+    string Outcome,
+    int AffectedRaceCount,
+    int AffectedSelectionCount,
+    int AffectedSelectionPositionCount);
+
+public sealed record AdminMigrationConflictDiagnosticDto(
+    string EntityType,
+    string ConflictType,
+    string KeyFields,
+    string SourceReference,
+    string PolicyOutcome,
+    string RecommendedAction,
+    DateTime CreatedAtUtc);
 
 public sealed record AdminMigrationUnresolvedTokenSummaryDto(
     string RawToken,
@@ -119,11 +152,13 @@ public sealed record AdminMigrationPickDiffDto(
 
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequestDto(
     IFormFile? SourceFile,
-    string Mode);
+    string Mode,
+    bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponseDto(
     Guid RunId,
@@ -133,7 +168,15 @@ public sealed record AdminMigrationRunKickoffResponseDto(
     string SourceFilePath,
     string SourceFileChecksum,
     DateTime TriggeredAtUtc,
-    string RequestedBy);
+    string RequestedBy,
+    string NonEmptyDbStrategy = "merge_upsert_active_records",
+    bool CanonicalDataPresent = false,
+    int ExistingDriverCount = 0,
+    int ExistingRaceCount = 0,
+    int ExistingSelectionCount = 0,
+    int EstimatedAffectedRaceCount = 0,
+    int EstimatedAffectedParticipantCount = 0,
+    int EstimatedAffectedSelectionCount = 0);
 
 public sealed record AdminMigrationQuestionDiffListResponseDto(
     int Page,
@@ -148,8 +191,7 @@ public sealed record AdminMigrationQuestionDiffDto(
     string Participant,
     int? ImportedPoints,
     int CalculatedPoints,
-    int DeltaPoints,
-    string ReasonCode);
+    int DeltaPoints);
 
 public sealed record AdminMigrationQuestionDiffSummaryResponseDto(
     int TotalCount,

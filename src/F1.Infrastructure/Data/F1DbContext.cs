@@ -43,6 +43,8 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
+    public DbSet<MigrationImportConflictDiagnosticEntity> MigrationImportConflictDiagnostics => Set<MigrationImportConflictDiagnosticEntity>();
+    public DbSet<MigrationImportRollbackAuditEntity> MigrationImportRollbackAudits => Set<MigrationImportRollbackAuditEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -156,14 +158,8 @@ public class F1DbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
-            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId, x.ParticipantId }).IsUnique();
-            entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
-
-            entity.HasOne<MigrationImportRunEntity>()
-                .WithMany()
-                .HasForeignKey(x => x.ImportRunId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.OverrideAnswer).HasMaxLength(512);
+            entity.HasIndex(x => new { x.QuestionTemplateId, x.ParticipantId }).IsUnique();
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()
@@ -175,16 +171,9 @@ public class F1DbContext : DbContext
         {
             entity.ToTable("QuestionActuals");
             entity.HasKey(x => x.Id);
-            entity.Property(x => x.ActualAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizationDiagnosticsJson).HasColumnType("text");
-            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId }).IsUnique();
-            entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
-
-            entity.HasOne<MigrationImportRunEntity>()
-                .WithMany()
-                .HasForeignKey(x => x.ImportRunId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
+            entity.Property(x => x.OverrideAnswer).HasMaxLength(512);
+            entity.HasIndex(x => x.QuestionTemplateId).IsUnique();
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()
@@ -197,14 +186,8 @@ public class F1DbContext : DbContext
             entity.ToTable("QuestionScores");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
-            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
-            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId, x.ParticipantId }).IsUnique();
-            entity.HasIndex(x => new { x.ImportRunId, x.DeltaPoints });
-
-            entity.HasOne<MigrationImportRunEntity>()
-                .WithMany()
-                .HasForeignKey(x => x.ImportRunId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.QuestionTemplateId, x.ParticipantId }).IsUnique();
+            entity.HasIndex(x => x.DeltaPoints);
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()
@@ -221,6 +204,11 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.PreseasonParseStatus).HasMaxLength(32).IsRequired();
             entity.Property(x => x.PreseasonScoringStatus).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ParitySnapshotChecksum).HasMaxLength(128);
+            entity.Property(x => x.ParityStatus).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ParityComparedChecksum).HasMaxLength(128);
+            entity.Property(x => x.IdempotencyScopeKey).HasMaxLength(256);
+            entity.Property(x => x.IdempotencyOutcome).HasMaxLength(32).IsRequired();
             entity.Property(x => x.ErrorMessage).HasMaxLength(4000);
             entity.HasIndex(x => x.SourceFileChecksum);
             entity.HasIndex(x => x.StartedAtUtc);
@@ -269,6 +257,7 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.RawAnswer).HasMaxLength(512);
             entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswerBoolean);
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()
@@ -570,6 +559,41 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RaceSequence }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportConflictDiagnosticEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportConflictDiagnostics");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EntityType).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ConflictType).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.KeyFields).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.SourceReference).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.PolicyOutcome).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.RecommendedAction).HasMaxLength(256).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.EntityType, x.KeyFields });
+        });
+
+        modelBuilder.Entity<MigrationImportRollbackAuditEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportRollbackAudits");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.Outcome).HasMaxLength(32).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.RequestedAtUtc });
         });
     }
 }

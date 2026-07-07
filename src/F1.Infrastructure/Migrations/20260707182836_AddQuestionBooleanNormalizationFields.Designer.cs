@@ -3,6 +3,7 @@ using System;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace F1.Infrastructure.Migrations
 {
     [DbContext(typeof(F1DbContext))]
-    partial class F1DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260707182836_AddQuestionBooleanNormalizationFields")]
+    partial class AddQuestionBooleanNormalizationFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1262,13 +1265,22 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<string>("ImportedAnswer")
+                    b.Property<string>("ActualAnswer")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
-                    b.Property<string>("OverrideAnswer")
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NormalizationDiagnosticsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NormalizedAnswer")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<bool?>("NormalizedAnswerBoolean")
+                        .HasColumnType("boolean");
 
                     b.Property<long>("QuestionTemplateId")
                         .HasColumnType("bigint");
@@ -1276,10 +1288,20 @@ namespace F1.Infrastructure.Migrations
                     b.Property<DateTime>("RecordedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("SourceColumn")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SourceRow")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("QuestionTemplateId")
+                    b.HasIndex("QuestionTemplateId");
+
+                    b.HasIndex("ImportRunId", "QuestionTemplateId")
                         .IsUnique();
+
+                    b.HasIndex("ImportRunId", "SourceRow", "SourceColumn");
 
                     b.ToTable("QuestionActuals", (string)null);
                 });
@@ -1292,13 +1314,19 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ImportedAnswer")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
-                    b.Property<string>("OverrideAnswer")
+                    b.Property<string>("NormalizedAnswer")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<bool?>("NormalizedAnswerBoolean")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("ParticipantId")
                         .IsRequired()
@@ -1311,10 +1339,20 @@ namespace F1.Infrastructure.Migrations
                     b.Property<DateTime>("RecordedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("SourceColumn")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SourceRow")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("QuestionTemplateId", "ParticipantId")
+                    b.HasIndex("QuestionTemplateId");
+
+                    b.HasIndex("ImportRunId", "QuestionTemplateId", "ParticipantId")
                         .IsUnique();
+
+                    b.HasIndex("ImportRunId", "SourceRow", "SourceColumn");
 
                     b.ToTable("QuestionAnswers", (string)null);
                 });
@@ -1333,6 +1371,9 @@ namespace F1.Infrastructure.Migrations
                     b.Property<int>("DeltaPoints")
                         .HasColumnType("integer");
 
+                    b.Property<Guid>("ImportRunId")
+                        .HasColumnType("uuid");
+
                     b.Property<int?>("ImportedPoints")
                         .HasColumnType("integer");
 
@@ -1344,14 +1385,21 @@ namespace F1.Infrastructure.Migrations
                     b.Property<long>("QuestionTemplateId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTime>("RecordedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DeltaPoints");
+                    b.HasIndex("QuestionTemplateId");
 
-                    b.HasIndex("QuestionTemplateId", "ParticipantId")
+                    b.HasIndex("ImportRunId", "DeltaPoints");
+
+                    b.HasIndex("ImportRunId", "QuestionTemplateId", "ParticipantId")
                         .IsUnique();
 
                     b.ToTable("QuestionScores", (string)null);
@@ -1696,6 +1744,12 @@ namespace F1.Infrastructure.Migrations
 
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.QuestionActualEntity", b =>
                 {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("F1.Infrastructure.Data.Entities.QuestionTemplateEntity", null)
                         .WithMany()
                         .HasForeignKey("QuestionTemplateId")
@@ -1705,6 +1759,12 @@ namespace F1.Infrastructure.Migrations
 
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.QuestionAnswerEntity", b =>
                 {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("F1.Infrastructure.Data.Entities.QuestionTemplateEntity", null)
                         .WithMany()
                         .HasForeignKey("QuestionTemplateId")
@@ -1714,6 +1774,12 @@ namespace F1.Infrastructure.Migrations
 
             modelBuilder.Entity("F1.Infrastructure.Data.Entities.QuestionScoreEntity", b =>
                 {
+                    b.HasOne("F1.Infrastructure.Data.Entities.MigrationImportRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("F1.Infrastructure.Data.Entities.QuestionTemplateEntity", null)
                         .WithMany()
                         .HasForeignKey("QuestionTemplateId")

@@ -21,5 +21,11 @@ public sealed class MigrationImportRunEntity
     public int PreseasonQuestionDiffCount { get; set; }
     public int PreseasonTotalDeltaPoints { get; set; }
     public bool PreseasonIsolationGuardPassed { get; set; }
+    public string? ParitySnapshotChecksum { get; set; }
+    public string ParityStatus { get; set; } = "NotCompared";
+    public string? ParityComparedChecksum { get; set; }
+    public Guid? ParityComparedRunId { get; set; }
+    public string? IdempotencyScopeKey { get; set; }
+    public string IdempotencyOutcome { get; set; } = "Unknown";
     public string? ErrorMessage { get; set; }
 }

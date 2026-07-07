@@ -3,6 +3,8 @@ using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace F1.DataSyncWorker.Services;
 
@@ -17,6 +19,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationScoreRecalculator _scoreRecalculator;
     private readonly IMigrationLegacyScoreImporter _legacyScoreImporter;
     private readonly IMigrationReconciliationService _reconciliationService;
+    private readonly IMigrationCanonicalWriteService _canonicalWriteService;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -38,6 +41,37 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions,
         IMigrationExpectedVarianceRuleSetMetadataProvider ruleSetMetadataProvider)
+        : this(
+            logger,
+            runService,
+            rowClassifier,
+            raceSelectionParser,
+            raceRoundMapper,
+            scoreRecalculator,
+            legacyScoreImporter,
+            reconciliationService,
+            new MigrationCanonicalWriteService(dbContextFactory, importOptions),
+            dbContextFactory,
+            dataSyncOptions,
+            importOptions,
+            ruleSetMetadataProvider)
+    {
+    }
+
+    public MigrationImportOrchestrator(
+        ILogger<MigrationImportOrchestrator> logger,
+        IMigrationImportRunService runService,
+        IMigrationImportRowClassifier rowClassifier,
+        IMigrationRaceSelectionParser raceSelectionParser,
+        IMigrationRaceRoundMapper raceRoundMapper,
+        IMigrationScoreRecalculator scoreRecalculator,
+        IMigrationLegacyScoreImporter legacyScoreImporter,
+        IMigrationReconciliationService reconciliationService,
+        IMigrationCanonicalWriteService canonicalWriteService,
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IOptions<DataSyncOptions> dataSyncOptions,
+        IOptions<MigrationImportOptions> importOptions,
+        IMigrationExpectedVarianceRuleSetMetadataProvider ruleSetMetadataProvider)
     {
         _logger = logger;
         _runService = runService;
@@ -47,6 +81,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _scoreRecalculator = scoreRecalculator;
         _legacyScoreImporter = legacyScoreImporter;
         _reconciliationService = reconciliationService;
+        _canonicalWriteService = canonicalWriteService;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -125,25 +160,22 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                     _importOptions.UnresolvedTokenFailThreshold);
             }
 
-            var mappingResult = (SnapshotCount: 0, MappingCount: 0, WarningCount: 0);
-            var selectionRaceCodesRewritten = 0;
-            if (!run.IsDryRun)
-            {
-                mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
-                selectionRaceCodesRewritten = await RewriteSelectionRaceCodesToMappedCircuitIdsAsync(run.RunId, cancellationToken);
-            }
-            else
-            {
-                _logger.LogInformation(
-                    "Migration import run in dry-run mode; skipping race-round mapping and Jolpica fetch. RunId={RunId}",
-                    run.RunId);
-            }
+            var mappingResult = await _raceRoundMapper.MapAndPersistAsync(run.RunId, cancellationToken);
+            var selectionRaceCodesRewritten = await RewriteSelectionRaceCodesToMappedCircuitIdsAsync(run.RunId, cancellationToken);
 
             // Import legacy/preseason source tallies first so scoring can read preseason policy values (M2).
             var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
             var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
             await EnsurePreseasonRaceIsolationAsync(run.RunId, cancellationToken);
             var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
+            if (!run.IsDryRun)
+            {
+                await _canonicalWriteService.PersistCanonicalEntitiesAsync(run.RunId, cancellationToken);
+            }
+
+            var paritySnapshotChecksum = await BuildParitySnapshotChecksumAsync(run.RunId, cancellationToken);
+            var parityComparison = await BuildParityComparisonAsync(run, paritySnapshotChecksum, cancellationToken);
+            var idempotency = await BuildIdempotencyMetadataAsync(run, cancellationToken);
 
             var runMetadata = await BuildRunCompletionMetadataAsync(
                 run.RunId,
@@ -151,6 +183,9 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 scoreResult,
                 reconciliationResult,
                 mappingResult.WarningCount,
+                paritySnapshotChecksum,
+                parityComparison,
+                idempotency,
                 cancellationToken);
 
             await _runService.CompleteRunAsync(
@@ -203,6 +238,20 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                 reconciliationResult.ReasonSummaryCount,
                 reconciliationResult.TotalDelta,
                 run.SourceFileChecksum);
+
+            _logger.LogInformation(
+                "Migration import parity report. RunId={RunId}, SnapshotChecksum={SnapshotChecksum}, ParityStatus={ParityStatus}, ComparedRunId={ComparedRunId}, ComparedChecksum={ComparedChecksum}",
+                run.RunId,
+                paritySnapshotChecksum,
+                parityComparison.ParityStatus,
+                parityComparison.ComparedRunId,
+                parityComparison.ComparedChecksum);
+
+            _logger.LogInformation(
+                "Migration import idempotency report. RunId={RunId}, ScopeKey={ScopeKey}, Outcome={Outcome}",
+                run.RunId,
+                idempotency.ScopeKey,
+                idempotency.Outcome);
         }
         catch (Exception ex)
         {
@@ -270,6 +319,9 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         MigrationScoreRecalculationResult scoreResult,
         MigrationReconciliationResult reconciliationResult,
         int mappingWarningCount,
+        string paritySnapshotChecksum,
+        (string ParityStatus, Guid? ComparedRunId, string? ComparedChecksum) parityComparison,
+        (string ScopeKey, string Outcome) idempotency,
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -308,7 +360,121 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             PreseasonScoredQuestionCount: scoreResult.PreseasonScoredQuestionCount,
             PreseasonQuestionDiffCount: reconciliationResult.PreseasonQuestionDiffCount,
             PreseasonTotalDeltaPoints: reconciliationResult.PreseasonTotalDelta,
-            PreseasonIsolationGuardPassed: true);
+            PreseasonIsolationGuardPassed: true,
+            ParitySnapshotChecksum: paritySnapshotChecksum,
+            ParityStatus: parityComparison.ParityStatus,
+            ParityComparedRunId: parityComparison.ComparedRunId,
+            ParityComparedChecksum: parityComparison.ComparedChecksum,
+            IdempotencyScopeKey: idempotency.ScopeKey,
+            IdempotencyOutcome: idempotency.Outcome);
+    }
+
+    private async Task<(string ScopeKey, string Outcome)> BuildIdempotencyMetadataAsync(
+        MigrationImportRunContext run,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var scopeKey = $"season:{_importOptions.Season}|checksum:{run.SourceFileChecksum}";
+
+        var hasPriorCompletedInScope = await dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.Id != run.RunId &&
+                    x.Status == "Completed" &&
+                    x.SourceFileChecksum == run.SourceFileChecksum &&
+                    x.IdempotencyScopeKey == scopeKey,
+                cancellationToken);
+
+        return (scopeKey, hasPriorCompletedInScope ? "Replayed" : "FirstWrite");
+    }
+
+    private async Task<string> BuildParitySnapshotChecksumAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var pickDiffs = await dbContext.MigrationImportPickDiffs
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RaceCode)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.PickType)
+            .Select(x => new { x.RaceCode, x.Subject, x.PickType, x.ImportedPoints, x.CalculatedPoints, x.DeltaPoints, x.ReasonCode })
+            .ToListAsync(cancellationToken);
+
+        var raceDiffs = await dbContext.MigrationImportRaceDiffs
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RaceCode)
+            .ThenBy(x => x.Subject)
+            .Select(x => new { x.RaceCode, x.Subject, x.ImportedPoints, x.CalculatedPoints, x.DeltaPoints, x.ReasonCode })
+            .ToListAsync(cancellationToken);
+
+        var questionDiffs = await dbContext.MigrationImportPreseasonQuestionDiffs
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.QuestionKey)
+            .ThenBy(x => x.Subject)
+            .Select(x => new { x.QuestionKey, x.Subject, x.ImportedPoints, x.CalculatedPoints, x.DeltaPoints, x.ReasonCode })
+            .ToListAsync(cancellationToken);
+
+        var canonical = new StringBuilder(4096);
+        foreach (var diff in pickDiffs)
+        {
+            canonical.Append("P|").Append(diff.RaceCode).Append('|').Append(diff.Subject).Append('|').Append(diff.PickType)
+                .Append('|').Append(diff.ImportedPoints).Append('|').Append(diff.CalculatedPoints).Append('|').Append(diff.DeltaPoints)
+                .Append('|').Append(diff.ReasonCode).Append('\n');
+        }
+
+        foreach (var diff in raceDiffs)
+        {
+            canonical.Append("R|").Append(diff.RaceCode).Append('|').Append(diff.Subject)
+                .Append('|').Append(diff.ImportedPoints).Append('|').Append(diff.CalculatedPoints).Append('|').Append(diff.DeltaPoints)
+                .Append('|').Append(diff.ReasonCode).Append('\n');
+        }
+
+        foreach (var diff in questionDiffs)
+        {
+            canonical.Append("Q|").Append(diff.QuestionKey).Append('|').Append(diff.Subject)
+                .Append('|').Append(diff.ImportedPoints).Append('|').Append(diff.CalculatedPoints).Append('|').Append(diff.DeltaPoints)
+                .Append('|').Append(diff.ReasonCode).Append('\n');
+        }
+
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));
+        var hash = new StringBuilder(bytes.Length * 2);
+        foreach (var value in bytes)
+        {
+            hash.Append(value.ToString("x2"));
+        }
+
+        return hash.ToString();
+    }
+
+    private async Task<(string ParityStatus, Guid? ComparedRunId, string? ComparedChecksum)> BuildParityComparisonAsync(
+        MigrationImportRunContext run,
+        string snapshotChecksum,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var counterpart = await dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .Where(x =>
+                x.Id != run.RunId &&
+                x.Status == "Completed" &&
+                x.SourceFileChecksum == run.SourceFileChecksum &&
+                x.IsDryRun != run.IsDryRun &&
+                x.ParitySnapshotChecksum != null)
+            .OrderByDescending(x => x.FinishedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (counterpart is null)
+        {
+            return ("NotCompared", null, null);
+        }
+
+        var status = string.Equals(counterpart.ParitySnapshotChecksum, snapshotChecksum, StringComparison.Ordinal)
+            ? "Matched"
+            : "Mismatched";
+
+        return (status, counterpart.Id, counterpart.ParitySnapshotChecksum);
     }
 
     private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)

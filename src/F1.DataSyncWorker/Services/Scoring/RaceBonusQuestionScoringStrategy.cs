@@ -1,17 +1,16 @@
-using System.Text.RegularExpressions;
 using F1.Core.Models;
 using F1.Infrastructure.Data.Entities;
 
 namespace F1.DataSyncWorker.Services;
 
-public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringStrategy
+public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
 {
-    public QuestionCategory Category => QuestionCategory.Preseason;
+    public QuestionCategory Category => QuestionCategory.RaceBonus;
 
     public IReadOnlyList<QuestionScoreComputation> Score(QuestionScoringContext context)
     {
         var templates = context.Templates
-            .Where(x => x.Category == QuestionCategory.Preseason)
+            .Where(x => x.Category == QuestionCategory.RaceBonus)
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.QuestionId)
             .ToList();
@@ -21,12 +20,14 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
             return [];
         }
 
+        var templateIds = templates.Select(t => t.Id).ToHashSet();
+
         var actualByTemplate = context.Actuals
-            .Where(x => templates.Any(template => template.Id == x.QuestionTemplateId))
+            .Where(x => templateIds.Contains(x.QuestionTemplateId))
             .ToDictionary(x => x.QuestionTemplateId);
 
         var answersByTemplate = context.Answers
-            .Where(x => templates.Any(template => template.Id == x.QuestionTemplateId))
+            .Where(x => templateIds.Contains(x.QuestionTemplateId))
             .GroupBy(x => x.QuestionTemplateId)
             .ToDictionary(x => x.Key, x => x.OrderBy(y => y.ParticipantId, StringComparer.OrdinalIgnoreCase).ToList());
 
@@ -35,8 +36,7 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
         foreach (var template in templates)
         {
             actualByTemplate.TryGetValue(template.Id, out var actual);
-            var actualValue = NormalizeToken(actual?.NormalizedAnswer);
-            var actualTokenSet = BuildPreseasonActualTokenSet(actualValue);
+            var actualValue = NormalizeValue(ResolveEffectiveAnswer(actual));
 
             if (!answersByTemplate.TryGetValue(template.Id, out var participants))
             {
@@ -45,18 +45,17 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
 
             foreach (var participant in participants)
             {
-                var predictedValue = NormalizeToken(participant.NormalizedAnswer);
-                var (points, reasonCode) = ScorePreseasonAnswer(
+                var predictedValue = NormalizeValue(ResolveEffectiveAnswer(participant));
+                var (points, reasonCode) = ScoreBonusAnswer(
                     predictedValue,
                     actualValue,
-                    actualTokenSet,
                     context.PreseasonPolicy?.PointsPerQuestion);
 
                 computed.Add(new QuestionScoreComputation(
                     QuestionTemplateId: template.Id,
                     QuestionId: template.QuestionId,
                     Prompt: template.Prompt,
-                    Category: QuestionCategory.Preseason,
+                    Category: QuestionCategory.RaceBonus,
                     ParticipantId: participant.ParticipantId,
                     PredictedAnswer: predictedValue,
                     ActualAnswer: actualValue,
@@ -71,66 +70,45 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
         return computed;
     }
 
-    private static (int Points, string ReasonCode) ScorePreseasonAnswer(
+    private static (int Points, string ReasonCode) ScoreBonusAnswer(
         string? predictedValue,
         string? actualValue,
-        ISet<string> actualTokenSet,
         int? pointsPerQuestion)
     {
         if (!pointsPerQuestion.HasValue)
         {
-            return (0, "PRESEASON_POLICY_MISSING");
+            return (0, "RACE_BONUS_POLICY_MISSING");
         }
 
         if (string.IsNullOrWhiteSpace(predictedValue))
         {
-            return (0, "PRESEASON_PREDICTION_NULL");
+            return (0, "RACE_BONUS_PREDICTION_NULL");
         }
 
         if (string.IsNullOrWhiteSpace(actualValue))
         {
-            return (0, "PRESEASON_ACTUAL_MISSING");
+            return (0, "RACE_BONUS_ACTUAL_MISSING");
         }
 
-        if (actualTokenSet.Contains(predictedValue))
-        {
-            return (Math.Max(0, pointsPerQuestion.Value), "PRESEASON_EXACT");
-        }
-
-        return (0, "PRESEASON_MISMATCH");
+        return string.Equals(predictedValue, actualValue, StringComparison.OrdinalIgnoreCase)
+            ? (Math.Max(0, pointsPerQuestion.Value), "RACE_BONUS_EXACT")
+            : (0, "RACE_BONUS_MISMATCH");
     }
 
-    private static HashSet<string> BuildPreseasonActualTokenSet(string? actualValue)
+    private static string? NormalizeValue(string? value)
     {
-        if (string.IsNullOrWhiteSpace(actualValue))
-        {
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        var tokenSet = PreseasonActualSplitRegex()
-            .Split(actualValue)
-            .Select(token => token.Trim().ToUpperInvariant())
-            .Where(token => token.Length > 0)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (tokenSet.Count == 0)
-        {
-            tokenSet.Add(actualValue.Trim().ToUpperInvariant());
-        }
-
-        return tokenSet;
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim().ToUpperInvariant();
     }
 
-    private static string? NormalizeToken(string? value)
+    private static string? ResolveEffectiveAnswer(QuestionAnswerEntity? answer)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        return value.Trim().ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(answer?.OverrideAnswer) ? answer?.ImportedAnswer : answer.OverrideAnswer;
     }
 
-    [GeneratedRegex("\\s*\\|\\s*", RegexOptions.Compiled)]
-    private static partial Regex PreseasonActualSplitRegex();
+    private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
+    {
+        return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
+    }
 }

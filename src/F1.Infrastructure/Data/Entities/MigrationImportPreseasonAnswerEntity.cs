@@ -10,5 +10,6 @@ public sealed class MigrationImportPreseasonAnswerEntity
     public string Subject { get; set; } = string.Empty;
     public string? RawAnswer { get; set; }
     public string? NormalizedAnswer { get; set; }
+    public bool? NormalizedAnswerBoolean { get; set; }
     public bool IsActualOutcome { get; set; }
 }

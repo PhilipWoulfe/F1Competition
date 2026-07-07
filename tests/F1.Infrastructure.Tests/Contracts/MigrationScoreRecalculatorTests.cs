@@ -350,35 +350,23 @@ public sealed class MigrationScoreRecalculatorTests
         dbContext.QuestionAnswers.AddRange(
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 101,
                 ParticipantId = "Philip",
                 ImportedAnswer = "VER",
-                NormalizedAnswer = "VER",
-                SourceRow = 2,
-                SourceColumn = 2,
                 RecordedAtUtc = DateTime.UtcNow
             },
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 101,
                 ParticipantId = "Andy",
                 ImportedAnswer = "NOR",
-                NormalizedAnswer = "NOR",
-                SourceRow = 2,
-                SourceColumn = 3,
                 RecordedAtUtc = DateTime.UtcNow
             });
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 101,
-            ActualAnswer = "VER",
-            NormalizedAnswer = "VER",
-            SourceRow = 2,
-            SourceColumn = 12,
+            ImportedAnswer = "VER",
             RecordedAtUtc = DateTime.UtcNow
         });
 
@@ -388,15 +376,12 @@ public sealed class MigrationScoreRecalculatorTests
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var questionScores = await dbContext.QuestionScores
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
 
         Assert.Equal(2, questionScores.Count);
         Assert.Equal(20, questionScores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
-        Assert.Equal("PRESEASON_EXACT", questionScores.Single(x => x.ParticipantId == "Philip").ReasonCode);
         Assert.Equal(0, questionScores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
-        Assert.Equal("PRESEASON_MISMATCH", questionScores.Single(x => x.ParticipantId == "Andy").ReasonCode);
 
         var legacyScore = await dbContext.MigrationImportPreseasonCalculatedScores
             .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");
@@ -438,24 +423,16 @@ public sealed class MigrationScoreRecalculatorTests
 
         dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 201,
             ParticipantId = "Philip",
             ImportedAnswer = "NOR",
-            NormalizedAnswer = "NOR",
-            SourceRow = 10,
-            SourceColumn = 2,
             RecordedAtUtc = DateTime.UtcNow
         });
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 201,
-            ActualAnswer = "LEC",
-            NormalizedAnswer = "LEC",
-            SourceRow = 10,
-            SourceColumn = 3,
+            ImportedAnswer = "LEC",
             RecordedAtUtc = DateTime.UtcNow
         });
 
@@ -467,9 +444,8 @@ public sealed class MigrationScoreRecalculatorTests
 
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
-        var score = await dbContext.QuestionScores.SingleAsync(x => x.ImportRunId == runId && x.ParticipantId == "Philip");
+        var score = await dbContext.QuestionScores.SingleAsync(x => x.ParticipantId == "Philip");
         Assert.Equal(0, score.CalculatedPoints);
-        Assert.Equal("QUESTION_CATEGORY_STRATEGY_MISSING", score.ReasonCode);
     }
 
     [Fact]
@@ -509,35 +485,23 @@ public sealed class MigrationScoreRecalculatorTests
         dbContext.QuestionAnswers.AddRange(
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 301,
                 ParticipantId = "Philip",
                 ImportedAnswer = "HAM",
-                NormalizedAnswer = "HAM",
-                SourceRow = 30,
-                SourceColumn = 2,
                 RecordedAtUtc = DateTime.UtcNow
             },
             new QuestionAnswerEntity
             {
-                ImportRunId = runId,
                 QuestionTemplateId = 301,
                 ParticipantId = "Andy",
                 ImportedAnswer = "VER",
-                NormalizedAnswer = "VER",
-                SourceRow = 30,
-                SourceColumn = 3,
                 RecordedAtUtc = DateTime.UtcNow
             });
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
-            ImportRunId = runId,
             QuestionTemplateId = 301,
-            ActualAnswer = "VER",
-            NormalizedAnswer = "VER",
-            SourceRow = 30,
-            SourceColumn = 10,
+            ImportedAnswer = "VER",
             RecordedAtUtc = DateTime.UtcNow
         });
 
@@ -547,15 +511,12 @@ public sealed class MigrationScoreRecalculatorTests
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var scores = await dbContext.QuestionScores
-            .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
 
         Assert.Equal(2, scores.Count);
         Assert.Equal(0, scores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
-        Assert.Equal("H2H_WRONG_PICK", scores.Single(x => x.ParticipantId == "Philip").ReasonCode);
         Assert.Equal(5, scores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
-        Assert.Equal("H2H_CORRECT_PICK", scores.Single(x => x.ParticipantId == "Andy").ReasonCode);
     }
 
     private static MigrationImportRaceSelectionEntity Selection(

@@ -4,12 +4,438 @@ using F1.Api.Services;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace F1.Api.Tests.Services;
 
 public sealed class MigrationRunAdminServiceTests
 {
+    [Fact]
+    public async Task KickoffRunAsync_WhenWriteModeAndCanonicalDataExistsWithoutConfirmation_FailsValidation()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip\n" +
+            "AUS-1,VER\n");
+
+        try
+        {
+            await using (var dbContext = new F1DbContext(options))
+            {
+                dbContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "VER", FullName = "Max Verstappen" });
+                await dbContext.SaveChangesAsync();
+            }
+
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(sourcePath, "write", "admin@example.com", ConfirmNonEmptyStrategy: false),
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.False(result.Conflict);
+            Assert.NotNull(result.Error);
+            Assert.Contains("confirmNonEmptyStrategy", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(result.Run);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public async Task KickoffRunAsync_ReturnsNonEmptyStrategyPreviewMetadata()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip,Andy\n" +
+            "AUS-1,VER,NOR\n" +
+            "AUS-2,PIA,RUS\n" +
+            "BHR-1,LEC,HAM\n");
+
+        try
+        {
+            await using (var dbContext = new F1DbContext(options))
+            {
+                dbContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "VER", FullName = "Max Verstappen" });
+                dbContext.Races.Add(new F1.Core.Models.Race
+                {
+                    Id = "race-1",
+                    CompetitionId = 1,
+                    Season = 2025,
+                    Round = 1,
+                    RaceName = "Australian Grand Prix",
+                    CircuitName = "Albert Park",
+                    StartTimeUtc = DateTime.UtcNow,
+                    PreQualyDeadlineUtc = DateTime.UtcNow,
+                    FinalDeadlineUtc = DateTime.UtcNow
+                });
+                dbContext.Selections.Add(new F1.Core.Models.Selection
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = "Philip",
+                    RaceId = "race-1",
+                    BetType = F1.Core.Models.BetType.Regular,
+                    SubmittedAtUtc = DateTime.UtcNow
+                });
+                await dbContext.SaveChangesAsync();
+            }
+
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(sourcePath, "write", "admin@example.com", ConfirmNonEmptyStrategy: true),
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.Run);
+            Assert.Equal("merge_upsert_active_records", result.Run!.NonEmptyDbStrategy);
+            Assert.True(result.Run.CanonicalDataPresent);
+            Assert.Equal(1, result.Run.ExistingDriverCount);
+            Assert.Equal(1, result.Run.ExistingRaceCount);
+            Assert.Equal(1, result.Run.ExistingSelectionCount);
+            Assert.Equal(2, result.Run.EstimatedAffectedRaceCount);
+            Assert.Equal(2, result.Run.EstimatedAffectedParticipantCount);
+            Assert.Equal(4, result.Run.EstimatedAffectedSelectionCount);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public async Task RollbackRunAsync_DeletesCanonicalScopeAndPersistsAudit()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            var competition = new F1.Core.Models.Competition
+            {
+                Name = "Migration Import 2025",
+                Year = 2025,
+                Description = "Rollback scope"
+            };
+            dbContext.Competitions.Add(competition);
+            await dbContext.SaveChangesAsync();
+
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportRaceSelections.Add(new MigrationImportRaceSelectionEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                NormalizedValue = "VER"
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+            {
+                ImportRunId = runId,
+                RaceSequence = 1,
+                SourceRowNumber = 2,
+                SourceRaceCode = "AUS-1",
+                Season = 2025,
+                Round = 1,
+                MappedCircuitId = "albert_park",
+                MappedRaceName = "Australian Grand Prix"
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "migration-2025-albert-park",
+                CompetitionId = competition.Id,
+                Season = 2025,
+                Round = 1,
+                RaceName = "albert_park",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "migration-2024-albert-park",
+                CompetitionId = competition.Id,
+                Season = 2024,
+                Round = 1,
+                RaceName = "albert_park",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            var selectionId = Guid.NewGuid();
+            dbContext.Selections.Add(new F1.Core.Models.Selection
+            {
+                Id = selectionId,
+                UserId = "Philip",
+                RaceId = "migration-2025-albert-park",
+                BetType = F1.Core.Models.BetType.Regular,
+                SubmittedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.SelectionPositions.Add(new SelectionPositionEntity
+            {
+                SelectionId = selectionId,
+                Position = 1,
+                DriverId = "VER"
+            });
+
+            var outOfScopeSelectionId = Guid.NewGuid();
+            dbContext.Selections.Add(new F1.Core.Models.Selection
+            {
+                Id = outOfScopeSelectionId,
+                UserId = "Alex",
+                RaceId = "migration-2024-albert-park",
+                BetType = F1.Core.Models.BetType.Regular,
+                SubmittedAtUtc = DateTime.UtcNow
+            });
+            dbContext.SelectionPositions.Add(new SelectionPositionEntity
+            {
+                SelectionId = outOfScopeSelectionId,
+                Position = 1,
+                DriverId = "VER"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var rollback = await service.RollbackRunAsync(
+            new MigrationRunRollbackCommand(runId, "admin@example.com", "Bad write run"),
+            CancellationToken.None);
+
+        Assert.True(rollback.Success);
+        Assert.NotNull(rollback.Rollback);
+        Assert.Equal("RolledBack", rollback.Rollback!.Status);
+
+        await using var verificationContext = new F1DbContext(options);
+        Assert.Single(verificationContext.Selections);
+        Assert.Single(verificationContext.SelectionPositions);
+        Assert.Empty(verificationContext.Races.Where(x => x.Id == "migration-2025-albert-park"));
+        Assert.NotNull(await verificationContext.Races.FirstOrDefaultAsync(x => x.Id == "migration-2024-albert-park"));
+
+        var audit = Assert.Single(verificationContext.MigrationImportRollbackAudits);
+        Assert.Equal("admin@example.com", audit.Actor);
+        Assert.Equal("Bad write run", audit.Reason);
+        Assert.Equal("Completed", audit.Outcome);
+    }
+
+    [Fact]
+    public async Task RollbackRunAsync_WhenRunIsInProgress_ReturnsValidationError()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Running",
+                StartedAtUtc = DateTime.UtcNow,
+                RawRowCount = 1
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var rollback = await service.RollbackRunAsync(
+            new MigrationRunRollbackCommand(runId, "admin@example.com", "not allowed in running state"),
+            CancellationToken.None);
+
+        Assert.False(rollback.Success);
+        Assert.Equal("Only completed or failed runs can be rolled back.", rollback.Error);
+        Assert.Null(rollback.Rollback);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_IncludesRollbackAuditsWhenPresent()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "RolledBack",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportRollbackAudits.Add(new MigrationImportRollbackAuditEntity
+            {
+                ImportRunId = runId,
+                Actor = "admin@example.com",
+                Reason = "compensating canonical write",
+                RequestedAtUtc = DateTime.UtcNow,
+                AffectedRaceCount = 1,
+                AffectedSelectionCount = 2,
+                AffectedSelectionPositionCount = 4,
+                Outcome = "Completed"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(detail);
+        Assert.NotNull(detail!.RollbackAudits);
+        var audit = Assert.Single(detail.RollbackAudits!);
+        Assert.Equal("admin@example.com", audit.Actor);
+        Assert.Equal("Completed", audit.Outcome);
+        Assert.Equal(1, audit.AffectedRaceCount);
+        Assert.Equal(2, audit.AffectedSelectionCount);
+        Assert.Equal(4, audit.AffectedSelectionPositionCount);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenRunRawRowCountIsZero_UsesStagedRowFallbackCount()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Failed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 0
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Philip",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "AUS-1,VER",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportPickDiffs.Add(new MigrationImportPickDiffEntity
+            {
+                ImportRunId = runId,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                ImportedPoints = 10,
+                CalculatedPoints = 5,
+                DeltaPoints = -5,
+                ReasonCode = "PODIUM_RULE_VARIANCE",
+                Explanation = "fallback-count"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.Equal(2, detail!.RawRowCount);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_IncludesConflictDiagnosticsForAdmins()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Failed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportConflictDiagnostics.Add(new MigrationImportConflictDiagnosticEntity
+            {
+                ImportRunId = runId,
+                EntityType = "Selection",
+                ConflictType = "existing_active_selection",
+                KeyFields = "raceId:migration-2025-albert-park|subject:Philip",
+                SourceReference = "row:2|race:albert_park|subject:Philip",
+                PolicyOutcome = "Failed",
+                RecommendedAction = "Review conflicting canonical rows and rerun with approved policy.",
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(detail);
+        Assert.NotNull(detail!.ConflictDiagnostics);
+        Assert.Single(detail.ConflictDiagnostics!);
+        Assert.Equal("Selection", detail.ConflictDiagnostics![0].EntityType);
+        Assert.Equal("Failed", detail.ConflictDiagnostics[0].PolicyOutcome);
+    }
+
     [Fact]
     public async Task GetRunsAsync_IncludesPreseasonParticipantDelta_InTotalDeltaPoints()
     {
@@ -610,37 +1036,31 @@ public sealed class MigrationRunAdminServiceTests
                 new QuestionScoreEntity
                 {
                     Id = 1,
-                    ImportRunId = runId,
                     QuestionTemplateId = 2,
                     ParticipantId = "Morgan",
                     ImportedPoints = 20,
                     CalculatedPoints = 0,
                     DeltaPoints = -20,
-                    ReasonCode = "PRESEASON_RULE_VARIANCE",
                     RecordedAtUtc = DateTime.UtcNow
                 },
                 new QuestionScoreEntity
                 {
                     Id = 2,
-                    ImportRunId = runId,
                     QuestionTemplateId = 2,
                     ParticipantId = "Taylor",
                     ImportedPoints = 20,
                     CalculatedPoints = 20,
                     DeltaPoints = 0,
-                    ReasonCode = "PRESEASON_POINTS_MATCH",
                     RecordedAtUtc = DateTime.UtcNow
                 },
                 new QuestionScoreEntity
                 {
                     Id = 3,
-                    ImportRunId = runId,
                     QuestionTemplateId = 1,
                     ParticipantId = "Morgan",
                     ImportedPoints = 10,
                     CalculatedPoints = 5,
                     DeltaPoints = -5,
-                    ReasonCode = "H2H_RULE_VARIANCE",
                     RecordedAtUtc = DateTime.UtcNow
                 });
 
@@ -721,13 +1141,11 @@ public sealed class MigrationRunAdminServiceTests
             dbContext.QuestionScores.Add(new QuestionScoreEntity
             {
                 Id = 21,
-                ImportRunId = runId,
                 QuestionTemplateId = 11,
                 ParticipantId = "Philip",
                 ImportedPoints = 5,
                 CalculatedPoints = 0,
                 DeltaPoints = -5,
-                ReasonCode = "PRESEASON_RULE_VARIANCE",
                 RecordedAtUtc = DateTime.UtcNow
             });
 
@@ -752,14 +1170,24 @@ public sealed class MigrationRunAdminServiceTests
         Assert.True(export!.Success);
 
         var csv = System.Text.Encoding.UTF8.GetString(export.Payload);
-        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode", csv, StringComparison.Ordinal);
-        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5,PRESEASON_RULE_VARIANCE", csv, StringComparison.Ordinal);
+        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints", csv, StringComparison.Ordinal);
+        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5", csv, StringComparison.Ordinal);
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()
     {
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"migration-run-admin-service-{Guid.NewGuid():N}")
+            .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
+    }
+
+    private static string CreateTempCsv(string content)
+    {
+        var allowedTempRoot = Path.Combine(Path.GetTempPath(), "f1-imports", "tests");
+        Directory.CreateDirectory(allowedTempRoot);
+        var path = Path.Combine(allowedTempRoot, $"f1-admin-migration-{Guid.NewGuid():N}.csv");
+        File.WriteAllText(path, content);
+        return path;
     }
 }

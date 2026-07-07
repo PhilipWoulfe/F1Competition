@@ -1,5 +1,6 @@
 using F1.Api.Dtos;
 using F1.Infrastructure.Data;
+using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -13,6 +14,7 @@ namespace F1.Api.Services;
 
 public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
+    private const string NonEmptyDbStrategy = "merge_upsert_active_records";
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
     private const string AllowedTempImportRootPath = "f1-imports";
@@ -77,6 +79,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
             var runIds = pagedRuns.Select(run => run.Id).ToArray();
 
+            var rawRowFallbackCounts = await _dbContext.MigrationImportRawRows
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(x => x.RunId, x => x.Count, cancellationToken);
+
             var unresolvedCounts = await _dbContext.MigrationImportUnresolvedTokens
                 .AsNoTracking()
                 .Where(x => runIds.Contains(x.ImportRunId))
@@ -128,7 +137,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     run.SourceFileChecksum,
                     run.StartedAtUtc,
                     run.FinishedAtUtc,
-                    run.RawRowCount,
+                    run.RawRowCount > 0 ? run.RawRowCount : rawRowFallbackCounts.GetValueOrDefault(run.Id, 0),
                     unresolvedCounts.GetValueOrDefault(run.Id, 0),
                     pickDiffCounts.GetValueOrDefault(run.Id, 0),
                     raceDiffCounts.GetValueOrDefault(run.Id, 0),
@@ -198,6 +207,26 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var now = DateTime.UtcNow;
         var isDryRun = normalizedMode == "dry-run";
         var runId = Guid.NewGuid();
+
+        var existingDriverCount = await _dbContext.Drivers.CountAsync(cancellationToken);
+        var existingRaceCount = await _dbContext.Races.CountAsync(cancellationToken);
+        var existingSelectionCount = await _dbContext.Selections.CountAsync(cancellationToken);
+        var canonicalDataPresent = existingDriverCount > 0 || existingRaceCount > 0 || existingSelectionCount > 0;
+
+        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedSelectionCount = estimatedAffectedRaceCount * estimatedAffectedParticipantCount;
+
+        if (!isDryRun && canonicalDataPresent && !command.ConfirmNonEmptyStrategy)
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Write mode requires non-empty DB strategy confirmation. Re-submit with confirmNonEmptyStrategy=true.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         try
         {
@@ -284,7 +313,211 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 SourceFilePath: sourceFilePath,
                 SourceFileChecksum: checksum,
                 TriggeredAtUtc: now,
-                RequestedBy: command.RequestedBy));
+                RequestedBy: command.RequestedBy,
+                NonEmptyDbStrategy: NonEmptyDbStrategy,
+                CanonicalDataPresent: canonicalDataPresent,
+                ExistingDriverCount: existingDriverCount,
+                ExistingRaceCount: existingRaceCount,
+                ExistingSelectionCount: existingSelectionCount,
+                EstimatedAffectedRaceCount: estimatedAffectedRaceCount,
+                EstimatedAffectedParticipantCount: estimatedAffectedParticipantCount,
+                EstimatedAffectedSelectionCount: estimatedAffectedSelectionCount));
+    }
+
+    public async Task<MigrationRunRollbackResult> RollbackRunAsync(MigrationRunRollbackCommand command, CancellationToken cancellationToken)
+    {
+        var run = await _dbContext.MigrationImportRuns
+            .FirstOrDefaultAsync(x => x.Id == command.RunId, cancellationToken);
+
+        if (run is null)
+        {
+            return new MigrationRunRollbackResult(false, "Migration run was not found.", null);
+        }
+
+        if (!string.Equals(run.Status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(run.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return new MigrationRunRollbackResult(false, "Only completed or failed runs can be rolled back.", null);
+        }
+
+        var raceCodes = await _dbContext.MigrationImportRaceSelections
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == command.RunId && !x.IsActualOutcome)
+            .Select(x => x.RaceCode)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        var rollbackSeasons = await _dbContext.MigrationImportRaceRoundMappings
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == command.RunId && x.Season.HasValue)
+            .Select(x => x.Season!.Value)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        if (rollbackSeasons.Length == 0)
+        {
+            return new MigrationRunRollbackResult(
+                false,
+                "Unable to determine migration season for rollback scope.",
+                null);
+        }
+
+        if (rollbackSeasons.Length > 1)
+        {
+            return new MigrationRunRollbackResult(
+                false,
+                "Rollback scope is ambiguous because the run contains multiple seasons.",
+                null);
+        }
+
+        var raceIds = await _dbContext.Races
+            .AsNoTracking()
+            .Where(x => x.Season == rollbackSeasons[0] && raceCodes.Contains(x.CircuitName))
+            .Select(x => x.Id)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        var selectionIds = await _dbContext.Selections
+            .AsNoTracking()
+            .Where(x => raceIds.Contains(x.RaceId))
+            .Select(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var selectionPositions = await _dbContext.SelectionPositions
+                .Where(x => selectionIds.Contains(x.SelectionId))
+                .ToListAsync(cancellationToken);
+            var selections = await _dbContext.Selections
+                .Where(x => selectionIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+            var races = await _dbContext.Races
+                .Where(x => raceIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+
+            var affectedSelectionPositionCount = selectionPositions.Count;
+            var affectedSelectionCount = selections.Count;
+            var affectedRaceCount = races.Count;
+
+            _dbContext.SelectionPositions.RemoveRange(selectionPositions);
+            _dbContext.Selections.RemoveRange(selections);
+            _dbContext.Races.RemoveRange(races);
+
+            var requestedAtUtc = DateTime.UtcNow;
+            _dbContext.MigrationImportRollbackAudits.Add(new MigrationImportRollbackAuditEntity
+            {
+                ImportRunId = command.RunId,
+                Actor = command.RequestedBy,
+                Reason = command.Reason,
+                RequestedAtUtc = requestedAtUtc,
+                AffectedRaceCount = affectedRaceCount,
+                AffectedSelectionCount = affectedSelectionCount,
+                AffectedSelectionPositionCount = affectedSelectionPositionCount,
+                Outcome = "Completed"
+            });
+
+            run.Status = "RolledBack";
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return new MigrationRunRollbackResult(
+                true,
+                null,
+                new AdminMigrationRollbackResponseDto(
+                    command.RunId,
+                    run.Status,
+                    requestedAtUtc,
+                    command.RequestedBy,
+                    "Completed",
+                    affectedRaceCount,
+                    affectedSelectionCount,
+                    affectedSelectionPositionCount));
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new MigrationRunRollbackResult(false, ex.Message, null);
+        }
+    }
+
+    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        var raceCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var stream = File.OpenRead(sourceFilePath);
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var columns = line.Split(',');
+            if (columns.Length == 0)
+            {
+                continue;
+            }
+
+            var label = columns[0].Trim();
+            if (label.Length < 4)
+            {
+                continue;
+            }
+
+            var dashIndex = label.IndexOf('-');
+            if (dashIndex <= 0)
+            {
+                continue;
+            }
+
+            var suffix = label[(dashIndex + 1)..].Trim();
+            if (!suffix.Equals("1", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            raceCodes.Add(label[..dashIndex]);
+        }
+
+        return raceCodes.Count;
+    }
+
+    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        using var stream = File.OpenRead(sourceFilePath);
+        using var reader = new StreamReader(stream);
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var columns = line.Split(',');
+            if (columns.Length < 2)
+            {
+                continue;
+            }
+
+            if (!string.Equals(columns[0].Trim(), "Question", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var participants = columns
+                .Skip(1)
+                .TakeWhile(x => !string.IsNullOrWhiteSpace(x))
+                .Count();
+            return participants;
+        }
+
+        return 0;
     }
 
     public async Task<AdminMigrationRunDetailResponseDto?> GetRunDetailAsync(
@@ -310,6 +543,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 runId,
                 requestedBy,
                 DateTime.UtcNow);
+
+        var rawRowFallbackCount = run.RawRowCount > 0
+            ? run.RawRowCount
+            : await _dbContext.MigrationImportRawRows
+                .AsNoTracking()
+                .CountAsync(x => x.ImportRunId == runId, cancellationToken);
 
         var unresolvedTokenSummaryRows = await _dbContext.MigrationImportUnresolvedTokens
             .AsNoTracking()
@@ -439,6 +678,35 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.TotalDeltaPoints))
             .ToArrayAsync(cancellationToken);
 
+        var conflictDiagnostics = await _dbContext.MigrationImportConflictDiagnostics
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ThenBy(x => x.EntityType)
+            .Select(x => new AdminMigrationConflictDiagnosticDto(
+                x.EntityType,
+                x.ConflictType,
+                x.KeyFields,
+                x.SourceReference,
+                x.PolicyOutcome,
+                x.RecommendedAction,
+                x.CreatedAtUtc))
+            .ToArrayAsync(cancellationToken);
+
+        var rollbackAudits = await _dbContext.MigrationImportRollbackAudits
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .Select(x => new AdminMigrationRollbackAuditDto(
+                x.RequestedAtUtc,
+                x.Actor,
+                x.Reason,
+                x.Outcome,
+                x.AffectedRaceCount,
+                x.AffectedSelectionCount,
+                x.AffectedSelectionPositionCount))
+            .ToArrayAsync(cancellationToken);
+
         var preseasonSummary = new AdminMigrationPreseasonSummaryDto(
             QuestionDiffCount: preseasonQuestionDiffs.Length,
             ParticipantDeltaCount: preseasonParticipantDeltas.Length,
@@ -456,7 +724,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 SourceFileChecksum: run.SourceFileChecksum,
                 StartedAtUtc: run.StartedAtUtc,
                 FinishedAtUtc: run.FinishedAtUtc,
-                RawRowCount: run.RawRowCount,
+                RawRowCount: rawRowFallbackCount,
                 ErrorMessage: run.ErrorMessage,
                 UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
                 PickDiffCount: pickDiffs.Length,
@@ -469,8 +737,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 PreseasonParticipantDeltas: preseasonParticipantDeltas,
                 PreseasonQuestionDiffs: preseasonQuestionDiffs,
                 PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
+                ConflictDiagnostics: conflictDiagnostics,
                 RaceDiffs: raceDiffs,
-                PickDiffs: pickDiffs);
+                PickDiffs: pickDiffs,
+                RollbackAudits: rollbackAudits);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
         {
@@ -673,7 +943,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode");
+        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.Category)).Append(',')
@@ -682,8 +952,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Append(EscapeCsv(row.Participant)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-                .Append(EscapeCsv(row.ReasonCode))
+            .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture))
                 .AppendLine();
         }
 
@@ -697,11 +966,22 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationQuestionDiffDto[]> BuildQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
     {
+        var season = await _dbContext.MigrationImportRaceRoundMappings
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.Season.HasValue)
+            .Select(x => x.Season!.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var templateQuery = _dbContext.QuestionTemplates.AsNoTracking();
+        if (season != 0)
+        {
+            templateQuery = templateQuery.Where(t => t.Season == season);
+        }
+
         var rows = await _dbContext.QuestionScores
             .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
             .Join(
-                _dbContext.QuestionTemplates.AsNoTracking(),
+                templateQuery,
                 score => score.QuestionTemplateId,
                 template => template.Id,
                 (score, template) => new
@@ -712,13 +992,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     score.ParticipantId,
                     score.ImportedPoints,
                     score.CalculatedPoints,
-                    score.DeltaPoints,
-                    score.ReasonCode
+                    score.DeltaPoints
                 })
             .OrderBy(x => x.Category)
             .ThenBy(x => x.QuestionId)
             .ThenBy(x => x.ParticipantId)
-            .ThenBy(x => x.ReasonCode)
             .ToArrayAsync(cancellationToken);
 
         return rows
@@ -729,8 +1007,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.ParticipantId,
                 x.ImportedPoints,
                 x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode))
+                x.DeltaPoints))
             .ToArray();
     }
 
@@ -1160,7 +1437,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
         var tempImportRoot = Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath());
 
-        if (IsPathWithinRoot(candidatePath, importRoot) || IsPathWithinRoot(candidatePath, tempImportRoot))
+        if (IsPathWithinRoot(candidatePath, importRoot) ||
+            IsPathWithinRoot(candidatePath, tempImportRoot))
         {
             return candidatePath;
         }

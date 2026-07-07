@@ -182,6 +182,7 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
         content.Add(fileContent, "SourceFile", request.FileName);
         content.Add(new StringContent(request.Mode), "Mode");
+        content.Add(new StringContent(request.ConfirmNonEmptyStrategy ? "true" : "false"), "ConfirmNonEmptyStrategy");
 
         using var response = await httpClient.PostAsync("admin/migration-runs/kickoff/upload", content, cancellationToken);
         return await ApiResponseParser.ReadRequiredJsonAsync<AdminMigrationRunKickoffResponse>(
