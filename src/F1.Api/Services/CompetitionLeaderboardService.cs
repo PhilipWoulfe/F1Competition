@@ -306,7 +306,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
     {
         var completedRuns = dbContext.MigrationImportRuns
             .AsNoTracking()
-            .Where(run => string.Equals(run.Status, "Completed", StringComparison.OrdinalIgnoreCase));
+            .Where(run => run.Status == "Completed" || run.Status == "completed");
 
         if (!string.IsNullOrWhiteSpace(context.MigrationSourcePathContains))
         {
