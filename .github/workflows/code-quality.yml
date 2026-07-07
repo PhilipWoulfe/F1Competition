@@ -93,6 +93,7 @@ jobs:
           dotnet ef migrations has-pending-model-changes \
             --project src/F1.Infrastructure/F1.Infrastructure.csproj \
             --startup-project src/F1.Api/F1.Api.csproj \
+            --configuration Release \
             --no-build
 
   unit-tests:
