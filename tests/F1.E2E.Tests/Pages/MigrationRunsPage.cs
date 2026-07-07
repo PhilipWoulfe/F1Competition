@@ -113,6 +113,7 @@ internal class MigrationRunsPage
 
     public IReadOnlyList<MigrationParticipantRow> GetParticipantRows()
     {
+        EnsureTabSelected("tab-race-participants", "pane-race-participants");
         return GetRowsInPane("pane-race-participants")
             .Select(ParseParticipantRow)
             .ToList();
@@ -120,6 +121,7 @@ internal class MigrationRunsPage
 
     public IReadOnlyList<MigrationRaceRow> GetRaceRows()
     {
+        EnsureTabSelected("tab-race-diffs", "pane-race-diffs");
         return GetRowsInPane("pane-race-diffs")
             .Select(ParseRaceRow)
             .ToList();
@@ -127,6 +129,7 @@ internal class MigrationRunsPage
 
     public IReadOnlyList<MigrationPickRow> GetPickRows()
     {
+        EnsureTabSelected("tab-pick-diffs", "pane-pick-diffs");
         return GetRowsInPane("pane-pick-diffs")
             .Select(ParsePickRow)
             .ToList();
