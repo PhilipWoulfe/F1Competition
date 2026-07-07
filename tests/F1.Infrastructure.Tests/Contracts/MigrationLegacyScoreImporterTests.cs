@@ -67,7 +67,7 @@ public sealed class MigrationLegacyScoreImporterTests
             .ToListAsync();
 
         Assert.Equal(10, tallies.Count);
-        Assert.Equal("PRE-022", tallies[0].QuestionKey);
+        Assert.Equal("PRE-002", tallies[0].QuestionKey);
         Assert.Contains(tallies, x => x.Subject == "Philip" && x.ImportedPoints == 0);
         Assert.Contains(tallies, x => x.Subject == "New Sexy Ayrton" && x.ImportedPoints == 20);
         Assert.Contains(tallies, x => x.Subject == "Veronica" && x.ImportedPoints == 20);

@@ -17,6 +17,7 @@ RUN dotnet publish -c $CONFIGURATION -o /app/publish
 FROM mcr.microsoft.com/dotnet/runtime:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY --from=build /app/data/imports/phil-2025 /app/data/imports/phil-2025
 
 USER app
 ENTRYPOINT ["dotnet", "F1.DataSyncWorker.dll"]

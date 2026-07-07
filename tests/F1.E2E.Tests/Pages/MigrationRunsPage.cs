@@ -113,48 +113,47 @@ internal class MigrationRunsPage
 
     public IReadOnlyList<MigrationParticipantRow> GetParticipantRows()
     {
-        return GetRowsAfterSection("participant-comparisons")
+        EnsureTabSelected("tab-race-participants", "pane-race-participants");
+        return GetRowsInPane("pane-race-participants")
             .Select(ParseParticipantRow)
             .ToList();
     }
 
     public IReadOnlyList<MigrationRaceRow> GetRaceRows()
     {
-        return GetRowsAfterSection("race-comparisons")
+        EnsureTabSelected("tab-race-diffs", "pane-race-diffs");
+        return GetRowsInPane("pane-race-diffs")
             .Select(ParseRaceRow)
             .ToList();
     }
 
     public IReadOnlyList<MigrationPickRow> GetPickRows()
     {
-        return GetRowsAfterSection("pick-comparisons")
+        EnsureTabSelected("tab-pick-diffs", "pane-pick-diffs");
+        return GetRowsInPane("pane-pick-diffs")
             .Select(ParsePickRow)
             .ToList();
     }
 
     public bool WaitForParticipantComparisonSection()
     {
-        OpenTab("tab-race-participants", "Participant Comparisons");
-
-        var sectionSelector = By.XPath(
-            "//div[@id='pane-race-participants' and contains(@class,'show') and contains(@class,'active')]" +
-            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No participant deltas available for this run.']]");
-        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
+        EnsureTabSelected("tab-race-participants", "pane-race-participants");
+        return WaitForPaneComparisonSection("pane-race-participants", "No participant deltas available for this run.");
     }
 
     public bool WaitForPreseasonComparisonSection()
     {
-        OpenTab("tab-preseason", "Expected vs Actual Review");
-
+        EnsureTabSelected("tab-preseason", "pane-preseason");
         return _wait.Until(driver =>
-            driver.FindElements(By.XPath("//div[@id='pane-preseason' and contains(@class,'show') and contains(@class,'active')]//h3[contains(normalize-space(),'Expected vs Actual Review')]")).Count > 0 &&
+            driver.FindElements(By.Id("pane-preseason")).Count > 0 &&
             driver.FindElements(By.Id("preseason-participant-filter")).Count > 0);
     }
 
     public bool WaitForPreseasonQuestionDiffSection()
     {
+        EnsureTabSelected("tab-preseason", "pane-preseason");
         var sectionSelector = By.XPath(
-            "//h4[normalize-space()='Preseason Question Diffs']" +
+            "//*[@id='pane-preseason']//h4[normalize-space()='Preseason Question Diffs']" +
             "/following-sibling::*[1]" +
             "[self::div[.//tbody/tr] or self::p[normalize-space()='No preseason question diffs available for this run.']]");
         return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
@@ -162,22 +161,14 @@ internal class MigrationRunsPage
 
     public bool WaitForRaceComparisonSection()
     {
-        OpenTab("tab-race-diffs", "Race Comparisons");
-
-        var sectionSelector = By.XPath(
-            "//div[@id='pane-race-diffs' and contains(@class,'show') and contains(@class,'active')]" +
-            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No race diffs available for this run.']]");
-        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
+        EnsureTabSelected("tab-race-diffs", "pane-race-diffs");
+        return WaitForPaneComparisonSection("pane-race-diffs", "No race diffs available for this run.");
     }
 
     public bool WaitForPickComparisonSection()
     {
-        OpenTab("tab-pick-diffs", "Pick Comparisons");
-
-        var sectionSelector = By.XPath(
-            "//div[@id='pane-pick-diffs' and contains(@class,'show') and contains(@class,'active')]" +
-            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No pick diffs available for this run.']]");
-        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
+        EnsureTabSelected("tab-pick-diffs", "pane-pick-diffs");
+        return WaitForPaneComparisonSection("pane-pick-diffs", "No pick diffs available for this run.");
     }
 
     public void WaitUntil(Func<bool> condition)
@@ -198,20 +189,45 @@ internal class MigrationRunsPage
         input.SendKeys(Keys.Tab);
     }
 
-    private IReadOnlyList<IWebElement> GetRowsAfterSection(string sectionId)
+    private IReadOnlyList<IWebElement> GetRowsInPane(string paneId)
     {
-        var rows = _driver.FindElements(By.XPath($"//*[@id='{sectionId}']/following-sibling::*[1][self::div]//tbody/tr"));
+        var rows = _driver.FindElements(By.XPath($"//*[@id='{paneId}']//tbody/tr"));
         return rows;
     }
 
-    private void OpenTab(string tabId, string sectionTitle)
+    private bool WaitForPaneComparisonSection(string paneId, string emptyStateMessage)
     {
-        _trace($"Opening tab {tabId} for section '{sectionTitle}'");
-        var tab = _wait.Until(driver => driver.FindElement(By.Id(tabId)));
-        tab.Click();
+        return _wait.Until(driver =>
+        {
+            var pane = driver.FindElements(By.Id(paneId)).FirstOrDefault();
+            if (pane is null || !pane.Displayed)
+            {
+                return false;
+            }
+
+            var hasTable = pane.FindElements(By.XPath(".//table")).Count > 0;
+            var hasEmptyState = pane.FindElements(By.XPath($".//p[normalize-space()='{emptyStateMessage}']")).Count > 0;
+            return hasTable || hasEmptyState;
+        });
+    }
+
+    private void EnsureTabSelected(string tabId, string paneId)
+    {
+        var tabButton = _wait.Until(driver => driver.FindElement(By.Id(tabId)));
+        if (!string.Equals(tabButton.GetAttribute("aria-selected"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            tabButton.Click();
+        }
+
         _wait.Until(driver =>
-            driver.FindElements(By.XPath($"//button[@id='{tabId}' and @aria-selected='true']")).Count > 0 &&
-            driver.FindElements(By.XPath($"//*[self::h3 or self::h4][contains(normalize-space(),'{sectionTitle}')] ")).Count > 0);
+        {
+            var currentTabButton = driver.FindElements(By.Id(tabId)).FirstOrDefault();
+            var pane = driver.FindElements(By.Id(paneId)).FirstOrDefault();
+            return currentTabButton is not null
+                && pane is not null
+                && string.Equals(currentTabButton.GetAttribute("aria-selected"), "true", StringComparison.OrdinalIgnoreCase)
+                && pane.Displayed;
+        });
     }
 
     private static MigrationParticipantRow ParseParticipantRow(IWebElement row)
