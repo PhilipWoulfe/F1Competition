@@ -494,6 +494,126 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
+    public async Task RunOnceAsync_WhenWriteModeEnabled_PersistsCanonicalRaceDomainEntities()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            Assert.NotEmpty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Races.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Selections.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenCanonicalWriteFailsMidTransaction_RollsBackCanonicalEntities()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025,
+                    CanonicalWriteFailureInjectionStage = "after_drivers"
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunOnceAsync(CancellationToken.None));
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Failed", run.Status);
+
+            Assert.Empty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.Races.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
     public async Task RunOnceAsync_WhenPhilCsvContainsPreseasonTwentyPointRows_DoesNotImportThemAsRacePoints()
     {
         await using var setupContext = CreateContext();

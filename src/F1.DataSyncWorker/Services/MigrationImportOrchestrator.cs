@@ -17,6 +17,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     private readonly IMigrationScoreRecalculator _scoreRecalculator;
     private readonly IMigrationLegacyScoreImporter _legacyScoreImporter;
     private readonly IMigrationReconciliationService _reconciliationService;
+    private readonly IMigrationCanonicalWriteService _canonicalWriteService;
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly DataSyncOptions _dataSyncOptions;
     private readonly MigrationImportOptions _importOptions;
@@ -38,6 +39,37 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         IOptions<DataSyncOptions> dataSyncOptions,
         IOptions<MigrationImportOptions> importOptions,
         IMigrationExpectedVarianceRuleSetMetadataProvider ruleSetMetadataProvider)
+        : this(
+            logger,
+            runService,
+            rowClassifier,
+            raceSelectionParser,
+            raceRoundMapper,
+            scoreRecalculator,
+            legacyScoreImporter,
+            reconciliationService,
+            new MigrationCanonicalWriteService(dbContextFactory, importOptions),
+            dbContextFactory,
+            dataSyncOptions,
+            importOptions,
+            ruleSetMetadataProvider)
+    {
+    }
+
+    public MigrationImportOrchestrator(
+        ILogger<MigrationImportOrchestrator> logger,
+        IMigrationImportRunService runService,
+        IMigrationImportRowClassifier rowClassifier,
+        IMigrationRaceSelectionParser raceSelectionParser,
+        IMigrationRaceRoundMapper raceRoundMapper,
+        IMigrationScoreRecalculator scoreRecalculator,
+        IMigrationLegacyScoreImporter legacyScoreImporter,
+        IMigrationReconciliationService reconciliationService,
+        IMigrationCanonicalWriteService canonicalWriteService,
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IOptions<DataSyncOptions> dataSyncOptions,
+        IOptions<MigrationImportOptions> importOptions,
+        IMigrationExpectedVarianceRuleSetMetadataProvider ruleSetMetadataProvider)
     {
         _logger = logger;
         _runService = runService;
@@ -47,6 +79,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         _scoreRecalculator = scoreRecalculator;
         _legacyScoreImporter = legacyScoreImporter;
         _reconciliationService = reconciliationService;
+        _canonicalWriteService = canonicalWriteService;
         _dbContextFactory = dbContextFactory;
         _dataSyncOptions = dataSyncOptions.Value;
         _importOptions = importOptions.Value;
@@ -144,6 +177,10 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
             await EnsurePreseasonRaceIsolationAsync(run.RunId, cancellationToken);
             var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
+            if (!run.IsDryRun)
+            {
+                await _canonicalWriteService.PersistCanonicalEntitiesAsync(run.RunId, cancellationToken);
+            }
 
             var runMetadata = await BuildRunCompletionMetadataAsync(
                 run.RunId,

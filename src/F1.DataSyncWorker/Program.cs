@@ -65,6 +65,7 @@ builder.Services.AddSingleton<IQuestionScoringStrategyRegistry, QuestionScoringS
 builder.Services.AddSingleton<IMigrationScoreRecalculator, MigrationScoreRecalculator>();
 builder.Services.AddSingleton<IMigrationLegacyScoreImporter, MigrationLegacyScoreImporter>();
 builder.Services.AddSingleton<IMigrationReconciliationService, MigrationReconciliationService>();
+builder.Services.AddSingleton<IMigrationCanonicalWriteService, MigrationCanonicalWriteService>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();
