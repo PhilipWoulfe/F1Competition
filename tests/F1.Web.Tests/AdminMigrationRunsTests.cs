@@ -10,6 +10,82 @@ namespace F1.Web.Tests.Pages;
 public sealed class AdminMigrationRunsTests : BunitContext
 {
     [Fact]
+    public void AdminMigrationRuns_ShouldExposeTablistAndSelectedTabAria_WhenRunIsSelected()
+    {
+        var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");
+        var listResponse = new AdminMigrationRunListResponse(
+            Page: 1,
+            PageSize: 25,
+            TotalCount: 1,
+            Items:
+            [
+                new AdminMigrationRunListItem(
+                    RunId: runId,
+                    Status: "Completed",
+                    IsDryRun: true,
+                    SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+                    SourceFileChecksum: "abc123",
+                    StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+                    FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+                    RawRowCount: 200,
+                    UnresolvedTokenCount: 3,
+                    PickDiffCount: 100,
+                    RaceDiffCount: 20,
+                    TotalDeltaPoints: -4,
+                    UnexpectedTotalDeltaPoints: 3,
+                    ErrorMessage: null)
+            ]);
+
+        var detailResponse = new AdminMigrationRunDetailResponse(
+            RunId: runId,
+            Status: "Completed",
+            IsDryRun: true,
+            SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+            SourceFileChecksum: "abc123",
+            StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+            FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+            RawRowCount: 200,
+            ErrorMessage: null,
+            UnresolvedTokenCount: 3,
+            PickDiffCount: 100,
+            RaceDiffCount: 20,
+            TotalDeltaPoints: -4,
+            UnexpectedTotalDeltaPoints: 3,
+            UnresolvedTokenSummary:
+            [
+                new AdminMigrationUnresolvedTokenSummary("MAXX", 2, 12, new DateTime(2026, 7, 6, 11, 0, 1, DateTimeKind.Utc))
+            ],
+            ParticipantDeltas: [],
+            PreseasonSummary: new AdminMigrationPreseasonSummary(0, 0, 0, 0),
+            PreseasonParticipantDeltas: [],
+            PreseasonQuestionDiffs: [],
+            PreseasonReasonCategorySummaries: [],
+            RaceDiffs: [],
+            PickDiffs: []);
+
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(listResponse);
+        apiMock
+            .Setup(x => x.GetRunDetailAsync(runId, It.IsAny<CancellationToken>(), null))
+            .ReturnsAsync(detailResponse);
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Completed", cut.Markup));
+
+        cut.Find("button.btn.btn-sm.btn-outline-primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(cut.Find("ul[role='tablist']"));
+            Assert.True(cut.FindAll("button[role='tab'][aria-selected='true']").Count >= 1);
+        });
+    }
+
+    [Fact]
     public void AdminMigrationRuns_ShouldRenderRunsTable_WhenApiReturnsItems()
     {
         var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");
@@ -153,27 +229,44 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("Completed", cut.Markup));
         Assert.Contains("Migration Runs", cut.Markup);
         Assert.Contains(runId.ToString(), cut.Markup);
+        Assert.Contains(cut.FindAll("span.badge.bg-success"), element => element.TextContent.Contains("Completed", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("span.badge.bg-secondary"), element => element.TextContent.Contains("Dry-run", StringComparison.Ordinal));
+        Assert.True(cut.FindAll("span.badge.bg-warning.text-dark").Count >= 2);
 
         cut.Find("button.btn.btn-sm.btn-outline-primary").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Run Detail", cut.Markup));
+        Assert.Contains("Hide kickoff", cut.Markup);
         Assert.Contains("Participant Comparisons", cut.Markup);
         Assert.Contains("Expected vs Actual Review", cut.Markup);
         Assert.Contains("Race Comparisons", cut.Markup);
         Assert.Contains("Pick Comparisons", cut.Markup);
         Assert.Contains("Unexpected: 3", cut.Markup);
         Assert.Contains("Question Diffs", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#participant-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#preseason-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#race-comparisons\"", cut.Markup);
-        Assert.Contains("href=\"/admin/migration-runs#pick-comparisons\"", cut.Markup);
-        Assert.Contains("Reconciliation Export", cut.Markup);
-        Assert.Contains("Preseason question diffs CSV", cut.Markup);
-        Assert.Contains("Preseason participant diffs CSV", cut.Markup);
-        Assert.Contains("Pick diffs CSV", cut.Markup);
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Overview", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Preseason", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Participants", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Diffs", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Pick Diffs", StringComparison.Ordinal));
+        Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Exports", StringComparison.Ordinal));
+
+        var signOffCard = cut.Find("[data-testid='exports-signoff-card']");
+        var preseasonCard = cut.Find("[data-testid='exports-preseason-card']");
+        var raceCard = cut.Find("[data-testid='exports-race-card']");
+
+        Assert.Contains("Sign-off Package", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason Reconciliation", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant Diffs", raceCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Pick diffs CSV", signOffCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason question diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Preseason participant diffs CSV", preseasonCard.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Participant diffs CSV", raceCard.TextContent, StringComparison.Ordinal);
+
         Assert.Contains("Podium mismatch", cut.Markup);
         Assert.Contains("Wrong slot", cut.Markup);
         Assert.Contains("Who wins the constructors title?", cut.Markup);
+        Assert.DoesNotContain("PRESEASON_POINTS_MATCH", cut.Markup);
 
         cut.Find("#detail-participant-filter").Change("Philip");
         cut.WaitForAssertion(() => Assert.DoesNotContain("No variance", cut.Markup));
@@ -206,6 +299,20 @@ public sealed class AdminMigrationRunsTests : BunitContext
         cut.Find("#preseason-participant-filter").Change(string.Empty);
         cut.Find("#preseason-non-zero-only").Change(true);
         cut.WaitForAssertion(() => Assert.DoesNotContain("PRESEASON_POINTS_MATCH", cut.Markup));
+
+        cut.Find("button.btn.btn-outline-primary").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("New run", cut.Markup);
+            Assert.DoesNotContain("Start Migration Run", cut.Markup);
+        });
+
+        cut.Find("button.btn.btn-outline-primary").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Hide kickoff", cut.Markup);
+            Assert.Contains("Start Migration Run", cut.Markup);
+        });
     }
 
     [Fact]

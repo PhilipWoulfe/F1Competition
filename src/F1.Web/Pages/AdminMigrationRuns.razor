@@ -1,13 +1,19 @@
 @page "/admin/migration-runs"
 @using F1.Web.Models
 @using F1.Web.Services.Api
+@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
 @attribute [Authorize(Roles = "Admin")]
 @inject IMigrationRunsApiService MigrationRunsApi
+@inject NavigationManager NavigationManager
 
 <PageTitle>Migration Runs</PageTitle>
 
-<h1>Migration Runs</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Migration Runs</h1>
+    <button type="button" class="btn btn-outline-primary" @onclick="ToggleKickoffPanel">@(showKickoffPanel ? "Hide kickoff" : "New run")</button>
+</div>
 
 @if (!string.IsNullOrWhiteSpace(errorMessage))
 {
@@ -19,569 +25,711 @@
     <div class="alert alert-success" role="alert">@kickoffSuccessMessage</div>
 }
 
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h5">Start Migration Run</h2>
-        <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
-        <div class="row g-3 align-items-end">
-            <div class="col-md-3">
-                <label class="form-label" for="kickoff-source-kind">Source Type</label>
-                <select id="kickoff-source-kind" class="form-select" @bind="kickoffSourceKind">
-                    <option value="path">Server path</option>
-                    <option value="upload">Upload CSV</option>
-                </select>
+<div class="row g-3">
+    <div class="col-12 col-md-4">
+        @if (showKickoffPanel)
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5">Start Migration Run</h2>
+                    <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="kickoff-source-kind">Source Type</label>
+                            <select id="kickoff-source-kind" class="form-select" aria-label="Kickoff source type" @bind="kickoffSourceKind">
+                                <option value="path">Server path</option>
+                                <option value="upload">Upload CSV</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="kickoff-mode">Mode</label>
+                            <select id="kickoff-mode" class="form-select" aria-label="Kickoff mode" @bind="kickoffMode">
+                                <option value="dry-run">Dry-run</option>
+                                <option value="write">Write</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-grid">
+                            <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
+                        </div>
+                    </div>
+
+                    @if (IsUploadKickoff)
+                    {
+                        <div class="mt-3">
+                            <label class="form-label" for="kickoff-upload-file">CSV File</label>
+                            <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" aria-label="Kickoff CSV upload" />
+                            @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
+                            {
+                                <div class="form-text">Selected: @kickoffUploadFileName</div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mt-3">
+                            <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                            <input id="kickoff-source-path" class="form-control" aria-label="Kickoff source file path" @bind="kickoffSourceFilePath" />
+                        </div>
+                    }
+
+                    @if (showKickoffConfirmation)
+                    {
+                        <div class="alert alert-warning mt-3 mb-0" role="alert">
+                            <h3 class="h6">Confirm Migration Kickoff</h3>
+                            <p class="mb-2">
+                                You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
+                                <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
+                            </p>
+                            <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-danger" @onclick="ConfirmKickoffAsync" disabled="@isKickoffSubmitting">Confirm Start</button>
+                                <button class="btn btn-outline-secondary" @onclick="CancelKickoffConfirmation" disabled="@isKickoffSubmitting">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label" for="kickoff-mode">Mode</label>
-                <select id="kickoff-mode" class="form-select" @bind="kickoffMode">
-                    <option value="dry-run">Dry-run</option>
-                    <option value="write">Write</option>
-                </select>
-            </div>
-            <div class="col-md-6 d-grid">
-                <button class="btn btn-success" @onclick="PrepareKickoff" disabled="@isKickoffSubmitting">Start Run</button>
+        }
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label" for="status-filter">Status Filter</label>
+                        <select id="status-filter" class="form-select" aria-label="Run status filter" @bind="statusFilter">
+                            <option value="">All</option>
+                            <option value="Queued">Queued</option>
+                            <option value="Started">Started</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Failed">Failed</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="sort-field">Sort Field</label>
+                        <select id="sort-field" class="form-select" aria-label="Run list sort field" @bind="sortField">
+                            <option value="started">Started</option>
+                            <option value="status">Status</option>
+                            <option value="delta">Total Delta</option>
+                            <option value="unexpected-delta">Unexpected Delta</option>
+                            <option value="unresolved">Unresolved Tokens</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label" for="sort-direction">Direction</label>
+                        <select id="sort-direction" class="form-select" aria-label="Run list sort direction" @bind="sortDirection">
+                            <option value="desc">Descending</option>
+                            <option value="asc">Ascending</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label" for="page-size">Page Size</label>
+                        <select id="page-size" class="form-select" aria-label="Run list page size" @bind="pageSize">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@isLoadingRuns">Apply</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        @if (IsUploadKickoff)
+        @if (isLoadingRuns)
         {
-            <div class="mt-3">
-                <label class="form-label" for="kickoff-upload-file">CSV File</label>
-                <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" />
-                @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
-                {
-                    <div class="form-text">Selected: @kickoffUploadFileName</div>
-                }
-            </div>
+            <p><em>Loading migration runs...</em></p>
+        }
+        else if (runList is null || runList.Items.Count == 0)
+        {
+            <p>No migration runs found for the selected filters.</p>
         }
         else
         {
-            <div class="mt-3">
-                <label class="form-label" for="kickoff-source-path">Source File Path</label>
-                <input id="kickoff-source-path" class="form-control" @bind="kickoffSourceFilePath" />
+            <div class="table-responsive mb-3">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th scope="col">Run Id</th>
+                            <th scope="col">Started (UTC)</th>
+                            <th scope="col">Finished (UTC)</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Mode</th>
+                            <th scope="col">Unresolved</th>
+                            <th scope="col">Total Delta</th>
+                            <th scope="col">Unexpected Delta</th>
+                            <th scope="col"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            var sortedRuns = GetSortedItems().ToList();
+                            var firstRunId = sortedRuns.FirstOrDefault()?.RunId;
+                        }
+                        @foreach (var item in sortedRuns)
+                        {
+                            <tr class="@(selectedRunId == item.RunId ? "table-primary" : string.Empty)"
+                                tabindex="@(selectedRunId == item.RunId || (selectedRunId == null && item.RunId == firstRunId) ? 0 : -1)"
+                                @onkeydown="(args) => HandleRunRowKeyDown(args, item.RunId)">
+                                <td><code>@item.RunId</code></td>
+                                <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@(item.FinishedAtUtc.HasValue ? item.FinishedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") : "-")</td>
+                                <td>
+                                    <span class="@GetRunStatusBadgeClass(item.Status)">@item.Status</span>
+                                </td>
+                                <td>
+                                    <span class="@GetRunModeBadgeClass(item.IsDryRun)">@(item.IsDryRun ? "Dry-run" : "Write")</span>
+                                </td>
+                                <td>
+                                    @if (item.UnresolvedTokenCount > 0)
+                                    {
+                                        <span class="@GetUnresolvedTokenBadgeClass(item.UnresolvedTokenCount)">@item.UnresolvedTokenCount</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
+                                    }
+                                </td>
+                                <td>@item.TotalDeltaPoints</td>
+                                <td>
+                                    @if (item.UnexpectedTotalDeltaPoints != 0)
+                                    {
+                                        <span class="badge bg-warning text-dark">@item.UnexpectedTotalDeltaPoints</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRunAsync(item.RunId)">View</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(page <= 1 || isLoadingRuns)">Previous</button>
+                <span>Page @(page) of @TotalPages</span>
+                <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(page >= TotalPages || isLoadingRuns)">Next</button>
             </div>
         }
+    </div>
 
-        @if (showKickoffConfirmation)
+    <div class="col-12 col-md-8 migration-runs-detail-pane" aria-live="polite">
+        @{
+            var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
+            var filteredPreseasonParticipantDeltas = GetFilteredPreseasonParticipantDeltas().ToList();
+            var filteredPreseasonQuestionDiffs = GetFilteredPreseasonQuestionDiffs().ToList();
+            var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
+            var filteredPickDiffs = GetFilteredPickDiffs().ToList();
+        }
+
+        @if (isLoadingDetail)
         {
-            <div class="alert alert-warning mt-3 mb-0" role="alert">
-                <h3 class="h6">Confirm Migration Kickoff</h3>
-                <p class="mb-2">
-                    You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
-                    <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
-                </p>
-                <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
-                <div class="d-flex flex-wrap gap-2">
-                    <button class="btn btn-danger" @onclick="ConfirmKickoffAsync" disabled="@isKickoffSubmitting">Confirm Start</button>
-                    <button class="btn btn-outline-secondary" @onclick="CancelKickoffConfirmation" disabled="@isKickoffSubmitting">Cancel</button>
+            <p><em>Loading selected run details...</em></p>
+        }
+        else if (selectedRunDetail is not null)
+        {
+            <h2 class="mb-3">Run Detail</h2>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="detail-participant-filter">Participant</label>
+                            <input id="detail-participant-filter" class="form-control" aria-label="Detail participant filter" @bind="detailParticipantFilter" placeholder="Filter participant" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="detail-race-filter">Race</label>
+                            <input id="detail-race-filter" class="form-control" aria-label="Detail race filter" @bind="detailRaceFilter" placeholder="Filter race code" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="detail-reason-filter">Reason</label>
+                            <input id="detail-reason-filter" class="form-control" aria-label="Detail reason filter" @bind="detailReasonFilter" placeholder="Filter reason code" />
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input id="detail-non-zero-only" class="form-check-input" type="checkbox" aria-label="Detail non-zero delta only" @bind="detailNonZeroOnly" />
+                                <label class="form-check-label" for="detail-non-zero-only">Non-zero delta only</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="detail-expected-status">Expected status</label>
+                            <select id="detail-expected-status" class="form-select" aria-label="Detail expected status filter" value="@detailExpectedStatusFilter" @onchange="OnExpectedStatusFilterChanged">
+                                <option value="all">All variances</option>
+                                <option value="expected">Expected only</option>
+                                <option value="unexpected">Unexpected only</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <ul class="nav nav-tabs mb-3" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button id="tab-overview" type="button" role="tab" aria-selected="@GetAriaSelected("overview")" aria-controls="pane-overview" class="@GetTabButtonClass("overview")" @onclick='() => SetActiveTab("overview")'>Overview</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button id="tab-preseason" type="button" role="tab" aria-selected="@GetAriaSelected("preseason")" aria-controls="pane-preseason" class="@GetTabButtonClass("preseason")" @onclick='() => SetActiveTab("preseason")'>Preseason</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button id="tab-race-participants" type="button" role="tab" aria-selected="@GetAriaSelected("race-participants")" aria-controls="pane-race-participants" class="@GetTabButtonClass("race-participants")" @onclick='() => SetActiveTab("race-participants")'>Race Participants</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button id="tab-race-diffs" type="button" role="tab" aria-selected="@GetAriaSelected("race-diffs")" aria-controls="pane-race-diffs" class="@GetTabButtonClass("race-diffs")" @onclick='() => SetActiveTab("race-diffs")'>Race Diffs</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button id="tab-pick-diffs" type="button" role="tab" aria-selected="@GetAriaSelected("pick-diffs")" aria-controls="pane-pick-diffs" class="@GetTabButtonClass("pick-diffs")" @onclick='() => SetActiveTab("pick-diffs")'>Pick Diffs</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button id="tab-exports" type="button" role="tab" aria-selected="@GetAriaSelected("exports")" aria-controls="pane-exports" class="@GetTabButtonClass("exports")" @onclick='() => SetActiveTab("exports")'>Exports</button>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+                <div id="pane-overview" role="tabpanel" aria-labelledby="tab-overview" class="@GetTabPaneClass("overview")">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Rows Parsed</div>
+                                    <div class="fs-4">@selectedRunDetail.RawRowCount</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Unresolved Tokens</div>
+                                    <div class="fs-4">@selectedRunDetail.UnresolvedTokenCount</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Pick Diffs</div>
+                                    <div class="fs-4">@selectedRunDetail.PickDiffCount</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Total Delta</div>
+                                    <div class="fs-4">@selectedRunDetail.TotalDeltaPoints</div>
+                                    <div class="text-muted small">Unexpected: @selectedRunDetail.UnexpectedTotalDeltaPoints</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h3 class="h5">Source Metadata</h3>
+                            <dl class="row mb-0">
+                                <dt class="col-sm-3">Source file</dt>
+                                <dd class="col-sm-9"><code>@selectedRunDetail.SourceFilePath</code></dd>
+                                <dt class="col-sm-3">Checksum</dt>
+                                <dd class="col-sm-9"><code>@selectedRunDetail.SourceFileChecksum</code></dd>
+                            </dl>
+                        </div>
+                    </div>
+
+                    <h3 class="h5">Unresolved Token Summary</h3>
+                    @if (selectedRunDetail.UnresolvedTokenSummary.Count == 0)
+                    {
+                        <p>No unresolved tokens in this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Token</th>
+                                        <th scope="col">Occurrences</th>
+                                        <th scope="col">First Row</th>
+                                        <th scope="col">First Seen (UTC)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var unresolved in selectedRunDetail.UnresolvedTokenSummary)
+                                    {
+                                        <tr>
+                                            <td><code>@unresolved.RawToken</code></td>
+                                            <td>@unresolved.OccurrenceCount</td>
+                                            <td>@unresolved.FirstRowNumber</td>
+                                            <td>@unresolved.FirstSeenAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div id="pane-preseason" role="tabpanel" aria-labelledby="tab-preseason" class="@GetTabPaneClass("preseason")">
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <h3 class="h5 d-flex align-items-center gap-2">
+                                <span class="badge bg-primary">Preseason</span>
+                                <span>Expected vs Actual Review</span>
+                            </h3>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <div class="card h-100 bg-light">
+                                        <div class="card-body">
+                                            <div class="text-muted small">Question Diffs</div>
+                                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.QuestionDiffCount</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card h-100 bg-light">
+                                        <div class="card-body">
+                                            <div class="text-muted small">Participant Totals</div>
+                                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.ParticipantDeltaCount</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card h-100 bg-light">
+                                        <div class="card-body">
+                                            <div class="text-muted small">Reason Categories</div>
+                                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.ReasonCategoryCount</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card h-100 bg-light">
+                                        <div class="card-body">
+                                            <div class="text-muted small">Total Delta</div>
+                                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.TotalDeltaPoints</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 align-items-end mb-3">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="preseason-participant-filter">Preseason Participant</label>
+                                    <input id="preseason-participant-filter" class="form-control" aria-label="Preseason participant filter" @bind="preseasonParticipantFilter" placeholder="Filter participant" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="preseason-reason-filter">Preseason Reason</label>
+                                    <input id="preseason-reason-filter" class="form-control" aria-label="Preseason reason filter" @bind="preseasonReasonFilter" placeholder="Filter reason code" />
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input id="preseason-non-zero-only" class="form-check-input" type="checkbox" aria-label="Preseason non-zero delta only" @bind="preseasonNonZeroOnly" />
+                                        <label class="form-check-label" for="preseason-non-zero-only">Non-zero delta only</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h4 class="h6">Preseason Participant Totals</h4>
+                            @if (filteredPreseasonParticipantDeltas.Count == 0)
+                            {
+                                <p>No preseason participant deltas available for this run.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive mb-4">
+                                    <table class="table table-sm table-striped table-primary-subtle">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Participant</th>
+                                                <th scope="col">Imported</th>
+                                                <th scope="col">Calculated</th>
+                                                <th scope="col">Delta</th>
+                                                <th scope="col">Top Reason</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var row in filteredPreseasonParticipantDeltas)
+                                            {
+                                                <tr>
+                                                    <td>@row.Subject</td>
+                                                    <td>@row.ImportedTotalPoints</td>
+                                                    <td>@row.CalculatedTotalPoints</td>
+                                                    <td>@row.NetDeltaPoints</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+
+                            <h4 class="h6">Preseason Question Diffs</h4>
+                            @if (filteredPreseasonQuestionDiffs.Count == 0)
+                            {
+                                <p>No preseason question diffs available for this run.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive mb-2">
+                                    <table class="table table-sm table-striped table-primary-subtle">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Row</th>
+                                                <th scope="col">Question Key</th>
+                                                <th scope="col">Question</th>
+                                                <th scope="col">Participant</th>
+                                                <th scope="col">Imported</th>
+                                                <th scope="col">Calculated</th>
+                                                <th scope="col">Delta</th>
+                                                <th scope="col">Reason</th>
+                                                <th scope="col">Explanation</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var row in filteredPreseasonQuestionDiffs)
+                                            {
+                                                <tr>
+                                                    <td>@row.RowNumber</td>
+                                                    <td>@row.QuestionKey</td>
+                                                    <td>@row.QuestionText</td>
+                                                    <td>@row.Subject</td>
+                                                    <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
+                                                    <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
+                                                    <td>@row.DeltaPoints</td>
+                                                    <td>@row.ReasonCode</td>
+                                                    <td>@row.Explanation</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div id="pane-race-participants" role="tabpanel" aria-labelledby="tab-race-participants" class="@GetTabPaneClass("race-participants")">
+                    <h3>Participant Comparisons</h3>
+                    @if (filteredParticipantDeltas.Count == 0)
+                    {
+                        <p>No participant deltas available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Imported</th>
+                                        <th scope="col">Calculated</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Top Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredParticipantDeltas)
+                                    {
+                                        <tr>
+                                            <td>@row.Subject</td>
+                                            <td>@row.ImportedTotalPoints</td>
+                                            <td>@row.CalculatedTotalPoints</td>
+                                            <td>@row.NetDeltaPoints</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div id="pane-race-diffs" role="tabpanel" aria-labelledby="tab-race-diffs" class="@GetTabPaneClass("race-diffs")">
+                    <h3>Race Comparisons</h3>
+                    @if (filteredRaceDiffs.Count == 0)
+                    {
+                        <p>No race diffs available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Race</th>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Imported</th>
+                                        <th scope="col">Calculated</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Reason</th>
+                                        <th scope="col">Variance Status</th>
+                                        <th scope="col">Expected Rule</th>
+                                        <th scope="col">Explanation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredRaceDiffs)
+                                    {
+                                        <tr>
+                                            <td>@row.RaceCode</td>
+                                            <td>@row.Subject</td>
+                                            <td>@row.ImportedPoints</td>
+                                            <td>@row.CalculatedPoints</td>
+                                            <td>@row.DeltaPoints</td>
+                                            <td>@row.ReasonCode</td>
+                                            <td>
+                                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                                {
+                                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                                    {
+                                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span>-</span>
+                                                }
+                                            </td>
+                                            <td>@row.Explanation</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div id="pane-pick-diffs" role="tabpanel" aria-labelledby="tab-pick-diffs" class="@GetTabPaneClass("pick-diffs")">
+                    <h3>Pick Comparisons</h3>
+                    @if (filteredPickDiffs.Count == 0)
+                    {
+                        <p>No pick diffs available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Race</th>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Pick</th>
+                                        <th scope="col">Imported</th>
+                                        <th scope="col">Calculated</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Reason</th>
+                                        <th scope="col">Variance Status</th>
+                                        <th scope="col">Expected Rule</th>
+                                        <th scope="col">Explanation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredPickDiffs)
+                                    {
+                                        <tr>
+                                            <td>@row.RaceCode</td>
+                                            <td>@row.Subject</td>
+                                            <td>@row.PickType</td>
+                                            <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
+                                            <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
+                                            <td>@row.DeltaPoints</td>
+                                            <td>@row.ReasonCode</td>
+                                            <td>
+                                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
+                                                {
+                                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
+                                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
+                                                    {
+                                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span>-</span>
+                                                }
+                                            </td>
+                                            <td>@row.Explanation</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div id="pane-exports" role="tabpanel" aria-labelledby="tab-exports" class="@GetTabPaneClass("exports")">
+                    <div class="card mb-3" data-testid="exports-signoff-card">
+                        <div class="card-body">
+                            <h3 class="h5">Sign-off Package</h3>
+                            <p class="text-muted mb-3">Download the core artifacts used to approve and archive a migration run.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as CSV" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as JSON" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download pick diffs as CSV" href="@GetExportUrl("pick-diffs", "csv")" target="_blank" rel="noopener noreferrer">Pick diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download pick diffs as JSON" href="@GetExportUrl("pick-diffs", "json")" target="_blank" rel="noopener noreferrer">Pick diffs JSON</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3" data-testid="exports-preseason-card">
+                        <div class="card-body">
+                            <h3 class="h5">Preseason Reconciliation</h3>
+                            <p class="text-muted mb-3">Use these exports to validate preseason question scoring and participant total reconciliation.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason question diffs as CSV" href="@GetExportUrl("preseason-question-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason question diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason question diffs as JSON" href="@GetExportUrl("preseason-question-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason question diffs JSON</a>
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason participant diffs as CSV" href="@GetExportUrl("preseason-participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason participant diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-primary" aria-label="Download preseason participant diffs as JSON" href="@GetExportUrl("preseason-participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason participant diffs JSON</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-3" data-testid="exports-race-card">
+                        <div class="card-body">
+                            <h3 class="h5">Participant Diffs</h3>
+                            <p class="text-muted mb-3">Download participant-level diff exports for this migration run.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as CSV" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
+                                <a class="btn btn-sm btn-outline-secondary" aria-label="Download participant diffs as JSON" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         }
     </div>
 </div>
-
-<div class="card mb-3">
-    <div class="card-body">
-        <div class="row g-3 align-items-end">
-            <div class="col-md-3">
-                <label class="form-label" for="status-filter">Status Filter</label>
-                <select id="status-filter" class="form-select" @bind="statusFilter">
-                    <option value="">All</option>
-                    <option value="Queued">Queued</option>
-                    <option value="Started">Started</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Failed">Failed</option>
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label" for="sort-field">Sort Field</label>
-                <select id="sort-field" class="form-select" @bind="sortField">
-                    <option value="started">Started</option>
-                    <option value="status">Status</option>
-                    <option value="delta">Total Delta</option>
-                    <option value="unexpected-delta">Unexpected Delta</option>
-                    <option value="unresolved">Unresolved Tokens</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label" for="sort-direction">Direction</label>
-                <select id="sort-direction" class="form-select" @bind="sortDirection">
-                    <option value="desc">Descending</option>
-                    <option value="asc">Ascending</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label" for="page-size">Page Size</label>
-                <select id="page-size" class="form-select" @bind="pageSize">
-                    <option value="10">10</option>
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                </select>
-            </div>
-            <div class="col-md-2 d-grid">
-                <button class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@isLoadingRuns">Apply</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-@if (isLoadingRuns)
-{
-    <p><em>Loading migration runs...</em></p>
-}
-else if (runList is null || runList.Items.Count == 0)
-{
-    <p>No migration runs found for the selected filters.</p>
-}
-else
-{
-    <div class="table-responsive mb-3">
-        <table class="table table-striped table-hover">
-            <thead>
-                <tr>
-                    <th>Run Id</th>
-                    <th>Started (UTC)</th>
-                    <th>Finished (UTC)</th>
-                    <th>Status</th>
-                    <th>Mode</th>
-                    <th>Unresolved</th>
-                    <th>Total Delta</th>
-                    <th>Unexpected Delta</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var item in GetSortedItems())
-                {
-                    <tr class="@(selectedRunId == item.RunId ? "table-primary" : string.Empty)">
-                        <td><code>@item.RunId</code></td>
-                        <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
-                        <td>@(item.FinishedAtUtc.HasValue ? item.FinishedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") : "-")</td>
-                        <td>@item.Status</td>
-                        <td>@(item.IsDryRun ? "Dry-run" : "Write")</td>
-                        <td>@item.UnresolvedTokenCount</td>
-                        <td>@item.TotalDeltaPoints</td>
-                        <td>@item.UnexpectedTotalDeltaPoints</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRunAsync(item.RunId)">View</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(page <= 1 || isLoadingRuns)">Previous</button>
-        <span>Page @(page) of @TotalPages</span>
-        <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(page >= TotalPages || isLoadingRuns)">Next</button>
-    </div>
-}
-
-@{
-    var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
-    var filteredPreseasonParticipantDeltas = GetFilteredPreseasonParticipantDeltas().ToList();
-    var filteredPreseasonQuestionDiffs = GetFilteredPreseasonQuestionDiffs().ToList();
-    var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
-    var filteredPickDiffs = GetFilteredPickDiffs().ToList();
-}
-
-@if (isLoadingDetail)
-{
-    <p><em>Loading selected run details...</em></p>
-}
-else if (selectedRunDetail is not null)
-{
-    <h2 class="mb-3">Run Detail</h2>
-
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Rows Parsed</div>
-                    <div class="fs-4">@selectedRunDetail.RawRowCount</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Unresolved Tokens</div>
-                    <div class="fs-4">@selectedRunDetail.UnresolvedTokenCount</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Pick Diffs</div>
-                    <div class="fs-4">@selectedRunDetail.PickDiffCount</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Total Delta</div>
-                    <div class="fs-4">@selectedRunDetail.TotalDeltaPoints</div>
-                    <div class="text-muted small">Unexpected: @selectedRunDetail.UnexpectedTotalDeltaPoints</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="mb-3">
-        <a href="/admin/migration-runs#preseason-comparisons" class="me-3">Preseason comparisons</a>
-        <a href="/admin/migration-runs#participant-comparisons" class="me-3">Participant comparisons</a>
-        <a href="/admin/migration-runs#race-comparisons" class="me-3">Race comparisons</a>
-        <a href="/admin/migration-runs#pick-comparisons">Pick comparisons</a>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <h3 class="h5">Reconciliation Export</h3>
-            <p class="text-muted mb-3">Download run-level reconciliation output for sign-off. Viewing details and export actions are audit logged with run id and timestamp.</p>
-            <div class="d-flex flex-wrap gap-2">
-                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Participant diffs CSV</a>
-                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Participant diffs JSON</a>
-                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "csv")" target="_blank" rel="noopener noreferrer">Pick diffs CSV</a>
-                <a class="btn btn-sm btn-outline-secondary" href="@GetExportUrl("pick-diffs", "json")" target="_blank" rel="noopener noreferrer">Pick diffs JSON</a>
-                <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-question-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason question diffs CSV</a>
-                <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-question-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason question diffs JSON</a>
-                <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-participant-diffs", "csv")" target="_blank" rel="noopener noreferrer">Preseason participant diffs CSV</a>
-                <a class="btn btn-sm btn-outline-primary" href="@GetExportUrl("preseason-participant-diffs", "json")" target="_blank" rel="noopener noreferrer">Preseason participant diffs JSON</a>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-3 border-primary">
-        <div class="card-body">
-            <h3 id="preseason-comparisons" class="h5 d-flex align-items-center gap-2">
-                <span class="badge bg-primary">Preseason</span>
-                <span>Expected vs Actual Review</span>
-            </h3>
-
-            <div class="row g-3 mb-3">
-                <div class="col-md-3">
-                    <div class="card h-100 bg-light">
-                        <div class="card-body">
-                            <div class="text-muted small">Question Diffs</div>
-                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.QuestionDiffCount</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card h-100 bg-light">
-                        <div class="card-body">
-                            <div class="text-muted small">Participant Totals</div>
-                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.ParticipantDeltaCount</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card h-100 bg-light">
-                        <div class="card-body">
-                            <div class="text-muted small">Reason Categories</div>
-                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.ReasonCategoryCount</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card h-100 bg-light">
-                        <div class="card-body">
-                            <div class="text-muted small">Total Delta</div>
-                            <div class="fs-5">@selectedRunDetail.PreseasonSummary.TotalDeltaPoints</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row g-3 align-items-end mb-3">
-                <div class="col-md-4">
-                    <label class="form-label" for="preseason-participant-filter">Preseason Participant</label>
-                    <input id="preseason-participant-filter" class="form-control" @bind="preseasonParticipantFilter" placeholder="Filter participant" />
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="preseason-reason-filter">Preseason Reason</label>
-                    <input id="preseason-reason-filter" class="form-control" @bind="preseasonReasonFilter" placeholder="Filter reason code" />
-                </div>
-                <div class="col-md-4">
-                    <div class="form-check">
-                        <input id="preseason-non-zero-only" class="form-check-input" type="checkbox" @bind="preseasonNonZeroOnly" />
-                        <label class="form-check-label" for="preseason-non-zero-only">Non-zero delta only</label>
-                    </div>
-                </div>
-            </div>
-
-            <h4 class="h6">Preseason Participant Totals</h4>
-            @if (filteredPreseasonParticipantDeltas.Count == 0)
-            {
-                <p>No preseason participant deltas available for this run.</p>
-            }
-            else
-            {
-                <div class="table-responsive mb-4">
-                    <table class="table table-sm table-striped table-primary-subtle">
-                        <thead>
-                            <tr>
-                                <th>Participant</th>
-                                <th>Imported</th>
-                                <th>Calculated</th>
-                                <th>Delta</th>
-                                <th>Top Reason</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var row in filteredPreseasonParticipantDeltas)
-                            {
-                                <tr>
-                                    <td>@row.Subject</td>
-                                    <td>@row.ImportedTotalPoints</td>
-                                    <td>@row.CalculatedTotalPoints</td>
-                                    <td>@row.NetDeltaPoints</td>
-                                    <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-
-            <h4 class="h6">Preseason Question Diffs</h4>
-            @if (filteredPreseasonQuestionDiffs.Count == 0)
-            {
-                <p>No preseason question diffs available for this run.</p>
-            }
-            else
-            {
-                <div class="table-responsive mb-2">
-                    <table class="table table-sm table-striped table-primary-subtle">
-                        <thead>
-                            <tr>
-                                <th>Row</th>
-                                <th>Question Key</th>
-                                <th>Question</th>
-                                <th>Participant</th>
-                                <th>Imported</th>
-                                <th>Calculated</th>
-                                <th>Delta</th>
-                                <th>Reason</th>
-                                <th>Explanation</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var row in filteredPreseasonQuestionDiffs)
-                            {
-                                <tr>
-                                    <td>@row.RowNumber</td>
-                                    <td>@row.QuestionKey</td>
-                                    <td>@row.QuestionText</td>
-                                    <td>@row.Subject</td>
-                                    <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
-                                    <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
-                                    <td>@row.DeltaPoints</td>
-                                    <td>@row.ReasonCode</td>
-                                    <td>@row.Explanation</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label" for="detail-participant-filter">Participant</label>
-                    <input id="detail-participant-filter" class="form-control" @bind="detailParticipantFilter" placeholder="Filter participant" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label" for="detail-race-filter">Race</label>
-                    <input id="detail-race-filter" class="form-control" @bind="detailRaceFilter" placeholder="Filter race code" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label" for="detail-reason-filter">Reason</label>
-                    <input id="detail-reason-filter" class="form-control" @bind="detailReasonFilter" placeholder="Filter reason code" />
-                </div>
-                <div class="col-md-3">
-                    <div class="form-check">
-                        <input id="detail-non-zero-only" class="form-check-input" type="checkbox" @bind="detailNonZeroOnly" />
-                        <label class="form-check-label" for="detail-non-zero-only">Non-zero delta only</label>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label" for="detail-expected-status">Expected status</label>
-                    <select id="detail-expected-status" class="form-select" value="@detailExpectedStatusFilter" @onchange="OnExpectedStatusFilterChanged">
-                        <option value="all">All variances</option>
-                        <option value="expected">Expected only</option>
-                        <option value="unexpected">Unexpected only</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <h3 id="participant-comparisons">Participant Comparisons</h3>
-    @if (filteredParticipantDeltas.Count == 0)
-    {
-        <p>No participant deltas available for this run.</p>
-    }
-    else
-    {
-        <div class="table-responsive mb-4">
-            <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th>Participant</th>
-                        <th>Imported</th>
-                        <th>Calculated</th>
-                        <th>Delta</th>
-                        <th>Top Reason</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in filteredParticipantDeltas)
-                    {
-                        <tr>
-                            <td>@row.Subject</td>
-                            <td>@row.ImportedTotalPoints</td>
-                            <td>@row.CalculatedTotalPoints</td>
-                            <td>@row.NetDeltaPoints</td>
-                            <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-
-    <h3 id="race-comparisons">Race Comparisons</h3>
-    @if (filteredRaceDiffs.Count == 0)
-    {
-        <p>No race diffs available for this run.</p>
-    }
-    else
-    {
-        <div class="table-responsive mb-4">
-            <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th>Race</th>
-                        <th>Participant</th>
-                        <th>Imported</th>
-                        <th>Calculated</th>
-                        <th>Delta</th>
-                        <th>Reason</th>
-                        <th>Variance Status</th>
-                        <th>Expected Rule</th>
-                        <th>Explanation</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in filteredRaceDiffs)
-                    {
-                        <tr>
-                            <td>@row.RaceCode</td>
-                            <td>@row.Subject</td>
-                            <td>@row.ImportedPoints</td>
-                            <td>@row.CalculatedPoints</td>
-                            <td>@row.DeltaPoints</td>
-                            <td>@row.ReasonCode</td>
-                            <td>
-                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
-                            </td>
-                            <td>
-                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
-                                {
-                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
-                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
-                                    {
-                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
-                                    }
-                                }
-                                else
-                                {
-                                    <span>-</span>
-                                }
-                            </td>
-                            <td>@row.Explanation</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-
-    <h3 id="pick-comparisons">Pick Comparisons</h3>
-    @if (filteredPickDiffs.Count == 0)
-    {
-        <p>No pick diffs available for this run.</p>
-    }
-    else
-    {
-        <div class="table-responsive mb-4">
-            <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th>Race</th>
-                        <th>Participant</th>
-                        <th>Pick</th>
-                        <th>Imported</th>
-                        <th>Calculated</th>
-                        <th>Delta</th>
-                        <th>Reason</th>
-                        <th>Variance Status</th>
-                        <th>Expected Rule</th>
-                        <th>Explanation</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in filteredPickDiffs)
-                    {
-                        <tr>
-                            <td>@row.RaceCode</td>
-                            <td>@row.Subject</td>
-                            <td>@row.PickType</td>
-                            <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
-                            <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
-                            <td>@row.DeltaPoints</td>
-                            <td>@row.ReasonCode</td>
-                            <td>
-                                <span class="@GetVarianceBadgeClass(row.IsExpectedVariance, row.DeltaPoints)">@GetVarianceStatusText(row.IsExpectedVariance, row.DeltaPoints)</span>
-                            </td>
-                            <td>
-                                @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceRuleId))
-                                {
-                                    <div><code>@row.ExpectedVarianceRuleId</code></div>
-                                    @if (!string.IsNullOrWhiteSpace(row.ExpectedVarianceReasonCode))
-                                    {
-                                        <div class="text-muted small">@row.ExpectedVarianceReasonCode</div>
-                                    }
-                                }
-                                else
-                                {
-                                    <span>-</span>
-                                }
-                            </td>
-                            <td>@row.Explanation</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-}
 
 @code {
+    [SupplyParameterFromQuery(Name = "run")]
+    public string? QueryRun { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? QueryTab { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? QueryPage { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? QueryStatus { get; set; }
+
     private AdminMigrationRunListResponse? runList;
     private AdminMigrationRunDetailResponse? selectedRunDetail;
     private Guid? selectedRunId;
     private bool isLoadingRuns;
     private bool isLoadingDetail;
     private bool isKickoffSubmitting;
+    private bool showKickoffPanel = true;
     private bool showKickoffConfirmation;
     private string? errorMessage;
     private string? kickoffSuccessMessage;
@@ -602,6 +750,7 @@ else if (selectedRunDetail is not null)
     private string detailRaceFilter = string.Empty;
     private string detailReasonFilter = string.Empty;
     private string detailExpectedStatusFilter = "all";
+    private string activeTab = "overview";
     private string preseasonParticipantFilter = string.Empty;
     private string preseasonReasonFilter = string.Empty;
     private bool detailNonZeroOnly;
@@ -613,7 +762,26 @@ else if (selectedRunDetail is not null)
 
     protected override async Task OnInitializedAsync()
     {
+        if (QueryPage.HasValue && QueryPage.Value > 0)
+        {
+            page = QueryPage.Value;
+        }
+
+        statusFilter = string.IsNullOrWhiteSpace(QueryStatus)
+            ? null
+            : QueryStatus;
+
+        if (IsValidTab(QueryTab))
+        {
+            activeTab = QueryTab!;
+        }
+
         await LoadRunsAsync();
+
+        if (Guid.TryParse(QueryRun, out var runIdFromQuery))
+        {
+            await SelectRunAsync(runIdFromQuery, resetTabToOverview: false, syncUrl: false);
+        }
     }
 
     private async Task LoadRunsAsync()
@@ -659,6 +827,16 @@ else if (selectedRunDetail is not null)
     private void CancelKickoffConfirmation()
     {
         showKickoffConfirmation = false;
+    }
+
+    private void ToggleKickoffPanel()
+    {
+        showKickoffPanel = !showKickoffPanel;
+
+        if (!showKickoffPanel)
+        {
+            showKickoffConfirmation = false;
+        }
     }
 
     private async Task ConfirmKickoffAsync()
@@ -715,7 +893,7 @@ else if (selectedRunDetail is not null)
 
     private bool IsUploadKickoff => string.Equals(kickoffSourceKind, "upload", StringComparison.OrdinalIgnoreCase);
 
-    private async Task SelectRunAsync(Guid runId)
+    private async Task SelectRunAsync(Guid runId, bool resetTabToOverview = true, bool syncUrl = true)
     {
         isLoadingDetail = true;
         errorMessage = null;
@@ -732,13 +910,22 @@ else if (selectedRunDetail is not null)
             }
 
             selectedRunId = runId;
+            if (resetTabToOverview)
+            {
+                activeTab = "overview";
+            }
             detailParticipantFilter = string.Empty;
             detailRaceFilter = string.Empty;
             detailReasonFilter = string.Empty;
             preseasonParticipantFilter = string.Empty;
             preseasonReasonFilter = string.Empty;
             detailNonZeroOnly = false;
-            preseasonNonZeroOnly = false;
+            preseasonNonZeroOnly = true;
+
+            if (syncUrl)
+            {
+                SyncQueryString();
+            }
         }
         catch (Exception ex)
         {
@@ -756,6 +943,7 @@ else if (selectedRunDetail is not null)
         selectedRunId = null;
         selectedRunDetail = null;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private async Task OnExpectedStatusFilterChanged(ChangeEventArgs args)
@@ -805,6 +993,7 @@ else if (selectedRunDetail is not null)
 
         page--;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private async Task NextPageAsync()
@@ -816,6 +1005,7 @@ else if (selectedRunDetail is not null)
 
         page++;
         await LoadRunsAsync();
+        SyncQueryString();
     }
 
     private IEnumerable<AdminMigrationRunListItem> GetSortedItems()
@@ -943,6 +1133,110 @@ else if (selectedRunDetail is not null)
         }
 
         return isExpectedVariance ? "badge bg-success" : "badge bg-warning text-dark";
+    }
+
+    private static string GetRunStatusBadgeClass(string? status)
+    {
+        if (string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-success";
+        }
+
+        if (string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-danger";
+        }
+
+        if (string.Equals(status, "Started", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-primary";
+        }
+
+        if (string.Equals(status, "Queued", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge bg-secondary";
+        }
+
+        return "badge bg-secondary";
+    }
+
+    private static string GetRunModeBadgeClass(bool isDryRun)
+    {
+        return isDryRun ? "badge bg-secondary" : "badge bg-info text-dark";
+    }
+
+    private static string GetUnresolvedTokenBadgeClass(int unresolvedTokenCount)
+    {
+        if (unresolvedTokenCount > 5)
+        {
+            return "badge bg-danger";
+        }
+
+        return "badge bg-warning text-dark";
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        activeTab = tab;
+        SyncQueryString();
+    }
+
+    private string GetTabButtonClass(string tab)
+    {
+        return string.Equals(activeTab, tab, StringComparison.OrdinalIgnoreCase)
+            ? "nav-link active"
+            : "nav-link";
+    }
+
+    private string GetTabPaneClass(string tab)
+    {
+        return string.Equals(activeTab, tab, StringComparison.OrdinalIgnoreCase)
+            ? "tab-pane fade show active"
+            : "tab-pane fade";
+    }
+
+    private static bool IsValidTab(string? tab)
+    {
+        if (string.IsNullOrWhiteSpace(tab))
+        {
+            return false;
+        }
+
+        return string.Equals(tab, "overview", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "preseason", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "race-participants", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "race-diffs", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "pick-diffs", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tab, "exports", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task HandleRunRowKeyDown(KeyboardEventArgs args, Guid runId)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(args.Key, " ", StringComparison.Ordinal) ||
+            string.Equals(args.Key, "Spacebar", StringComparison.OrdinalIgnoreCase))
+        {
+            await SelectRunAsync(runId);
+        }
+    }
+
+    private string GetAriaSelected(string tab)
+    {
+        return string.Equals(activeTab, tab, StringComparison.OrdinalIgnoreCase) ? "true" : "false";
+    }
+
+    private void SyncQueryString()
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["run"] = selectedRunId?.ToString(),
+            ["tab"] = string.Equals(activeTab, "overview", StringComparison.OrdinalIgnoreCase) ? null : activeTab,
+            ["page"] = page > 1 ? page : null,
+            ["status"] = string.IsNullOrWhiteSpace(statusFilter) ? null : statusFilter
+        };
+
+        var targetUri = NavigationManager.GetUriWithQueryParameters(parameters);
+        NavigationManager.NavigateTo(targetUri, replace: true);
     }
 
     private string GetExportUrl(string exportType, string format)
