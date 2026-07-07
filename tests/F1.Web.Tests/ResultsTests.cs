@@ -4,6 +4,7 @@ using F1.Web.Models;
 using F1.Web.Pages;
 using F1.Web.Services;
 using F1.Web.Services.Api;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Moq.Protected;
@@ -345,6 +346,98 @@ public class ResultsTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("Race Picks", cut.Markup));
         Assert.Contains("Preseason Questions", cut.Markup);
         Assert.Contains("No H2H question data is available for this participant.", cut.Markup);
+    }
+
+    [Fact]
+    public void Results_ShouldRestoreParticipantAndView_FromQueryString()
+    {
+        var auth = this.AddAuthorization();
+        auth.SetAuthorized("admin@example.com");
+        auth.SetRoles("Admin");
+
+        var leaderboardResponse = new CompetitionLeaderboardResponse(
+            CompetitionSlug: "philip",
+            Season: 2025,
+            DisplayName: "Philip 2025",
+            ActiveScoreSource: "ImportedLegacy",
+            ScoreView: "recalculated",
+            ScoreSourceLabel: "Compare Mode: Recalculated scores",
+            ScoreSourceHelperText: "Admin compare mode is showing recalculated totals.",
+            IsComparisonAvailable: true,
+            IsDataAvailable: true,
+            EmptyStateMessage: null,
+            SourceRunId: Guid.NewGuid(),
+            Items: [new CompetitionLeaderboardEntry(1, "Alice", 20, 25, 20)]);
+
+        var detailResponse = new CompetitionParticipantDetailResponse(
+            CompetitionSlug: "philip",
+            Season: 2025,
+            DisplayName: "Philip 2025",
+            ParticipantName: "Alice",
+            RacePicks: new CompetitionParticipantSectionSummary("Race Picks", 0, 0, []),
+            Preseason: new CompetitionParticipantSectionSummary("Preseason Questions", 0, 0, []),
+            H2h: new CompetitionParticipantSectionSummary("H2H Questions", 0, 0, []));
+
+        _handlerMock
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(leaderboardResponse))
+            })
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(detailResponse))
+            });
+
+        Services.GetRequiredService<NavigationManager>().NavigateTo("results?competition=philip&season=2025&participant=Alice&view=recalculated");
+
+        var cut = Render<Results>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Compare Mode: Recalculated scores", cut.Markup));
+        Assert.Contains("Alice", cut.Markup);
+        Assert.Contains("participant detail", cut.Markup, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Results_ShouldShowRecoveryMessage_WhenQueryContextIsInvalid()
+    {
+        var leaderboardResponse = new CompetitionLeaderboardResponse(
+            CompetitionSlug: "philip",
+            Season: 2025,
+            DisplayName: "Philip 2025",
+            ActiveScoreSource: "ImportedLegacy",
+            ScoreView: "active",
+            ScoreSourceLabel: "Official Source: Imported legacy scores",
+            ScoreSourceHelperText: "Official standings use imported legacy totals.",
+            IsComparisonAvailable: false,
+            IsDataAvailable: true,
+            EmptyStateMessage: null,
+            SourceRunId: Guid.NewGuid(),
+            Items: [new CompetitionLeaderboardEntry(1, "Alice", 25, 25, 20)]);
+
+        _handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(leaderboardResponse))
+            });
+
+        Services.GetRequiredService<NavigationManager>().NavigateTo("results?competition=unknown&season=2030");
+
+        var cut = Render<Results>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Requested leaderboard context was unavailable.", cut.Markup));
     }
 
     private sealed class InMemorySelectionContextStore : ISelectionContextStore

@@ -7,6 +7,7 @@
 @inject ISelectionContextService SelectionContextService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IMigrationRunsApiService MigrationRunsApi
+@inject NavigationManager NavigationManager
 @inject HttpClient Http
 
 <PageTitle>Competition Leaderboard</PageTitle>
@@ -69,6 +70,11 @@
             </div>
         </div>
     </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(deepLinkRecoveryMessage))
+{
+    <div class="alert alert-info" role="status">@deepLinkRecoveryMessage</div>
 }
 
 @if (!string.IsNullOrEmpty(error))
@@ -140,9 +146,22 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "competition")]
+    public string? QueryCompetition { get; set; }
+
+    [SupplyParameterFromQuery(Name = "season")]
+    public int? QuerySeason { get; set; }
+
+    [SupplyParameterFromQuery(Name = "participant")]
+    public string? QueryParticipant { get; set; }
+
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? QueryView { get; set; }
+
     private CompetitionLeaderboardResponse? leaderboard;
     private CompetitionParticipantDetailResponse? participantDetail;
     private string? error;
+    private string? deepLinkRecoveryMessage;
     private IReadOnlyList<SelectionContextOption> availableContexts = [];
     private string? selectedCompetitionSlug;
     private int? selectedSeason;
@@ -160,12 +179,19 @@ else
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         isAdmin = authState.User.IsInRole("Admin");
 
+        ApplyQueryState(restoredContext);
+
         if (isAdmin)
         {
             await LoadRecentMigrationRunsAsync();
         }
 
         await LoadLeaderboardAsync();
+
+        if (!string.IsNullOrWhiteSpace(QueryParticipant))
+        {
+            await LoadParticipantDetailAsync(QueryParticipant, syncQuery: false);
+        }
     }
 
     private async Task LoadRecentMigrationRunsAsync()
@@ -233,10 +259,16 @@ else
     private async Task ChangeScoreViewAsync(string scoreView)
     {
         selectedScoreView = scoreView;
+        SyncQueryString();
         await LoadLeaderboardAsync();
     }
 
     private async Task LoadParticipantDetailAsync(string participantName)
+    {
+        await LoadParticipantDetailAsync(participantName, syncQuery: true);
+    }
+
+    private async Task LoadParticipantDetailAsync(string participantName, bool syncQuery)
     {
         if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
         {
@@ -244,11 +276,16 @@ else
         }
 
         participantDetail = await Http.GetFromJsonAsync<CompetitionParticipantDetailResponse>($"races/results/participants/{Uri.EscapeDataString(participantName)}?competition={selectedCompetitionSlug}&season={selectedSeason.Value}");
+        if (syncQuery)
+        {
+            SyncQueryString();
+        }
     }
 
     private void ClearParticipantDetail()
     {
         participantDetail = null;
+        SyncQueryString();
     }
 
     private async Task PersistContextAndReloadAsync()
@@ -259,6 +296,7 @@ else
             await SelectionContextService.SaveLastUsedAsync(context);
         }
 
+        SyncQueryString();
         await LoadLeaderboardAsync();
     }
 
@@ -299,6 +337,54 @@ else
         return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     }
 
+    private void ApplyQueryState(SelectionContextOption restoredContext)
+    {
+        deepLinkRecoveryMessage = null;
+
+        if (!string.IsNullOrWhiteSpace(QueryCompetition) && QuerySeason.HasValue)
+        {
+            var queryContext = availableContexts.FirstOrDefault(context =>
+                string.Equals(context.CompetitionSlug, QueryCompetition, StringComparison.OrdinalIgnoreCase)
+                && context.Season == QuerySeason.Value);
+
+            if (queryContext is not null)
+            {
+                selectedCompetitionSlug = queryContext.CompetitionSlug;
+                selectedSeason = queryContext.Season;
+            }
+            else
+            {
+                selectedCompetitionSlug = restoredContext.CompetitionSlug;
+                selectedSeason = restoredContext.Season;
+                deepLinkRecoveryMessage = "Requested leaderboard context was unavailable. Restored a valid competition and season instead.";
+            }
+        }
+
+        if (isAdmin && string.Equals(QueryView, "recalculated", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedScoreView = "recalculated";
+        }
+        else if (!string.IsNullOrWhiteSpace(QueryView) && !string.Equals(QueryView, "active", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedScoreView = "active";
+            deepLinkRecoveryMessage ??= "Requested leaderboard view was invalid. Restored the official score view instead.";
+        }
+    }
+
+    private void SyncQueryString()
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["competition"] = selectedCompetitionSlug,
+            ["season"] = selectedSeason,
+            ["participant"] = participantDetail?.ParticipantName,
+            ["view"] = isAdmin && string.Equals(selectedScoreView, "recalculated", StringComparison.Ordinal) ? selectedScoreView : null
+        };
+
+        var targetUri = NavigationManager.GetUriWithQueryParameters(parameters);
+        NavigationManager.NavigateTo(targetUri, replace: true);
+    }
+
     private static string GetRunStatusBadgeClass(string status)
     {
         return status switch
@@ -323,7 +409,7 @@ else
 
     private static string GetMigrationRunLink(Guid runId)
     {
-        return $"admin/migration-runs?run={Uri.EscapeDataString(runId.ToString())}";
+        return $"admin/migration-runs?run={Uri.EscapeDataString(runId.ToString())}&tab=overview";
     }
 
     private RenderFragment RenderSection(CompetitionParticipantSectionSummary section, string emptyStateMessage) => builder =>
