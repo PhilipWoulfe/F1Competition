@@ -176,6 +176,57 @@ public sealed class MigrationRaceSelectionParserTests
     }
 
     [Fact]
+    public async Task ParseAndPersistAsync_WhenPhilContractAndMultipleSeasonCompetitions_UsesPhilipCompetitionForGenericQuestions()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.Competitions.AddRange(
+            new Competition { Id = 1, Name = "Main Competition", Year = 2025, Description = "Default seeded competition" },
+            new Competition { Id = 2, Name = "Philip 2025", Year = 2025, Description = "Philip 2025 season competition" },
+            new Competition { Id = 3, Name = "David 2025", Year = 2025, Description = "David 2025 season competition" });
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,NONE,NOT,  ,N,Y,Y,Y,N,Y,N,20"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 3,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "WDC - 1st?,NOR,VER,VER,LEC,PIA,NOR,VER,NOR,VER,NOR,NOR/VER;PIA"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        var questionTemplates = await dbContext.QuestionTemplates
+            .OrderBy(x => x.QuestionId)
+            .ToListAsync();
+
+        Assert.Equal(2, questionTemplates.Count);
+        Assert.All(questionTemplates, template => Assert.Equal(2, template.CompetitionId));
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenPreseasonAnswersContainMalformedTokens_PreservesNormalizedTrimmedValue()
     {
         var runId = Guid.NewGuid();

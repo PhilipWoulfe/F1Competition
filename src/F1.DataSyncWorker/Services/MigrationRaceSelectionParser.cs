@@ -12,6 +12,7 @@ namespace F1.DataSyncWorker.Services;
 
 public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelectionParser
 {
+    private const string Philip2025CompetitionName = "Philip 2025";
     private const string SectionTypeRacePick = "RacePick";
     private const string SectionTypeSeasonQuestionPrediction = "SeasonQuestionPrediction";
     private const string SectionTypeHeader = "Header";
@@ -265,21 +266,20 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             return null;
         }
 
-        var competitionIds = await dbContext.Competitions
-            .Where(x => x.Year == _importOptions.Season)
-            .OrderBy(x => x.Id)
-            .Select(x => x.Id)
-            .ToListAsync(cancellationToken);
+        var competitionId = await ResolveTargetCompetitionIdAsync(
+            dbContext,
+            participants,
+            usePhil2025Contract,
+            cancellationToken);
 
-        if (competitionIds.Count != 1)
+        if (!competitionId.HasValue)
         {
             return null;
         }
 
-        var competitionId = competitionIds[0];
         var templateKeys = questionRows.Select(row => ResolveQuestionId(row.RowNumber, row.RawPayload)).ToArray();
         var existingTemplateIds = await dbContext.QuestionTemplates
-            .Where(x => x.CompetitionId == competitionId && x.Season == _importOptions.Season && templateKeys.Contains(x.QuestionId))
+            .Where(x => x.CompetitionId == competitionId.Value && x.Season == _importOptions.Season && templateKeys.Contains(x.QuestionId))
             .ToDictionaryAsync(x => x.QuestionId, x => x.Id, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
         var now = DateTime.UtcNow;
@@ -313,7 +313,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             templates.Add(new QuestionTemplateEntity
             {
                 Id = existingTemplateIds.TryGetValue(questionId, out var existingTemplateId) ? existingTemplateId : 0,
-                CompetitionId = competitionId,
+                CompetitionId = competitionId.Value,
                 Season = _importOptions.Season,
                 QuestionId = questionId,
                 Category = category,
@@ -388,6 +388,60 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return templates.Count == 0
             ? null
             : new GenericQuestionData(templates, answers, actuals, questionIdBySourceRow);
+    }
+
+    private async Task<int?> ResolveTargetCompetitionIdAsync(
+        F1DbContext dbContext,
+        IReadOnlyList<string> participants,
+        bool usePhil2025Contract,
+        CancellationToken cancellationToken)
+    {
+        var competitions = await dbContext.Competitions
+            .Where(x => x.Year == _importOptions.Season)
+            .OrderBy(x => x.Id)
+            .Select(x => new { x.Id, x.Name, x.Description })
+            .ToListAsync(cancellationToken);
+
+        if (competitions.Count == 0)
+        {
+            return null;
+        }
+
+        if (competitions.Count == 1)
+        {
+            return competitions[0].Id;
+        }
+
+        var shouldPreferPhilipCompetition = usePhil2025Contract ||
+            participants.Any(x => string.Equals(x, "Philip", StringComparison.OrdinalIgnoreCase));
+
+        if (shouldPreferPhilipCompetition)
+        {
+            var exactPhilipCompetition = competitions.FirstOrDefault(x =>
+                string.Equals(x.Name, Philip2025CompetitionName, StringComparison.OrdinalIgnoreCase));
+
+            if (exactPhilipCompetition is not null)
+            {
+                return exactPhilipCompetition.Id;
+            }
+
+            var philipCompetition = competitions.FirstOrDefault(x =>
+                x.Name.Contains("Philip", StringComparison.OrdinalIgnoreCase) ||
+                x.Name.Contains("Phil", StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(x.Description) &&
+                 (x.Description.Contains("Philip", StringComparison.OrdinalIgnoreCase) ||
+                  x.Description.Contains("Phil", StringComparison.OrdinalIgnoreCase))));
+
+            if (philipCompetition is not null)
+            {
+                return philipCompetition.Id;
+            }
+        }
+
+        var mainCompetition = competitions.FirstOrDefault(x =>
+            x.Name.Contains("Main", StringComparison.OrdinalIgnoreCase));
+
+        return (mainCompetition ?? competitions[0]).Id;
     }
 
     private static async Task<Dictionary<string, long>> UpsertQuestionTemplatesAsync(
