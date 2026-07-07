@@ -1,6 +1,21 @@
+@media (min-width: 992px) {
+    .migration-runs-list-pane {
+        min-width: 0;
+    }
+}
+
 @media (min-width: 768px) {
     .migration-runs-detail-pane {
         border-left: 1px solid var(--bs-border-color);
         padding-left: 1.5rem;
     }
+}
+
+.migration-runs-table .run-id-cell code {
+    display: inline-block;
+    max-width: 10.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    white-space: nowrap;
 }

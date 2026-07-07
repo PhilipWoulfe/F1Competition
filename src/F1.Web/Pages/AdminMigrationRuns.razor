@@ -25,8 +25,8 @@
     <div class="alert alert-success" role="alert">@kickoffSuccessMessage</div>
 }
 
-<div class="row g-3">
-    <div class="col-12 col-md-4">
+<div class="row g-3 migration-runs-layout">
+    <div class="col-12 col-lg-5 migration-runs-list-pane">
         @if (showKickoffPanel)
         {
             <div class="card mb-3">
@@ -94,7 +94,7 @@
         <div class="card mb-3">
             <div class="card-body">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label class="form-label" for="status-filter">Status Filter</label>
                         <select id="status-filter" class="form-select" aria-label="Run status filter" @bind="statusFilter">
                             <option value="">All</option>
@@ -104,7 +104,7 @@
                             <option value="Failed">Failed</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 col-sm-6 col-xl-3">
                         <label class="form-label" for="sort-field">Sort Field</label>
                         <select id="sort-field" class="form-select" aria-label="Run list sort field" @bind="sortField">
                             <option value="started">Started</option>
@@ -114,14 +114,14 @@
                             <option value="unresolved">Unresolved Tokens</option>
                         </select>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-12 col-sm-6 col-xl-2">
                         <label class="form-label" for="sort-direction">Direction</label>
                         <select id="sort-direction" class="form-select" aria-label="Run list sort direction" @bind="sortDirection">
                             <option value="desc">Descending</option>
                             <option value="asc">Ascending</option>
                         </select>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-12 col-sm-6 col-xl-2">
                         <label class="form-label" for="page-size">Page Size</label>
                         <select id="page-size" class="form-select" aria-label="Run list page size" @bind="pageSize">
                             <option value="10">10</option>
@@ -129,8 +129,11 @@
                             <option value="50">50</option>
                         </select>
                     </div>
-                    <div class="col-md-2 d-grid">
+                    <div class="col-12 col-sm-6 col-xl-1 d-grid">
                         <button class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@isLoadingRuns">Apply</button>
+                    </div>
+                    <div class="col-12 col-sm-6 col-xl-1 d-grid">
+                        <button class="btn btn-outline-secondary" @onclick="RefreshRunsAsync" disabled="@(isLoadingRuns || isLoadingDetail)">Refresh</button>
                     </div>
                 </div>
             </div>
@@ -147,10 +150,10 @@
         else
         {
             <div class="table-responsive mb-3">
-                <table class="table table-striped table-hover">
+                <table class="table table-striped table-hover migration-runs-table">
                     <thead>
                         <tr>
-                            <th scope="col">Run Id</th>
+                            <th scope="col">Run</th>
                             <th scope="col">Started (UTC)</th>
                             <th scope="col">Finished (UTC)</th>
                             <th scope="col">Status</th>
@@ -171,7 +174,9 @@
                             <tr class="@(selectedRunId == item.RunId ? "table-primary" : string.Empty)"
                                 tabindex="@(selectedRunId == item.RunId || (selectedRunId == null && item.RunId == firstRunId) ? 0 : -1)"
                                 @onkeydown="(args) => HandleRunRowKeyDown(args, item.RunId)">
-                                <td><code>@item.RunId</code></td>
+                                <td class="run-id-cell">
+                                    <code title="@item.RunId">@FormatRunId(item.RunId)</code>
+                                </td>
                                 <td>@item.StartedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>@(item.FinishedAtUtc.HasValue ? item.FinishedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") : "-")</td>
                                 <td>
@@ -218,7 +223,7 @@
         }
     </div>
 
-    <div class="col-12 col-md-8 migration-runs-detail-pane" aria-live="polite">
+    <div class="col-12 col-lg-7 migration-runs-detail-pane" aria-live="polite">
         @{
             var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
             var filteredPreseasonParticipantDeltas = GetFilteredPreseasonParticipantDeltas().ToList();
@@ -321,6 +326,8 @@
                                 <div class="card-body">
                                     <div class="text-muted small">Total Delta</div>
                                     <div class="fs-4">@selectedRunDetail.TotalDeltaPoints</div>
+                                    <div class="text-muted small">Race: @GetRaceTotalDeltaPoints()</div>
+                                    <div class="text-muted small">Preseason: @selectedRunDetail.PreseasonSummary.TotalDeltaPoints</div>
                                     <div class="text-muted small">Unexpected: @selectedRunDetail.UnexpectedTotalDeltaPoints</div>
                                 </div>
                             </div>
@@ -946,6 +953,16 @@
         SyncQueryString();
     }
 
+    private async Task RefreshRunsAsync()
+    {
+        await LoadRunsAsync();
+
+        if (selectedRunId.HasValue)
+        {
+            await ReloadSelectedRunDetailAsync(selectedRunId.Value);
+        }
+    }
+
     private async Task OnExpectedStatusFilterChanged(ChangeEventArgs args)
     {
         detailExpectedStatusFilter = args.Value?.ToString() ?? "all";
@@ -1113,6 +1130,22 @@
 
         return !string.IsNullOrWhiteSpace(value) &&
                value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatRunId(Guid runId)
+    {
+        var runIdText = runId.ToString();
+        return $"{runIdText[..8]}...{runIdText[^6..]}";
+    }
+
+    private int GetRaceTotalDeltaPoints()
+    {
+        if (selectedRunDetail is null)
+        {
+            return 0;
+        }
+
+        return selectedRunDetail.TotalDeltaPoints - selectedRunDetail.PreseasonSummary.TotalDeltaPoints;
     }
 
     private static string GetVarianceStatusText(bool isExpectedVariance, int deltaPoints)

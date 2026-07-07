@@ -65,7 +65,7 @@ internal class MigrationRunsPage
     public void SelectRun(Guid runId)
     {
         _trace($"Selecting run {runId}");
-        var selector = By.XPath($"//tr[td/code[normalize-space()='{runId}']]//button[normalize-space()='View']");
+        var selector = By.XPath($"//tr[td/code[@title='{runId}']]//button[normalize-space()='View']");
         _wait.Until(driver => driver.FindElements(selector).Count > 0);
         _driver.FindElement(selector).Click();
     }
