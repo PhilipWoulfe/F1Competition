@@ -11,4 +11,5 @@ public sealed class QuestionActual
     public string? OverrideAnswer { get; set; }
 
     public DateTime RecordedAtUtc { get; set; }
+    
 }
