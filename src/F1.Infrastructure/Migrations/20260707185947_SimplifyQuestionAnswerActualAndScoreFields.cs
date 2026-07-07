@@ -64,6 +64,134 @@ namespace F1.Infrastructure.Migrations
                 name: "ActualAnswer",
                 table: "QuestionActuals",
                 newName: "ImportedAnswer");
+
+            migrationBuilder.Sql(
+                @"
+UPDATE ""QuestionAnswers""
+SET ""ImportedAnswer"" = CASE lower(trim(""ImportedAnswer""))
+    WHEN 'alpine' THEN 'alpine'
+    WHEN 'alpine f1 team' THEN 'alpine'
+    WHEN 'amr' THEN 'aston_martin'
+    WHEN 'aston martin' THEN 'aston_martin'
+    WHEN 'aston martin f1 team' THEN 'aston_martin'
+    WHEN 'fer' THEN 'ferrari'
+    WHEN 'ferrari' THEN 'ferrari'
+    WHEN 'haas' THEN 'haas'
+    WHEN 'haas f1 team' THEN 'haas'
+    WHEN 'mcl' THEN 'mclaren'
+    WHEN 'mclaren' THEN 'mclaren'
+    WHEN 'mercedes' THEN 'mercedes'
+    WHEN 'rb' THEN 'rb'
+    WHEN 'rbpt' THEN 'red_bull'
+    WHEN 'rb f1 team' THEN 'rb'
+    WHEN 'racing bulls' THEN 'rb'
+    WHEN 'red bull' THEN 'red_bull'
+    WHEN 'red bull racing' THEN 'red_bull'
+    WHEN 'sauber' THEN 'sauber'
+    WHEN 'williams' THEN 'williams'
+    ELSE ""ImportedAnswer""
+END;
+
+UPDATE ""QuestionAnswers""
+SET ""OverrideAnswer"" = CASE lower(trim(""OverrideAnswer""))
+    WHEN 'alpine' THEN 'alpine'
+    WHEN 'alpine f1 team' THEN 'alpine'
+    WHEN 'amr' THEN 'aston_martin'
+    WHEN 'aston martin' THEN 'aston_martin'
+    WHEN 'aston martin f1 team' THEN 'aston_martin'
+    WHEN 'fer' THEN 'ferrari'
+    WHEN 'ferrari' THEN 'ferrari'
+    WHEN 'haas' THEN 'haas'
+    WHEN 'haas f1 team' THEN 'haas'
+    WHEN 'mcl' THEN 'mclaren'
+    WHEN 'mclaren' THEN 'mclaren'
+    WHEN 'mercedes' THEN 'mercedes'
+    WHEN 'rb' THEN 'rb'
+    WHEN 'rbpt' THEN 'red_bull'
+    WHEN 'rb f1 team' THEN 'rb'
+    WHEN 'racing bulls' THEN 'rb'
+    WHEN 'red bull' THEN 'red_bull'
+    WHEN 'red bull racing' THEN 'red_bull'
+    WHEN 'sauber' THEN 'sauber'
+    WHEN 'williams' THEN 'williams'
+    ELSE ""OverrideAnswer""
+END;
+
+UPDATE ""QuestionActuals""
+SET ""ImportedAnswer"" = CASE lower(trim(""ImportedAnswer""))
+    WHEN 'alpine' THEN 'alpine'
+    WHEN 'alpine f1 team' THEN 'alpine'
+    WHEN 'amr' THEN 'aston_martin'
+    WHEN 'aston martin' THEN 'aston_martin'
+    WHEN 'aston martin f1 team' THEN 'aston_martin'
+    WHEN 'fer' THEN 'ferrari'
+    WHEN 'ferrari' THEN 'ferrari'
+    WHEN 'haas' THEN 'haas'
+    WHEN 'haas f1 team' THEN 'haas'
+    WHEN 'mcl' THEN 'mclaren'
+    WHEN 'mclaren' THEN 'mclaren'
+    WHEN 'mercedes' THEN 'mercedes'
+    WHEN 'rb' THEN 'rb'
+    WHEN 'rbpt' THEN 'red_bull'
+    WHEN 'rb f1 team' THEN 'rb'
+    WHEN 'racing bulls' THEN 'rb'
+    WHEN 'red bull' THEN 'red_bull'
+    WHEN 'red bull racing' THEN 'red_bull'
+    WHEN 'sauber' THEN 'sauber'
+    WHEN 'williams' THEN 'williams'
+    ELSE ""ImportedAnswer""
+END;
+
+UPDATE ""QuestionActuals""
+SET ""OverrideAnswer"" = CASE lower(trim(""OverrideAnswer""))
+    WHEN 'alpine' THEN 'alpine'
+    WHEN 'alpine f1 team' THEN 'alpine'
+    WHEN 'amr' THEN 'aston_martin'
+    WHEN 'aston martin' THEN 'aston_martin'
+    WHEN 'aston martin f1 team' THEN 'aston_martin'
+    WHEN 'fer' THEN 'ferrari'
+    WHEN 'ferrari' THEN 'ferrari'
+    WHEN 'haas' THEN 'haas'
+    WHEN 'haas f1 team' THEN 'haas'
+    WHEN 'mcl' THEN 'mclaren'
+    WHEN 'mclaren' THEN 'mclaren'
+    WHEN 'mercedes' THEN 'mercedes'
+    WHEN 'rb' THEN 'rb'
+    WHEN 'rbpt' THEN 'red_bull'
+    WHEN 'rb f1 team' THEN 'rb'
+    WHEN 'racing bulls' THEN 'rb'
+    WHEN 'red bull' THEN 'red_bull'
+    WHEN 'red bull racing' THEN 'red_bull'
+    WHEN 'sauber' THEN 'sauber'
+    WHEN 'williams' THEN 'williams'
+    ELSE ""OverrideAnswer""
+END;
+
+UPDATE ""MigrationImportPreseasonAnswers""
+SET ""NormalizedAnswer"" = CASE lower(trim(""NormalizedAnswer""))
+    WHEN 'alpine' THEN 'alpine'
+    WHEN 'alpine f1 team' THEN 'alpine'
+    WHEN 'amr' THEN 'aston_martin'
+    WHEN 'aston martin' THEN 'aston_martin'
+    WHEN 'aston martin f1 team' THEN 'aston_martin'
+    WHEN 'fer' THEN 'ferrari'
+    WHEN 'ferrari' THEN 'ferrari'
+    WHEN 'haas' THEN 'haas'
+    WHEN 'haas f1 team' THEN 'haas'
+    WHEN 'mcl' THEN 'mclaren'
+    WHEN 'mclaren' THEN 'mclaren'
+    WHEN 'mercedes' THEN 'mercedes'
+    WHEN 'rb' THEN 'rb'
+    WHEN 'rbpt' THEN 'red_bull'
+    WHEN 'rb f1 team' THEN 'rb'
+    WHEN 'racing bulls' THEN 'rb'
+    WHEN 'red bull' THEN 'red_bull'
+    WHEN 'red bull racing' THEN 'red_bull'
+    WHEN 'sauber' THEN 'sauber'
+    WHEN 'williams' THEN 'williams'
+    ELSE ""NormalizedAnswer""
+END;
+");
         }
 
         /// <inheritdoc />

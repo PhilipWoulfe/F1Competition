@@ -130,6 +130,30 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         ["ZHO"] = "zhou"
     };
 
+    private static readonly Dictionary<string, string> JolpicaConstructorIdByName = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ALPINE"] = "alpine",
+        ["ALPINE F1 TEAM"] = "alpine",
+        ["AMR"] = "aston_martin",
+        ["ASTON MARTIN"] = "aston_martin",
+        ["ASTON MARTIN F1 TEAM"] = "aston_martin",
+        ["FER"] = "ferrari",
+        ["FERRARI"] = "ferrari",
+        ["HAAS"] = "haas",
+        ["HAAS F1 TEAM"] = "haas",
+        ["MCL"] = "mclaren",
+        ["MCLAREN"] = "mclaren",
+        ["MERCEDES"] = "mercedes",
+        ["RB"] = "rb",
+        ["RBPT"] = "red_bull",
+        ["RB F1 TEAM"] = "rb",
+        ["RACING BULLS"] = "rb",
+        ["RED BULL"] = "red_bull",
+        ["RED BULL RACING"] = "red_bull",
+        ["SAUBER"] = "sauber",
+        ["WILLIAMS"] = "williams"
+    };
+
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly MigrationImportOptions _importOptions;
 
@@ -1163,6 +1187,11 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         }
 
         var lookupToken = NormalizeTokenLookup(token);
+        if (JolpicaConstructorIdByName.TryGetValue(lookupToken, out var mappedConstructorId))
+        {
+            return mappedConstructorId;
+        }
+
         if (QuestionTokenAliasDictionary.TryGetValue(lookupToken, out var mappedToken))
         {
             return MapDriverCodeToId(mappedToken, driverIdByCode);
