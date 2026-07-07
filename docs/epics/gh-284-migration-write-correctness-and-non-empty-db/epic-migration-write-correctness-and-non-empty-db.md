@@ -46,6 +46,7 @@ Acceptance criteria:
 Test notes:
 - Add a characterization test that reproduces current failed/no-op write behavior before fix.
 - Add traceability artifact reference in docs/runbook so future regressions can be triaged quickly.
+  - Artifact: `docs/runbooks/migration-write-pipeline-trace.md`
 
 ### Story 2: Implement transactional write path to canonical tables
 As an operator, I want write runs to persist all intended entities atomically so partial writes cannot corrupt state.
