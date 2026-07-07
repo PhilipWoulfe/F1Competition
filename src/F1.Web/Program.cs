@@ -1,4 +1,5 @@
 using F1.Web;
+using F1.Web.Configuration;
 using F1.Web.Services.Api;
 using F1.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -83,6 +84,8 @@ builder.Services.AddScoped<IRaceMetadataApiService, RaceMetadataApiService>();
 builder.Services.AddScoped<ISelectionApiService, SelectionApiService>();
 builder.Services.AddScoped<ISelectionPageService, SelectionPageService>();
 builder.Services.AddScoped<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
+builder.Services.Configure<PostLoginRoutingOptions>(builder.Configuration.GetSection(PostLoginRoutingOptions.SectionName));
+builder.Services.AddScoped<IPostLoginLandingResolver, PostLoginLandingResolver>();
 
 // --- Auth Services ---
 builder.Services.AddAuthorizationCore();

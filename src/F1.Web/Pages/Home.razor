@@ -1,13 +1,45 @@
 ﻿@page "/"
 @inject F1.Web.Services.IUserSession UserSession
+@inject NavigationManager NavigationManager
+@inject IPostLoginLandingResolver PostLoginLandingResolver
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Competition Workspace</PageTitle>
 
-<h1>Hello, @DisplayName!</h1>
+@if (resolvedPath == "/")
+{
+    <h1>Hello, @DisplayName!</h1>
 
-Welcome to your new app.
+    <p>Welcome to your competition workspace.</p>
+}
+else
+{
+    <h1>Redirecting...</h1>
+
+    <p>Loading the right workspace for your account.</p>
+}
 
 @code {
+	private string resolvedPath = "/";
+
+	protected override void OnInitialized()
+	{
+		resolvedPath = PostLoginLandingResolver.Resolve(UserSession.User);
+	}
+
+	protected override void OnAfterRender(bool firstRender)
+	{
+		if (!firstRender || string.IsNullOrWhiteSpace(resolvedPath))
+		{
+			return;
+		}
+
+		var currentPath = new Uri(NavigationManager.Uri).AbsolutePath;
+		if (!string.Equals(currentPath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+		{
+			NavigationManager.NavigateTo(resolvedPath, replace: true);
+		}
+	}
+
 	private string DisplayName
 	{
 		get

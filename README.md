@@ -191,6 +191,14 @@ Notes:
 - `/api/users/debug/me` returns sanitized post-auth claims, groups, and role resolution data only when `DEV_ENABLE_DEBUG_ENDPOINTS=true` and the API is running in `Development` or `Test`.
 - `TAG` applies to API, Web, and Data Sync worker images. Use `TAG=test` for the test host, `TAG=stable` for production, and `TAG=sha-<shortsha>` for rollback or pinning a specific build.
 
+Web post-login landing config:
+
+- `src/F1.Web/wwwroot/appsettings.json` contains the `PostLoginRouting` section used by the web client after authentication.
+- `AdminLandingPath` defaults to `/admin/migration-runs`.
+- `AuthenticatedUserLandingPath` defaults to `/results`.
+- `FallbackPath` is used when the user session is missing or a role-specific landing path is blank, and defaults to `/results`.
+- Environment-specific overrides can be added in `src/F1.Web/wwwroot/appsettings.Development.json`, `src/F1.Web/wwwroot/appsettings.Test.json`, or `src/F1.Web/wwwroot/appsettings.Production.json`.
+
 #### B. Data Sync Worker (`src/F1.DataSyncWorker/appsettings*.json`)
 The worker reads `ConnectionStrings:Postgres` and the `DataSyncWorker` section. Default config includes the three baseline competitions for this epic:
 
