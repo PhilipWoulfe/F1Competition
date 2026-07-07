@@ -48,6 +48,29 @@ public class RaceMetadataService : IRaceMetadataService
             throw new MetadataValidationException("Bonus question is required.");
         }
 
+        var hasAnyH2hOption =
+            !string.IsNullOrWhiteSpace(metadata.H2HLeftDriverId) ||
+            !string.IsNullOrWhiteSpace(metadata.H2HRightDriverId) ||
+            metadata.H2HPoints.HasValue;
+
+        if (hasAnyH2hOption)
+        {
+            if (string.IsNullOrWhiteSpace(metadata.H2HLeftDriverId) || string.IsNullOrWhiteSpace(metadata.H2HRightDriverId))
+            {
+                throw new MetadataValidationException("H2H questions require exactly two driver choices.");
+            }
+
+            if (string.Equals(metadata.H2HLeftDriverId.Trim(), metadata.H2HRightDriverId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new MetadataValidationException("H2H driver choices must be different.");
+            }
+
+            if (!metadata.H2HPoints.HasValue || metadata.H2HPoints.Value <= 0)
+            {
+                throw new MetadataValidationException("H2H points must be greater than zero.");
+            }
+        }
+
         metadata.RaceId = raceId;
         metadata.UpdatedAtUtc = _dateTimeProvider.UtcNow;
 

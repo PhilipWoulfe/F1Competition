@@ -3,5 +3,6 @@ namespace F1.Core.Models;
 public enum QuestionCategory
 {
     Preseason = 1,
-    H2H = 2
+    H2H = 2,
+    RaceBonus = 3
 }

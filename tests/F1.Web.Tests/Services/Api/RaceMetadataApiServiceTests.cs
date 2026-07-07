@@ -19,6 +19,9 @@ public class RaceMetadataApiServiceTests
         {
             RaceId = RaceId,
             H2HQuestion = "Who finishes higher?",
+            H2HLeftDriverId = "HAM",
+            H2HRightDriverId = "VER",
+            H2HPoints = 5,
             BonusQuestion = "How many safety cars?",
             IsPublished = true,
             UpdatedAtUtc = new DateTime(2025, 12, 1, 12, 0, 0, DateTimeKind.Utc)
@@ -49,6 +52,9 @@ public class RaceMetadataApiServiceTests
         Assert.NotNull(result);
         Assert.Equal(RaceId, result.RaceId);
         Assert.Equal("Who finishes higher?", result.H2HQuestion);
+        Assert.Equal("HAM", result.H2HLeftDriverId);
+        Assert.Equal("VER", result.H2HRightDriverId);
+        Assert.Equal(5, result.H2HPoints);
         Assert.True(result.IsPublished);
     }
 

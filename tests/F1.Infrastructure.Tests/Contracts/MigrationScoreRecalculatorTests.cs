@@ -472,6 +472,92 @@ public sealed class MigrationScoreRecalculatorTests
         Assert.Equal("QUESTION_CATEGORY_STRATEGY_MISSING", score.ReasonCode);
     }
 
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenH2hQuestionConfigured_ScoresCorrectChosenDriver()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 301,
+            CompetitionId = 1,
+            Season = 2025,
+            QuestionId = "H2H-301",
+            Category = QuestionCategory.H2H,
+            Prompt = "HAM or VER?",
+            OptionsJson = "{\"LeftDriverId\":\"HAM\",\"RightDriverId\":\"VER\",\"PointsForCorrectPick\":5}",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 30,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.AddRange(
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 301,
+                ParticipantId = "Philip",
+                ImportedAnswer = "HAM",
+                NormalizedAnswer = "HAM",
+                SourceRow = 30,
+                SourceColumn = 2,
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                ImportRunId = runId,
+                QuestionTemplateId = 301,
+                ParticipantId = "Andy",
+                ImportedAnswer = "VER",
+                NormalizedAnswer = "VER",
+                SourceRow = 30,
+                SourceColumn = 3,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            ImportRunId = runId,
+            QuestionTemplateId = 301,
+            ActualAnswer = "VER",
+            NormalizedAnswer = "VER",
+            SourceRow = 30,
+            SourceColumn = 10,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var scores = await dbContext.QuestionScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.ParticipantId)
+            .ToListAsync();
+
+        Assert.Equal(2, scores.Count);
+        Assert.Equal(0, scores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
+        Assert.Equal("H2H_WRONG_PICK", scores.Single(x => x.ParticipantId == "Philip").ReasonCode);
+        Assert.Equal(5, scores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
+        Assert.Equal("H2H_CORRECT_PICK", scores.Single(x => x.ParticipantId == "Andy").ReasonCode);
+    }
+
     private static MigrationImportRaceSelectionEntity Selection(
         Guid runId,
         int rowNumber,

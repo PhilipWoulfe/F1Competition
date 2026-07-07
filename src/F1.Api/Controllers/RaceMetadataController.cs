@@ -58,6 +58,9 @@ public class RaceMetadataController : ControllerBase
                 new RaceQuestionMetadata
                 {
                     H2HQuestion = request.H2HQuestion,
+                    H2HLeftDriverId = request.H2HLeftDriverId,
+                    H2HRightDriverId = request.H2HRightDriverId,
+                    H2HPoints = request.H2HPoints,
                     BonusQuestion = request.BonusQuestion,
                     IsPublished = request.IsPublished
                 });
@@ -80,6 +83,9 @@ public class RaceMetadataController : ControllerBase
         {
             RaceId = metadata.RaceId,
             H2HQuestion = metadata.H2HQuestion,
+            H2HLeftDriverId = metadata.H2HLeftDriverId,
+            H2HRightDriverId = metadata.H2HRightDriverId,
+            H2HPoints = metadata.H2HPoints,
             BonusQuestion = metadata.BonusQuestion,
             IsPublished = metadata.IsPublished,
             UpdatedAtUtc = metadata.UpdatedAtUtc,

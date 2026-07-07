@@ -32,7 +32,8 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         : this(
             dbContextFactory,
             new QuestionScoringStrategyRegistry([
-                new PreseasonQuestionScoringStrategy()
+                new PreseasonQuestionScoringStrategy(),
+                new H2hQuestionScoringStrategy()
             ]))
     {
     }

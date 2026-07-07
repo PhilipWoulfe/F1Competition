@@ -29,14 +29,34 @@ public class EfRaceMetadataRepositoryContractTests : RaceMetadataRepositoryContr
         var context = CreateContext();
         SeedCompetitionAndRace(context, raceId);
 
-        context.RaceMetadata.Add(new RaceMetadataEntity
-        {
-            RaceId = raceId,
-            H2HQuestion = metadata.H2HQuestion,
-            BonusQuestion = metadata.BonusQuestion,
-            IsPublished = metadata.IsPublished,
-            UpdatedAtUtc = metadata.UpdatedAtUtc
-        });
+        context.QuestionTemplates.AddRange(
+            new QuestionTemplateEntity
+            {
+                CompetitionId = 1,
+                Season = 2025,
+                QuestionId = $"{raceId}:H2H",
+                Category = QuestionCategory.H2H,
+                Prompt = metadata.H2HQuestion,
+                OptionsJson = metadata.H2HLeftDriverId is null || metadata.H2HRightDriverId is null || !metadata.H2HPoints.HasValue
+                    ? null
+                    : $"{{\"LeftDriverId\":\"{metadata.H2HLeftDriverId}\",\"RightDriverId\":\"{metadata.H2HRightDriverId}\",\"PointsForCorrectPick\":{metadata.H2HPoints.Value}}}",
+                Status = metadata.IsPublished ? QuestionTemplateStatus.Published : QuestionTemplateStatus.Draft,
+                SortOrder = 241,
+                CreatedAtUtc = metadata.UpdatedAtUtc,
+                UpdatedAtUtc = metadata.UpdatedAtUtc
+            },
+            new QuestionTemplateEntity
+            {
+                CompetitionId = 1,
+                Season = 2025,
+                QuestionId = $"{raceId}:BONUS",
+                Category = QuestionCategory.RaceBonus,
+                Prompt = metadata.BonusQuestion,
+                Status = metadata.IsPublished ? QuestionTemplateStatus.Published : QuestionTemplateStatus.Draft,
+                SortOrder = 242,
+                CreatedAtUtc = metadata.UpdatedAtUtc,
+                UpdatedAtUtc = metadata.UpdatedAtUtc
+            });
         context.SaveChanges();
 
         var repository = new EfRaceMetadataRepository(context);
