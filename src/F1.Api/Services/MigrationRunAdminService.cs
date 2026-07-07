@@ -697,27 +697,41 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationQuestionDiffDto[]> BuildQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
     {
-        return await _dbContext.QuestionScores
+        var rows = await _dbContext.QuestionScores
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
             .Join(
                 _dbContext.QuestionTemplates.AsNoTracking(),
                 score => score.QuestionTemplateId,
                 template => template.Id,
-                (score, template) => new AdminMigrationQuestionDiffDto(
-                    template.Category.ToString(),
+                (score, template) => new
+                {
+                    template.Category,
                     template.QuestionId,
                     template.Prompt,
                     score.ParticipantId,
                     score.ImportedPoints,
                     score.CalculatedPoints,
                     score.DeltaPoints,
-                    score.ReasonCode))
+                    score.ReasonCode
+                })
             .OrderBy(x => x.Category)
             .ThenBy(x => x.QuestionId)
-            .ThenBy(x => x.Participant)
+            .ThenBy(x => x.ParticipantId)
             .ThenBy(x => x.ReasonCode)
             .ToArrayAsync(cancellationToken);
+
+        return rows
+            .Select(x => new AdminMigrationQuestionDiffDto(
+                x.Category.ToString(),
+                x.QuestionId,
+                x.Prompt,
+                x.ParticipantId,
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode))
+            .ToArray();
     }
 
     private static IEnumerable<AdminMigrationQuestionDiffDto> ApplyQuestionFilters(
