@@ -370,11 +370,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 null);
         }
 
-        var rollbackRacePrefix = $"migration-{rollbackSeasons[0]}-";
-
         var raceIds = await _dbContext.Races
             .AsNoTracking()
-            .Where(x => raceCodes.Contains(x.RaceName) && x.Id.StartsWith(rollbackRacePrefix))
+            .Where(x => x.Season == rollbackSeasons[0] && raceCodes.Contains(x.CircuitName))
             .Select(x => x.Id)
             .Distinct()
             .ToArrayAsync(cancellationToken);
@@ -968,10 +966,22 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationQuestionDiffDto[]> BuildQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
     {
+        var season = await _dbContext.MigrationImportRaceRoundMappings
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.Season.HasValue)
+            .Select(x => x.Season!.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var templateQuery = _dbContext.QuestionTemplates.AsNoTracking();
+        if (season != 0)
+        {
+            templateQuery = templateQuery.Where(t => t.Season == season);
+        }
+
         var rows = await _dbContext.QuestionScores
             .AsNoTracking()
             .Join(
-                _dbContext.QuestionTemplates.AsNoTracking(),
+                templateQuery,
                 score => score.QuestionTemplateId,
                 template => template.Id,
                 (score, template) => new

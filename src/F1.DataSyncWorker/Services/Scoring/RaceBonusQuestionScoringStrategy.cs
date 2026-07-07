@@ -20,12 +20,14 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
             return [];
         }
 
+        var templateIds = templates.Select(t => t.Id).ToHashSet();
+
         var actualByTemplate = context.Actuals
-            .Where(x => templates.Any(template => template.Id == x.QuestionTemplateId))
+            .Where(x => templateIds.Contains(x.QuestionTemplateId))
             .ToDictionary(x => x.QuestionTemplateId);
 
         var answersByTemplate = context.Answers
-            .Where(x => templates.Any(template => template.Id == x.QuestionTemplateId))
+            .Where(x => templateIds.Contains(x.QuestionTemplateId))
             .GroupBy(x => x.QuestionTemplateId)
             .ToDictionary(x => x.Key, x => x.OrderBy(y => y.ParticipantId, StringComparer.OrdinalIgnoreCase).ToList());
 

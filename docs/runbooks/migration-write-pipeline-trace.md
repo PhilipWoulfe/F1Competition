@@ -42,18 +42,18 @@ This trace documents the current migration import execution path from kickoff to
 
 8. Canonical race-domain writes (write mode only)
 - Canonical persistence runs after reconciliation in write mode via `MigrationCanonicalWriteService`.
-- Entities materialized/updated where applicable:
-  - `Drivers`
-  - `Races`
-  - `Selections`
-  - `SelectionPositions`
+- Races must be pre-seeded for the target season; the migration writer looks them up by circuit id or round and does not create new Race rows.
+- Entities created/updated where applicable:
+  - `Drivers` (created when missing)
+  - `Selections` (created or reused per conflict policy)
+  - `SelectionPositions` (replaced per selection)
 
 ## Intended Canonical Targets (Epic Contract)
-For write mode, canonical race-domain entities are expected to be materialized where applicable:
-- `Drivers`
-- `Races`
-- `Selections`
-- `SelectionPositions`
+For write mode, canonical race-domain entities are created or updated where applicable:
+- `Drivers` (created when not already present)
+- `Races` (pre-seeded required; looked up by circuit id or round — not created by migration writer)
+- `Selections` (created or reused per conflict policy)
+- `SelectionPositions` (replaced per selection)
 
 Question-domain tables already receive run-scoped writes via parser/scoring (`QuestionAnswers`, `QuestionActuals`, `QuestionScores`).
 
