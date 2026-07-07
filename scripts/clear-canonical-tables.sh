@@ -81,8 +81,6 @@ DELETE FROM public."QuestionActuals";
 DELETE FROM public."QuestionTemplates";
 DELETE FROM public."SelectionPositions";
 DELETE FROM public."Selections";
-DELETE FROM public."RaceMetadata";
-DELETE FROM public."Drivers";
 SQL
 )
 
@@ -92,10 +90,26 @@ fi
 
 sql+=$'\nCOMMIT;\n'
 
-if [[ -n "$conn" ]]; then
-  psql "$conn" -v ON_ERROR_STOP=1 -c "$sql"
+sql_file=$(mktemp)
+cleanup() {
+  rm -f "$sql_file"
+}
+trap cleanup EXIT
+
+printf '%s' "$sql" > "$sql_file"
+
+if command -v psql >/dev/null 2>&1; then
+  if [[ -n "$conn" ]]; then
+    psql "$conn" -v ON_ERROR_STOP=1 -f "$sql_file"
+  else
+    psql -v ON_ERROR_STOP=1 -f "$sql_file"
+  fi
 else
-  psql -v ON_ERROR_STOP=1 -c "$sql"
+  if [[ -n "$conn" ]]; then
+    DATABASE_URL="$conn" docker compose exec -T postgres sh -lc 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /dev/stdin' < "$sql_file"
+  else
+    PGPASSWORD="${POSTGRES_PASSWORD:-f1}" docker compose exec -T postgres psql -U "${POSTGRES_USER:-f1}" -d "${POSTGRES_DB:-f1competition}" -v ON_ERROR_STOP=1 -f /dev/stdin < "$sql_file"
+  fi
 fi
 
 echo 'Canonical table clear-down complete.'
