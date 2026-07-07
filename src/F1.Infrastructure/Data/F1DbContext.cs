@@ -158,10 +158,8 @@ public class F1DbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswerBoolean);
+            entity.Property(x => x.OverrideAnswer).HasMaxLength(512);
             entity.HasIndex(x => new { x.QuestionTemplateId, x.ParticipantId }).IsUnique();
-            entity.HasIndex(x => new { x.SourceRow, x.SourceColumn });
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()
@@ -173,12 +171,9 @@ public class F1DbContext : DbContext
         {
             entity.ToTable("QuestionActuals");
             entity.HasKey(x => x.Id);
-            entity.Property(x => x.ActualAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
-            entity.Property(x => x.NormalizedAnswerBoolean);
-            entity.Property(x => x.NormalizationDiagnosticsJson).HasColumnType("text");
+            entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
+            entity.Property(x => x.OverrideAnswer).HasMaxLength(512);
             entity.HasIndex(x => x.QuestionTemplateId).IsUnique();
-            entity.HasIndex(x => new { x.SourceRow, x.SourceColumn });
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()
@@ -191,7 +186,6 @@ public class F1DbContext : DbContext
             entity.ToTable("QuestionScores");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
-            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
             entity.HasIndex(x => new { x.QuestionTemplateId, x.ParticipantId }).IsUnique();
             entity.HasIndex(x => x.DeltaPoints);
 

@@ -242,8 +242,7 @@ public sealed class MigrationRunsControllerTests
                         Participant: "Philip",
                         ImportedPoints: 20,
                         CalculatedPoints: 0,
-                        DeltaPoints: -20,
-                        ReasonCode: "PRESEASON_RULE_VARIANCE")
+                        DeltaPoints: -20)
                 ]));
 
         var controller = new MigrationRunsController(service.Object)

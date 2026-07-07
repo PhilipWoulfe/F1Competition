@@ -198,13 +198,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 if (genericQuestions is not null)
                 {
                     var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
-                    ApplyTemplateIds(genericQuestions, templateIds);
+                    var materialized = ApplyTemplateIds(genericQuestions, templateIds);
                     var templateIdSet = templateIds.Values.Distinct().ToArray();
                     dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
                     dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
                     await dbContext.SaveChangesAsync(cancellationToken);
-                    await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
-                    await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
+                    await dbContext.QuestionAnswers.AddRangeAsync(materialized.Answers, cancellationToken);
+                    await dbContext.QuestionActuals.AddRangeAsync(materialized.Actuals, cancellationToken);
                 }
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -337,13 +337,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         if (genericQuestions is not null)
         {
             var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
-            ApplyTemplateIds(genericQuestions, templateIds);
+            var materialized = ApplyTemplateIds(genericQuestions, templateIds);
             var templateIdSet = templateIds.Values.Distinct().ToArray();
             dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
             dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
             await dbContext.SaveChangesAsync(cancellationToken);
-            await dbContext.QuestionAnswers.AddRangeAsync(genericQuestions.Answers, cancellationToken);
-            await dbContext.QuestionActuals.AddRangeAsync(genericQuestions.Actuals, cancellationToken);
+            await dbContext.QuestionAnswers.AddRangeAsync(materialized.Answers, cancellationToken);
+            await dbContext.QuestionActuals.AddRangeAsync(materialized.Actuals, cancellationToken);
         }
         if (unresolvedTokens.Count > 0)
         {
@@ -394,10 +394,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         var now = DateTime.UtcNow;
         var templates = new List<QuestionTemplateEntity>();
-        var answers = new List<QuestionAnswerEntity>();
-        var actuals = new List<QuestionActualEntity>();
-
-        var questionIdBySourceRow = new Dictionary<int, string>();
+        var answers = new List<PendingQuestionAnswer>();
+        var actuals = new List<PendingQuestionActual>();
 
         foreach (var row in questionRows)
         {
@@ -414,7 +412,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             }
 
             var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload);
-            questionIdBySourceRow[row.RowNumber] = questionId;
             var category = ResolveQuestionCategory(row.RawPayload);
             var optionsJson = category == QuestionCategory.H2H
                 ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode)
@@ -444,17 +441,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 var columnIndex = participantStartIndex + index;
                 var raw = columnIndex < columns.Count ? columns[columnIndex] : null;
                 var normalization = NormalizeQuestionAnswer(raw, isActualOutcome: false, category, driverIdByCode);
-                answers.Add(new QuestionAnswerEntity
-                {
-                    QuestionTemplateId = existingTemplateIds.TryGetValue(questionId, out var templateId) ? templateId : 0,
-                    ParticipantId = participants[index],
-                    ImportedAnswer = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim(),
-                    NormalizedAnswer = normalization.NormalizedValue,
-                    NormalizedAnswerBoolean = ToNullableBoolean(normalization.NormalizedValue),
-                    SourceRow = row.RowNumber,
-                    SourceColumn = columnIndex + 1,
-                    RecordedAtUtc = now
-                });
+                answers.Add(new PendingQuestionAnswer(
+                    QuestionId: questionId,
+                    ParticipantId: participants[index],
+                    ImportedAnswer: normalization.NormalizedValue,
+                    OverrideAnswer: null,
+                    RecordedAtUtc: now));
             }
 
             string? actualRaw;
@@ -480,24 +472,16 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             }
 
             var actualNormalization = NormalizeQuestionAnswer(actualRaw, isActualOutcome: true, category, driverIdByCode);
-            actuals.Add(new QuestionActualEntity
-            {
-                QuestionTemplateId = existingTemplateIds.TryGetValue(questionId, out var actualTemplateId) ? actualTemplateId : 0,
-                ActualAnswer = string.IsNullOrWhiteSpace(actualRaw) ? null : actualRaw.Trim(),
-                NormalizedAnswer = actualNormalization.NormalizedValue,
-                NormalizedAnswerBoolean = ToNullableBoolean(actualNormalization.NormalizedValue),
-                SourceRow = row.RowNumber,
-                SourceColumn = actualColumnIndex >= 0 ? actualColumnIndex + 1 : 0,
-                NormalizationDiagnosticsJson = actualNormalization.Diagnostics.Count == 0
-                    ? null
-                    : JsonSerializer.Serialize(actualNormalization.Diagnostics),
-                RecordedAtUtc = now
-            });
+            actuals.Add(new PendingQuestionActual(
+                QuestionId: questionId,
+                ImportedAnswer: actualNormalization.NormalizedValue,
+                OverrideAnswer: null,
+                RecordedAtUtc: now));
         }
 
         return templates.Count == 0
             ? null
-            : new GenericQuestionData(templates, answers, actuals, questionIdBySourceRow);
+            : new GenericQuestionData(templates, answers, actuals);
     }
 
     private async Task<int?> ResolveTargetCompetitionIdAsync(
@@ -614,17 +598,30 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         return persistedIds;
     }
 
-    private static void ApplyTemplateIds(GenericQuestionData genericQuestions, IReadOnlyDictionary<string, long> templateIds)
+    private static MaterializedGenericQuestionData ApplyTemplateIds(GenericQuestionData genericQuestions, IReadOnlyDictionary<string, long> templateIds)
     {
-        foreach (var answer in genericQuestions.Answers)
-        {
-            answer.QuestionTemplateId = templateIds[genericQuestions.QuestionIdBySourceRow[answer.SourceRow]];
-        }
+        var answers = genericQuestions.Answers
+            .Select(answer => new QuestionAnswerEntity
+            {
+                QuestionTemplateId = templateIds[answer.QuestionId],
+                ParticipantId = answer.ParticipantId,
+                ImportedAnswer = answer.ImportedAnswer,
+                OverrideAnswer = answer.OverrideAnswer,
+                RecordedAtUtc = answer.RecordedAtUtc
+            })
+            .ToList();
 
-        foreach (var actual in genericQuestions.Actuals)
-        {
-            actual.QuestionTemplateId = templateIds[genericQuestions.QuestionIdBySourceRow[actual.SourceRow]];
-        }
+        var actuals = genericQuestions.Actuals
+            .Select(actual => new QuestionActualEntity
+            {
+                QuestionTemplateId = templateIds[actual.QuestionId],
+                ImportedAnswer = actual.ImportedAnswer,
+                OverrideAnswer = actual.OverrideAnswer,
+                RecordedAtUtc = actual.RecordedAtUtc
+            })
+            .ToList();
+
+        return new MaterializedGenericQuestionData(answers, actuals);
     }
 
     private static List<MigrationImportPreseasonAnswerEntity> ParsePreseasonQuestionAnswers(
@@ -1255,7 +1252,23 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
     private sealed record GenericQuestionData(
         IReadOnlyList<QuestionTemplateEntity> Templates,
+        IReadOnlyList<PendingQuestionAnswer> Answers,
+        IReadOnlyList<PendingQuestionActual> Actuals);
+
+    private sealed record PendingQuestionAnswer(
+        string QuestionId,
+        string ParticipantId,
+        string? ImportedAnswer,
+        string? OverrideAnswer,
+        DateTime RecordedAtUtc);
+
+    private sealed record PendingQuestionActual(
+        string QuestionId,
+        string? ImportedAnswer,
+        string? OverrideAnswer,
+        DateTime RecordedAtUtc);
+
+    private sealed record MaterializedGenericQuestionData(
         IReadOnlyList<QuestionAnswerEntity> Answers,
-        IReadOnlyList<QuestionActualEntity> Actuals,
-        IReadOnlyDictionary<int, string> QuestionIdBySourceRow);
+        IReadOnlyList<QuestionActualEntity> Actuals);
 }

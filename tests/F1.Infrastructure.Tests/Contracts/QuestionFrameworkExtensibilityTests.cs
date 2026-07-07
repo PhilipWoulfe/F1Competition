@@ -52,19 +52,13 @@ public sealed class QuestionFrameworkExtensibilityTests
             QuestionTemplateId = 900,
             ParticipantId = "Philip",
             ImportedAnswer = "YES",
-            NormalizedAnswer = "YES",
-            SourceRow = 20,
-            SourceColumn = 2,
             RecordedAtUtc = DateTime.UtcNow
         });
 
         dbContext.QuestionActuals.Add(new QuestionActualEntity
         {
             QuestionTemplateId = 900,
-            ActualAnswer = "YES",
-            NormalizedAnswer = "YES",
-            SourceRow = 20,
-            SourceColumn = 3,
+            ImportedAnswer = "YES",
             RecordedAtUtc = DateTime.UtcNow
         });
 
@@ -78,7 +72,6 @@ public sealed class QuestionFrameworkExtensibilityTests
 
         var score = await dbContext.QuestionScores.SingleAsync(x => x.ParticipantId == "Philip");
         Assert.Equal(7, score.CalculatedPoints);
-        Assert.Equal("MOCK_MATCH", score.ReasonCode);
     }
 
     [Fact]
@@ -180,14 +173,24 @@ public sealed class QuestionFrameworkExtensibilityTests
                     Prompt: template.Prompt,
                     Category: template.Category,
                     ParticipantId: answer.ParticipantId,
-                    PredictedAnswer: answer.NormalizedAnswer,
-                    ActualAnswer: actual.NormalizedAnswer,
+                    PredictedAnswer: Resolve(answer),
+                    ActualAnswer: Resolve(actual),
                     ImportedPoints: null,
-                    CalculatedPoints: string.Equals(answer.NormalizedAnswer, actual.NormalizedAnswer, StringComparison.OrdinalIgnoreCase) ? 7 : 0,
+                    CalculatedPoints: string.Equals(Resolve(answer), Resolve(actual), StringComparison.OrdinalIgnoreCase) ? 7 : 0,
                     DeltaPoints: 0,
-                    ReasonCode: string.Equals(answer.NormalizedAnswer, actual.NormalizedAnswer, StringComparison.OrdinalIgnoreCase) ? "MOCK_MATCH" : "MOCK_MISS",
+                    ReasonCode: string.Equals(Resolve(answer), Resolve(actual), StringComparison.OrdinalIgnoreCase) ? "MOCK_MATCH" : "MOCK_MISS",
                     SortOrder: template.SortOrder)
             ];
+        }
+
+        private static string? Resolve(QuestionAnswerEntity answer)
+        {
+            return string.IsNullOrWhiteSpace(answer.OverrideAnswer) ? answer.ImportedAnswer : answer.OverrideAnswer;
+        }
+
+        private static string? Resolve(QuestionActualEntity actual)
+        {
+            return string.IsNullOrWhiteSpace(actual.OverrideAnswer) ? actual.ImportedAnswer : actual.OverrideAnswer;
         }
     }
 }

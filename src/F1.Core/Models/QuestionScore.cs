@@ -14,7 +14,5 @@ public sealed class QuestionScore
 
     public int DeltaPoints { get; set; }
 
-    public string ReasonCode { get; set; } = string.Empty;
-
     public DateTime RecordedAtUtc { get; set; }
 }

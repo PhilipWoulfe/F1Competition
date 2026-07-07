@@ -35,7 +35,7 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
         foreach (var template in templates)
         {
             actualByTemplate.TryGetValue(template.Id, out var actual);
-            var actualValue = NormalizeToken(actual?.NormalizedAnswer);
+            var actualValue = NormalizeToken(ResolveEffectiveAnswer(actual));
             var actualTokenSet = BuildPreseasonActualTokenSet(actualValue);
 
             if (!answersByTemplate.TryGetValue(template.Id, out var participants))
@@ -45,7 +45,7 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
 
             foreach (var participant in participants)
             {
-                var predictedValue = NormalizeToken(participant.NormalizedAnswer);
+                var predictedValue = NormalizeToken(ResolveEffectiveAnswer(participant));
                 var (points, reasonCode) = ScorePreseasonAnswer(
                     predictedValue,
                     actualValue,
@@ -133,4 +133,14 @@ public sealed partial class PreseasonQuestionScoringStrategy : IQuestionScoringS
 
     [GeneratedRegex("\\s*\\|\\s*", RegexOptions.Compiled)]
     private static partial Regex PreseasonActualSplitRegex();
+
+    private static string? ResolveEffectiveAnswer(QuestionAnswerEntity? answer)
+    {
+        return string.IsNullOrWhiteSpace(answer?.OverrideAnswer) ? answer?.ImportedAnswer : answer.OverrideAnswer;
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
+    {
+        return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
+    }
 }

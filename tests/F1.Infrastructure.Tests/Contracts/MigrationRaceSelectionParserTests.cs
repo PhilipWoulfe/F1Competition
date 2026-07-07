@@ -72,12 +72,12 @@ public sealed class MigrationRaceSelectionParserTests
             .OrderBy(x => x.ParticipantId)
             .ToListAsync();
         Assert.Equal(2, answers.Count);
-        Assert.Equal("hamilton", answers.Single(x => x.ParticipantId == "Philip").NormalizedAnswer);
-        Assert.Equal("max_verstappen", answers.Single(x => x.ParticipantId == "Andy").NormalizedAnswer);
+        Assert.Equal("hamilton", answers.Single(x => x.ParticipantId == "Philip").ImportedAnswer);
+        Assert.Equal("max_verstappen", answers.Single(x => x.ParticipantId == "Andy").ImportedAnswer);
 
         var actual = await dbContext.QuestionActuals
             .SingleAsync();
-        Assert.Equal("max_verstappen", actual.NormalizedAnswer);
+        Assert.Equal("max_verstappen", actual.ImportedAnswer);
     }
 
     [Fact]
@@ -154,22 +154,19 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal(new[] { "PRE-002", "PRE-003" }, questionTemplates.Select(x => x.QuestionId).ToArray());
 
         var genericAnswers = await dbContext.QuestionAnswers
-            .OrderBy(x => x.SourceRow)
+            .OrderBy(x => x.QuestionTemplateId)
             .ThenBy(x => x.ParticipantId)
             .ToListAsync();
         Assert.Equal(MigrationPhil2025CsvContractPolicy.ParticipantColumns.Length * 2, genericAnswers.Count);
 
-        var genericPhilipRow2 = genericAnswers.Single(x => x.SourceRow == 2 && x.ParticipantId == "Philip");
-        Assert.Equal(2, genericPhilipRow2.SourceRow);
-        Assert.Equal(MigrationPhil2025CsvContractPolicy.ParticipantStartColumnIndex + 1, genericPhilipRow2.SourceColumn);
-        Assert.Equal("YES", genericPhilipRow2.NormalizedAnswer);
+        var genericPhilipRow2 = genericAnswers.Single(x => x.ParticipantId == "Philip" && x.ImportedAnswer == "YES");
+        Assert.Equal("YES", genericPhilipRow2.ImportedAnswer);
 
         var genericActuals = await dbContext.QuestionActuals
-            .OrderBy(x => x.SourceRow)
+            .OrderBy(x => x.QuestionTemplateId)
             .ToListAsync();
         Assert.Equal(2, genericActuals.Count);
-        Assert.Equal("norris | max_verstappen | piastri", genericActuals.Single(x => x.SourceRow == 3).NormalizedAnswer);
-        Assert.Equal("[\"MULTI_TOKEN_ACTUAL_NORMALIZED\"]", genericActuals.Single(x => x.SourceRow == 3).NormalizationDiagnosticsJson);
+        Assert.Contains(genericActuals, x => x.ImportedAnswer == "norris | max_verstappen | piastri");
     }
 
     [Fact]
@@ -261,12 +258,12 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.Equal("@@@", malformed.RawAnswer);
         Assert.Equal("@@@", malformed.NormalizedAnswer);
 
-        var genericActual = await dbContext.QuestionActuals.SingleAsync(x => x.SourceRow == 2);
-        Assert.Equal("YES", genericActual.NormalizedAnswer);
+        var genericActual = await dbContext.QuestionActuals.SingleAsync();
+        Assert.Equal("YES", genericActual.ImportedAnswer);
 
         var genericPhilip = await dbContext.QuestionAnswers
-            .SingleAsync(x => x.SourceRow == 2 && x.ParticipantId == "Philip");
-        Assert.Equal("@@@", genericPhilip.NormalizedAnswer);
+            .SingleAsync(x => x.ParticipantId == "Philip");
+        Assert.Equal("@@@", genericPhilip.ImportedAnswer);
     }
 
     [Fact]

@@ -191,8 +191,7 @@ public sealed record AdminMigrationQuestionDiffDto(
     string Participant,
     int? ImportedPoints,
     int CalculatedPoints,
-    int DeltaPoints,
-    string ReasonCode);
+    int DeltaPoints);
 
 public sealed record AdminMigrationQuestionDiffSummaryResponseDto(
     int TotalCount,

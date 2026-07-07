@@ -1,5 +1,6 @@
 using System.Text.Json;
 using F1.Core.Models;
+using F1.Infrastructure.Data.Entities;
 
 namespace F1.DataSyncWorker.Services;
 
@@ -15,7 +16,7 @@ public sealed class H2hQuestionScoringStrategy : IQuestionScoringStrategy
         {
             var options = DeserializeOptions(template.OptionsJson);
             var actual = context.Actuals.SingleOrDefault(x => x.QuestionTemplateId == template.Id);
-            var actualAnswer = NormalizeDriver(actual?.NormalizedAnswer);
+            var actualAnswer = NormalizeDriver(ResolveEffectiveAnswer(actual));
             var answers = context.Answers
                 .Where(x => x.QuestionTemplateId == template.Id)
                 .OrderBy(x => x.ParticipantId, StringComparer.OrdinalIgnoreCase)
@@ -23,7 +24,7 @@ public sealed class H2hQuestionScoringStrategy : IQuestionScoringStrategy
 
             foreach (var answer in answers)
             {
-                var predicted = NormalizeDriver(answer.NormalizedAnswer);
+                var predicted = NormalizeDriver(ResolveEffectiveAnswer(answer));
                 var (points, reasonCode) = ScorePick(predicted, actualAnswer, options);
                 computed.Add(new QuestionScoreComputation(
                     QuestionTemplateId: template.Id,
@@ -105,5 +106,15 @@ public sealed class H2hQuestionScoringStrategy : IQuestionScoringStrategy
     private static string? NormalizeDriver(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionAnswerEntity? answer)
+    {
+        return string.IsNullOrWhiteSpace(answer?.OverrideAnswer) ? answer?.ImportedAnswer : answer.OverrideAnswer;
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
+    {
+        return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
     }
 }

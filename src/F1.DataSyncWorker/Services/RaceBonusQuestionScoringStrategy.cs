@@ -1,4 +1,5 @@
 using F1.Core.Models;
+using F1.Infrastructure.Data.Entities;
 
 namespace F1.DataSyncWorker.Services;
 
@@ -33,7 +34,7 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
         foreach (var template in templates)
         {
             actualByTemplate.TryGetValue(template.Id, out var actual);
-            var actualValue = NormalizeValue(actual?.NormalizedAnswer);
+            var actualValue = NormalizeValue(ResolveEffectiveAnswer(actual));
 
             if (!answersByTemplate.TryGetValue(template.Id, out var participants))
             {
@@ -42,7 +43,7 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
 
             foreach (var participant in participants)
             {
-                var predictedValue = NormalizeValue(participant.NormalizedAnswer);
+                var predictedValue = NormalizeValue(ResolveEffectiveAnswer(participant));
                 var (points, reasonCode) = ScoreBonusAnswer(
                     predictedValue,
                     actualValue,
@@ -97,5 +98,15 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
         return string.IsNullOrWhiteSpace(value)
             ? null
             : value.Trim().ToUpperInvariant();
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionAnswerEntity? answer)
+    {
+        return string.IsNullOrWhiteSpace(answer?.OverrideAnswer) ? answer?.ImportedAnswer : answer.OverrideAnswer;
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
+    {
+        return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
     }
 }

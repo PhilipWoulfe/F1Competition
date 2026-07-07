@@ -945,7 +945,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode");
+        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.Category)).Append(',')
@@ -954,8 +954,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Append(EscapeCsv(row.Participant)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-                .Append(EscapeCsv(row.ReasonCode))
+            .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture))
                 .AppendLine();
         }
 
@@ -983,13 +982,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     score.ParticipantId,
                     score.ImportedPoints,
                     score.CalculatedPoints,
-                    score.DeltaPoints,
-                    score.ReasonCode
+                    score.DeltaPoints
                 })
             .OrderBy(x => x.Category)
             .ThenBy(x => x.QuestionId)
             .ThenBy(x => x.ParticipantId)
-            .ThenBy(x => x.ReasonCode)
             .ToArrayAsync(cancellationToken);
 
         return rows
@@ -1000,8 +997,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.ParticipantId,
                 x.ImportedPoints,
                 x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode))
+                x.DeltaPoints))
             .ToArray();
     }
 

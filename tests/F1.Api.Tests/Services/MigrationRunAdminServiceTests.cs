@@ -1041,7 +1041,6 @@ public sealed class MigrationRunAdminServiceTests
                     ImportedPoints = 20,
                     CalculatedPoints = 0,
                     DeltaPoints = -20,
-                    ReasonCode = "PRESEASON_RULE_VARIANCE",
                     RecordedAtUtc = DateTime.UtcNow
                 },
                 new QuestionScoreEntity
@@ -1052,7 +1051,6 @@ public sealed class MigrationRunAdminServiceTests
                     ImportedPoints = 20,
                     CalculatedPoints = 20,
                     DeltaPoints = 0,
-                    ReasonCode = "PRESEASON_POINTS_MATCH",
                     RecordedAtUtc = DateTime.UtcNow
                 },
                 new QuestionScoreEntity
@@ -1063,7 +1061,6 @@ public sealed class MigrationRunAdminServiceTests
                     ImportedPoints = 10,
                     CalculatedPoints = 5,
                     DeltaPoints = -5,
-                    ReasonCode = "H2H_RULE_VARIANCE",
                     RecordedAtUtc = DateTime.UtcNow
                 });
 
@@ -1149,7 +1146,6 @@ public sealed class MigrationRunAdminServiceTests
                 ImportedPoints = 5,
                 CalculatedPoints = 0,
                 DeltaPoints = -5,
-                ReasonCode = "PRESEASON_RULE_VARIANCE",
                 RecordedAtUtc = DateTime.UtcNow
             });
 
@@ -1174,8 +1170,8 @@ public sealed class MigrationRunAdminServiceTests
         Assert.True(export!.Success);
 
         var csv = System.Text.Encoding.UTF8.GetString(export.Payload);
-        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints,reasonCode", csv, StringComparison.Ordinal);
-        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5,PRESEASON_RULE_VARIANCE", csv, StringComparison.Ordinal);
+        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints", csv, StringComparison.Ordinal);
+        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5", csv, StringComparison.Ordinal);
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()

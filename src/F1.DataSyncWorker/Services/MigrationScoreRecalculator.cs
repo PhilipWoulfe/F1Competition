@@ -73,12 +73,13 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
         var genericQuestionAnswers = await dbContext.QuestionAnswers
-            .OrderBy(x => x.SourceRow)
+            .OrderBy(x => x.QuestionTemplateId)
+            .ThenBy(x => x.ParticipantId)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
         var genericQuestionActuals = await dbContext.QuestionActuals
-            .OrderBy(x => x.SourceRow)
+            .OrderBy(x => x.QuestionTemplateId)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
@@ -167,7 +168,6 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 ImportedPoints = computation.ImportedPoints,
                 CalculatedPoints = computation.CalculatedPoints,
                 DeltaPoints = computation.DeltaPoints,
-                ReasonCode = computation.ReasonCode,
                 RecordedAtUtc = DateTime.UtcNow
             })
             .ToList();
@@ -276,8 +276,8 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                         Prompt: template.Prompt,
                         Category: template.Category,
                         ParticipantId: answer.ParticipantId,
-                        PredictedAnswer: answer.NormalizedAnswer,
-                        ActualAnswer: actual?.NormalizedAnswer,
+                        PredictedAnswer: ResolveEffectiveAnswer(answer),
+                        ActualAnswer: ResolveEffectiveAnswer(actual),
                         ImportedPoints: null,
                         CalculatedPoints: 0,
                         DeltaPoints: 0,
@@ -331,6 +331,16 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.QuestionKey),
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Subject));
         }
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionAnswerEntity? answer)
+    {
+        return string.IsNullOrWhiteSpace(answer?.OverrideAnswer) ? answer?.ImportedAnswer : answer.OverrideAnswer;
+    }
+
+    private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
+    {
+        return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
     }
 
     private static List<MigrationImportPreseasonCalculatedScoreEntity> CalculatePreseasonScores(
