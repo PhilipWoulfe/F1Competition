@@ -340,9 +340,34 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .Distinct()
             .ToArrayAsync(cancellationToken);
 
+        var rollbackSeasons = await _dbContext.MigrationImportRaceRoundMappings
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == command.RunId && x.Season.HasValue)
+            .Select(x => x.Season!.Value)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        if (rollbackSeasons.Length == 0)
+        {
+            return new MigrationRunRollbackResult(
+                false,
+                "Unable to determine migration season for rollback scope.",
+                null);
+        }
+
+        if (rollbackSeasons.Length > 1)
+        {
+            return new MigrationRunRollbackResult(
+                false,
+                "Rollback scope is ambiguous because the run contains multiple seasons.",
+                null);
+        }
+
+        var rollbackRacePrefix = $"migration-{rollbackSeasons[0]}-";
+
         var raceIds = await _dbContext.Races
             .AsNoTracking()
-            .Where(x => raceCodes.Contains(x.RaceName) && x.Id.StartsWith("migration-"))
+            .Where(x => raceCodes.Contains(x.RaceName) && x.Id.StartsWith(rollbackRacePrefix))
             .Select(x => x.Id)
             .Distinct()
             .ToArrayAsync(cancellationToken);
@@ -1393,11 +1418,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var candidatePath = Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
         var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
         var tempImportRoot = Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath());
-        var systemTempRoot = Path.GetFullPath(Path.GetTempPath());
 
         if (IsPathWithinRoot(candidatePath, importRoot) ||
-            IsPathWithinRoot(candidatePath, tempImportRoot) ||
-            IsPathWithinRoot(candidatePath, systemTempRoot))
+            IsPathWithinRoot(candidatePath, tempImportRoot))
         {
             return candidatePath;
         }

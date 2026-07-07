@@ -147,11 +147,36 @@ public sealed class MigrationRunAdminServiceTests
                 NormalizedValue = "VER"
             });
 
+            dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+            {
+                ImportRunId = runId,
+                RaceSequence = 1,
+                SourceRowNumber = 2,
+                SourceRaceCode = "AUS-1",
+                Season = 2025,
+                Round = 1,
+                MappedCircuitId = "albert_park",
+                MappedRaceName = "Australian Grand Prix"
+            });
+
             dbContext.Races.Add(new F1.Core.Models.Race
             {
                 Id = "migration-2025-albert-park",
                 CompetitionId = competition.Id,
                 Season = 2025,
+                Round = 1,
+                RaceName = "albert_park",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "migration-2024-albert-park",
+                CompetitionId = competition.Id,
+                Season = 2024,
                 Round = 1,
                 RaceName = "albert_park",
                 CircuitName = "albert_park",
@@ -177,6 +202,22 @@ public sealed class MigrationRunAdminServiceTests
                 DriverId = "VER"
             });
 
+            var outOfScopeSelectionId = Guid.NewGuid();
+            dbContext.Selections.Add(new F1.Core.Models.Selection
+            {
+                Id = outOfScopeSelectionId,
+                UserId = "Alex",
+                RaceId = "migration-2024-albert-park",
+                BetType = F1.Core.Models.BetType.Regular,
+                SubmittedAtUtc = DateTime.UtcNow
+            });
+            dbContext.SelectionPositions.Add(new SelectionPositionEntity
+            {
+                SelectionId = outOfScopeSelectionId,
+                Position = 1,
+                DriverId = "VER"
+            });
+
             await dbContext.SaveChangesAsync();
         }
 
@@ -192,9 +233,10 @@ public sealed class MigrationRunAdminServiceTests
         Assert.Equal("RolledBack", rollback.Rollback!.Status);
 
         await using var verificationContext = new F1DbContext(options);
-        Assert.Empty(verificationContext.Selections);
-        Assert.Empty(verificationContext.SelectionPositions);
+        Assert.Single(verificationContext.Selections);
+        Assert.Single(verificationContext.SelectionPositions);
         Assert.Empty(verificationContext.Races.Where(x => x.Id == "migration-2025-albert-park"));
+        Assert.NotNull(await verificationContext.Races.FirstOrDefaultAsync(x => x.Id == "migration-2024-albert-park"));
 
         var audit = Assert.Single(verificationContext.MigrationImportRollbackAudits);
         Assert.Equal("admin@example.com", audit.Actor);
@@ -1087,7 +1129,9 @@ public sealed class MigrationRunAdminServiceTests
 
     private static string CreateTempCsv(string content)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"f1-admin-migration-{Guid.NewGuid():N}.csv");
+        var allowedTempRoot = Path.Combine(Path.GetTempPath(), "f1-imports", "tests");
+        Directory.CreateDirectory(allowedTempRoot);
+        var path = Path.Combine(allowedTempRoot, $"f1-admin-migration-{Guid.NewGuid():N}.csv");
         File.WriteAllText(path, content);
         return path;
     }

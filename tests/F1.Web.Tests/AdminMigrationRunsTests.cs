@@ -492,8 +492,33 @@ public sealed class AdminMigrationRunsTests : BunitContext
         apiMock.Verify(x => x.StartRunAsync(
             It.Is<AdminMigrationRunKickoffRequest>(request =>
                 request.SourceFilePath == "/tmp/import.csv" &&
-                request.Mode == "dry-run"),
+                request.Mode == "dry-run" &&
+                !request.ConfirmNonEmptyStrategy),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void AdminMigrationRuns_WriteKickoff_ShouldRequireExplicitNonEmptyConfirmation()
+    {
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdminMigrationRunListResponse(1, 25, 0, []));
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Start Migration Run", cut.Markup));
+
+        cut.Find("#kickoff-mode").Change("write");
+        cut.Find("button.btn.btn-success").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Confirm Migration Kickoff", cut.Markup));
+
+        cut.Find("button.btn.btn-danger").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Write mode requires explicit non-empty DB strategy confirmation.", cut.Markup));
+        apiMock.Verify(x => x.StartRunAsync(It.IsAny<AdminMigrationRunKickoffRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

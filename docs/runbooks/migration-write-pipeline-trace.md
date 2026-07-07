@@ -1,7 +1,7 @@
 # Migration Write Pipeline Trace and Gap Report
 
 ## Scope
-This trace documents the current migration import execution path from kickoff to persistence and identifies why write mode does not currently materialize race-domain entities in canonical tables.
+This trace documents the current migration import execution path from kickoff to persistence, including dry-run mapping/enrichment and write-mode canonical materialization.
 
 ## End-to-End Pipeline Map
 1. Run kickoff
@@ -18,7 +18,7 @@ This trace documents the current migration import execution path from kickoff to
   - `QuestionAnswers`
   - `QuestionActuals`
 
-4. Mapping and enrichment (write mode only)
+4. Mapping and enrichment (dry-run and write mode)
 - Race sequence mapping persists into:
   - `MigrationImportJolpicaRaceSnapshots`
   - `MigrationImportRaceRoundMappings`
@@ -40,6 +40,14 @@ This trace documents the current migration import execution path from kickoff to
 7. Completion
 - Run status and metadata are written to `MigrationImportRuns`.
 
+8. Canonical race-domain writes (write mode only)
+- Canonical persistence runs after reconciliation in write mode via `MigrationCanonicalWriteService`.
+- Entities materialized/updated where applicable:
+  - `Drivers`
+  - `Races`
+  - `Selections`
+  - `SelectionPositions`
+
 ## Intended Canonical Targets (Epic Contract)
 For write mode, canonical race-domain entities are expected to be materialized where applicable:
 - `Drivers`
@@ -49,23 +57,12 @@ For write mode, canonical race-domain entities are expected to be materialized w
 
 Question-domain tables already receive run-scoped writes via parser/scoring (`QuestionAnswers`, `QuestionActuals`, `QuestionScores`).
 
-## Current Gaps (Observed)
-1. Missing canonical race-domain persistence step
-- No service currently upserts `Drivers`, `Races`, `Selections`, or `SelectionPositions` from migration import outputs.
-
-2. No transaction boundary spanning canonical writes
-- Existing per-stage persistence is transactional only at EF SaveChanges granularity; there is no single transaction ensuring all-or-nothing canonical materialization.
-
-3. Write-mode side effect mismatch
-- `DryRun=false` triggers mapping and reconciliation side effects but still does not materialize race-domain canonical entities.
-
-## Characterization Evidence
-- Test: `RunOnceAsync_WhenWriteModeEnabled_DoesNotPersistCanonicalRaceDomainEntitiesYet` in `tests/F1.Infrastructure.Tests/Relational/MigrationImportRunServiceTests.cs`.
-- Behavior captured:
-  - migration import staging/reconciliation tables populated
-  - canonical race-domain tables remain empty
+## Current Notes (Observed)
+1. Mapping/enrichment executes for both dry-run and write runs.
+2. Canonical race-domain persistence is write-mode only and is now implemented.
+3. Rollback paths and conflict diagnostics are available for canonical-write operations.
 
 ## Follow-On Implementation Work
-- Add a canonical write service that executes after reconciliation and before run completion.
-- Wrap canonical writes in a transaction and fail run on partial-write errors.
-- Add idempotent upsert keys for reruns and non-empty DB policy enforcement.
+- Continue hardening rollback scope and non-empty DB safeguards.
+- Expand operational runbooks for conflict policies and post-write verification.
+- Keep migration and schema drift checks enforced in CI for rollout safety.
