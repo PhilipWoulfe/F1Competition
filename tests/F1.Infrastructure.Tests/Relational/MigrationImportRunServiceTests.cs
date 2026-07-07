@@ -92,7 +92,7 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
-    public async Task RunOnceAsync_WhenWriteModeEnabled_DoesNotPersistCanonicalRaceDomainEntitiesYet()
+    public async Task RunOnceAsync_WhenWriteModeEnabled_PersistsCanonicalEntitiesAndImportArtifacts()
     {
         await using var setupContext = CreateContext();
         await setupContext.Database.EnsureDeletedAsync();
@@ -144,11 +144,10 @@ public sealed class MigrationImportRunServiceTests
             Assert.NotEmpty(await verificationContext.MigrationImportRaceSelections.AsNoTracking().ToListAsync());
             Assert.NotEmpty(await verificationContext.MigrationImportCalculatedScores.AsNoTracking().ToListAsync());
 
-            // Story 1 characterization: write mode currently does not materialize race-domain canonical tables.
-            Assert.Empty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.Races.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
-            Assert.Empty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Drivers.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Races.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.Selections.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
         }
         finally
         {
