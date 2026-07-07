@@ -65,7 +65,7 @@ internal class MigrationRunsPage
     public void SelectRun(Guid runId)
     {
         _trace($"Selecting run {runId}");
-        var selector = By.XPath($"//tr[td/code[normalize-space()='{runId}']]//button[normalize-space()='View']");
+        var selector = By.XPath($"//tr[td/code[@title='{runId}']]//button[normalize-space()='View']");
         _wait.Until(driver => driver.FindElements(selector).Count > 0);
         _driver.FindElement(selector).Click();
     }
@@ -134,13 +134,20 @@ internal class MigrationRunsPage
 
     public bool WaitForParticipantComparisonSection()
     {
-        return WaitForComparisonSection("participant-comparisons", "No participant deltas available for this run.");
+        OpenTab("tab-race-participants", "Participant Comparisons");
+
+        var sectionSelector = By.XPath(
+            "//div[@id='pane-race-participants' and contains(@class,'show') and contains(@class,'active')]" +
+            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No participant deltas available for this run.']]");
+        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
     }
 
     public bool WaitForPreseasonComparisonSection()
     {
+        OpenTab("tab-preseason", "Expected vs Actual Review");
+
         return _wait.Until(driver =>
-            driver.FindElements(By.Id("preseason-comparisons")).Count > 0 &&
+            driver.FindElements(By.XPath("//div[@id='pane-preseason' and contains(@class,'show') and contains(@class,'active')]//h3[contains(normalize-space(),'Expected vs Actual Review')]")).Count > 0 &&
             driver.FindElements(By.Id("preseason-participant-filter")).Count > 0);
     }
 
@@ -155,12 +162,22 @@ internal class MigrationRunsPage
 
     public bool WaitForRaceComparisonSection()
     {
-        return WaitForComparisonSection("race-comparisons", "No race diffs available for this run.");
+        OpenTab("tab-race-diffs", "Race Comparisons");
+
+        var sectionSelector = By.XPath(
+            "//div[@id='pane-race-diffs' and contains(@class,'show') and contains(@class,'active')]" +
+            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No race diffs available for this run.']]");
+        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
     }
 
     public bool WaitForPickComparisonSection()
     {
-        return WaitForComparisonSection("pick-comparisons", "No pick diffs available for this run.");
+        OpenTab("tab-pick-diffs", "Pick Comparisons");
+
+        var sectionSelector = By.XPath(
+            "//div[@id='pane-pick-diffs' and contains(@class,'show') and contains(@class,'active')]" +
+            "//*[self::div[.//tbody/tr] or self::p[normalize-space()='No pick diffs available for this run.']]");
+        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
     }
 
     public void WaitUntil(Func<bool> condition)
@@ -187,11 +204,14 @@ internal class MigrationRunsPage
         return rows;
     }
 
-    private bool WaitForComparisonSection(string sectionId, string emptyStateMessage)
+    private void OpenTab(string tabId, string sectionTitle)
     {
-        var sectionSelector = By.XPath(
-            $"//*[@id='{sectionId}']/following-sibling::*[1][self::div[.//table] or self::p[normalize-space()='{emptyStateMessage}']]");
-        return _wait.Until(driver => driver.FindElements(sectionSelector).Count > 0);
+        _trace($"Opening tab {tabId} for section '{sectionTitle}'");
+        var tab = _wait.Until(driver => driver.FindElement(By.Id(tabId)));
+        tab.Click();
+        _wait.Until(driver =>
+            driver.FindElements(By.XPath($"//button[@id='{tabId}' and @aria-selected='true']")).Count > 0 &&
+            driver.FindElements(By.XPath($"//*[self::h3 or self::h4][contains(normalize-space(),'{sectionTitle}')] ")).Count > 0);
     }
 
     private static MigrationParticipantRow ParseParticipantRow(IWebElement row)

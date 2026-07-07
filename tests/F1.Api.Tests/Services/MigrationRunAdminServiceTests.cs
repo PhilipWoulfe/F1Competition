@@ -11,6 +11,62 @@ namespace F1.Api.Tests.Services;
 public sealed class MigrationRunAdminServiceTests
 {
     [Fact]
+    public async Task GetRunsAsync_IncludesPreseasonParticipantDelta_InTotalDeltaPoints()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 6, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 6, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportParticipantDeltaSummaries.Add(new MigrationImportParticipantDeltaSummaryEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                Subject = "Philip",
+                ImportedTotalPoints = 50,
+                CalculatedTotalPoints = 45,
+                NetDeltaPoints = -5,
+                TopReasonCode = "RULE_VARIANCE",
+                TopReasonCount = 1
+            });
+
+            dbContext.MigrationImportPreseasonParticipantDeltaSummaries.Add(new MigrationImportPreseasonParticipantDeltaSummaryEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                Subject = "Philip",
+                ImportedTotalPoints = 20,
+                CalculatedTotalPoints = 15,
+                NetDeltaPoints = -5,
+                TopReasonCode = "PRESEASON_RULE_VARIANCE",
+                TopReasonCount = 1
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var result = await service.GetRunsAsync(new MigrationRunListQuery(1, 25, null, null, null), CancellationToken.None);
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(-10, item.TotalDeltaPoints);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_And_ExportRunDiffsAsync_PreservePersistedDiffOrder()
     {
         var runId = Guid.NewGuid();
@@ -494,6 +550,7 @@ public sealed class MigrationRunAdminServiceTests
         Assert.Equal(2, detail.PreseasonSummary.ParticipantDeltaCount);
         Assert.Equal(2, detail.PreseasonSummary.ReasonCategoryCount);
         Assert.Equal(-40, detail.PreseasonSummary.TotalDeltaPoints);
+        Assert.Equal(-40, detail.TotalDeltaPoints);
 
         Assert.Equal(new[] { "Andy", "Philip", "Philip" }, detail.PreseasonQuestionDiffs.Select(x => x.Subject).ToArray());
         Assert.Equal(new[] { 22, 22, 23 }, detail.PreseasonQuestionDiffs.Select(x => x.RowNumber).ToArray());

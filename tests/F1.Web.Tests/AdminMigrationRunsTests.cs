@@ -348,6 +348,51 @@ public sealed class AdminMigrationRunsTests : BunitContext
     }
 
     [Fact]
+    public void AdminMigrationRuns_ShouldRefreshRunList_WhenRefreshIsClicked()
+    {
+        var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");
+        var listResponse = new AdminMigrationRunListResponse(
+            Page: 1,
+            PageSize: 25,
+            TotalCount: 1,
+            Items:
+            [
+                new AdminMigrationRunListItem(
+                    RunId: runId,
+                    Status: "Completed",
+                    IsDryRun: true,
+                    SourceFilePath: "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
+                    SourceFileChecksum: "abc123",
+                    StartedAtUtc: new DateTime(2026, 7, 6, 11, 0, 0, DateTimeKind.Utc),
+                    FinishedAtUtc: new DateTime(2026, 7, 6, 11, 2, 0, DateTimeKind.Utc),
+                    RawRowCount: 200,
+                    UnresolvedTokenCount: 3,
+                    PickDiffCount: 100,
+                    RaceDiffCount: 20,
+                    TotalDeltaPoints: -4,
+                    UnexpectedTotalDeltaPoints: 3,
+                    ErrorMessage: null)
+            ]);
+
+        var apiMock = new Mock<IMigrationRunsApiService>();
+        apiMock
+            .Setup(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(listResponse);
+
+        Services.AddSingleton(apiMock.Object);
+
+        var cut = Render<AdminMigrationRuns>();
+        cut.WaitForAssertion(() => Assert.Contains("Completed", cut.Markup));
+
+        var refreshButton = cut.FindAll("button")
+            .Single(button => string.Equals(button.TextContent.Trim(), "Refresh", StringComparison.Ordinal));
+        refreshButton.Click();
+
+        cut.WaitForAssertion(() =>
+            apiMock.Verify(x => x.GetRunsAsync(1, 25, null, null, null, It.IsAny<CancellationToken>()), Times.Exactly(2)));
+    }
+
+    [Fact]
     public void AdminMigrationRuns_ShouldRenderNotFoundMessage_WhenRunDetailIsMissing()
     {
         var runId = Guid.Parse("79b8a33f-68f8-4d42-9d30-73ebcbcf61d7");

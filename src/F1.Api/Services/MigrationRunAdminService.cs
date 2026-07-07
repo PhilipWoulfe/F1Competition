@@ -105,6 +105,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) })
                 .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
 
+            var preseasonTotalDeltas = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+                .AsNoTracking()
+                .Where(x => runIds.Contains(x.ImportRunId))
+                .GroupBy(x => x.ImportRunId)
+                .Select(group => new { RunId = group.Key, TotalDelta = group.Sum(item => item.NetDeltaPoints) })
+                .ToDictionaryAsync(x => x.RunId, x => x.TotalDelta, cancellationToken);
+
             var unexpectedDeltas = await _dbContext.MigrationImportPickDiffs
                 .AsNoTracking()
                 .Where(x => runIds.Contains(x.ImportRunId) && !x.IsExpectedVariance && x.DeltaPoints != 0)
@@ -125,7 +132,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     unresolvedCounts.GetValueOrDefault(run.Id, 0),
                     pickDiffCounts.GetValueOrDefault(run.Id, 0),
                     raceDiffCounts.GetValueOrDefault(run.Id, 0),
-                    totalDeltas.GetValueOrDefault(run.Id, 0),
+                    totalDeltas.GetValueOrDefault(run.Id, 0) + preseasonTotalDeltas.GetValueOrDefault(run.Id, 0),
                     unexpectedDeltas.GetValueOrDefault(run.Id, 0),
                     run.ErrorMessage))
                 .ToArray();
@@ -438,6 +445,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             ReasonCategoryCount: preseasonReasonCategorySummaries.Length,
             TotalDeltaPoints: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
 
+            var raceTotalDeltaPoints = allPickDiffs.Sum(x => x.DeltaPoints);
+            var preseasonTotalDeltaPoints = preseasonSummary.TotalDeltaPoints;
+
             return new AdminMigrationRunDetailResponseDto(
                 RunId: run.Id,
                 Status: run.Status,
@@ -451,7 +461,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
                 PickDiffCount: pickDiffs.Length,
                 RaceDiffCount: raceDiffs.Length,
-                TotalDeltaPoints: allPickDiffs.Sum(x => x.DeltaPoints),
+                TotalDeltaPoints: raceTotalDeltaPoints + preseasonTotalDeltaPoints,
                 UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
                 UnresolvedTokenSummary: unresolvedTokenSummary,
                 ParticipantDeltas: participantDeltas,
