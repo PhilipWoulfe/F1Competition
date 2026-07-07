@@ -83,11 +83,65 @@ public sealed class QuestionFrameworkExtensibilityTests
         Assert.Equal("MOCK_MATCH", score.ReasonCode);
     }
 
+    [Fact]
+    public void CalculateGenericQuestionScores_ShouldUseStrategyRegistry_WithoutCategorySpecificBranching()
+    {
+        var sourcePath = GetRepositoryFilePath("src", "F1.DataSyncWorker", "Services", "MigrationScoreRecalculator.cs");
+        var source = File.ReadAllText(sourcePath);
+
+        var methodStart = source.IndexOf(
+            "private IReadOnlyList<QuestionScoreComputation> CalculateGenericQuestionScores(",
+            StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "Expected CalculateGenericQuestionScores method to exist.");
+
+        var methodEnd = source.IndexOf(
+            "private static List<MigrationImportPreseasonCalculatedScoreEntity> CalculatePreseasonScores(",
+            methodStart,
+            StringComparison.Ordinal);
+        Assert.True(methodEnd > methodStart, "Expected CalculateGenericQuestionScores method boundary to be identifiable.");
+
+        var methodBody = source.Substring(methodStart, methodEnd - methodStart);
+
+        Assert.Contains("_questionScoringStrategyRegistry.Resolve(categoryGroup.Key)", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("switch (", methodBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("QuestionCategory.Mock", methodBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QuestionCategoryOnboardingDoc_ShouldContainRequiredOnboardingSteps()
+    {
+        var docPath = GetRepositoryFilePath("docs", "architecture", "question-category-onboarding.md");
+        var doc = File.ReadAllText(docPath);
+
+        Assert.Contains("# Question Category Onboarding", doc, StringComparison.Ordinal);
+        Assert.Contains("1. Add the category enum value", doc, StringComparison.Ordinal);
+        Assert.Contains("Implement `IQuestionScoringStrategy`", doc, StringComparison.Ordinal);
+        Assert.Contains("Add one extensibility test", doc, StringComparison.Ordinal);
+        Assert.Contains("without adding category-specific branching", doc, StringComparison.Ordinal);
+        Assert.Contains("QuestionFrameworkExtensibilityTests", doc, StringComparison.Ordinal);
+    }
+
     private static DbContextOptions<F1DbContext> CreateOptions()
     {
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"question-extensibility-{Guid.NewGuid():N}")
             .Options;
+    }
+
+    private static string GetRepositoryFilePath(params string[] relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "F1Competition.sln")))
+            {
+                return Path.Combine([directory.FullName, .. relativePath]);
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Unable to locate repository root.");
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>

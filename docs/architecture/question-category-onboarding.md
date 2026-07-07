@@ -16,3 +16,9 @@ Reference implementation:
 
 - `PreseasonQuestionScoringStrategy` shows a category strategy that reuses the shared orchestration path.
 - `QuestionFrameworkExtensibilityTests` shows the minimum harness for a mock category.
+
+Automated guardrails:
+
+- `QuestionFrameworkExtensibilityTests.RecalculateAndPersistAsync_WhenCustomCategoryStrategyIsRegistered_ScoresWithoutCoreOrchestratorChanges` verifies a mock category can run end-to-end through shared orchestration.
+- `QuestionFrameworkExtensibilityTests.CalculateGenericQuestionScores_ShouldUseStrategyRegistry_WithoutCategorySpecificBranching` guards the core generic scorer against category-specific branching.
+- `QuestionFrameworkExtensibilityTests.QuestionCategoryOnboardingDoc_ShouldContainRequiredOnboardingSteps` fails when required onboarding checklist guidance drifts.
