@@ -85,7 +85,10 @@ builder.Services.AddScoped<ISelectionApiService, SelectionApiService>();
 builder.Services.AddScoped<ISelectionPageService, SelectionPageService>();
 builder.Services.AddScoped<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
 builder.Services.Configure<PostLoginRoutingOptions>(builder.Configuration.GetSection(PostLoginRoutingOptions.SectionName));
+builder.Services.Configure<SelectionContextOptions>(builder.Configuration.GetSection(SelectionContextOptions.SectionName));
 builder.Services.AddScoped<IPostLoginLandingResolver, PostLoginLandingResolver>();
+builder.Services.AddScoped<ISelectionContextStore, BrowserSelectionContextStore>();
+builder.Services.AddScoped<ISelectionContextService, SelectionContextService>();
 
 // --- Auth Services ---
 builder.Services.AddAuthorizationCore();
