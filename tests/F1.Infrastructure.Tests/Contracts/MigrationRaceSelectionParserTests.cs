@@ -1,4 +1,5 @@
 using F1.DataSyncWorker.Services;
+using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,8 @@ public sealed class MigrationRaceSelectionParserTests
         var runId = Guid.NewGuid();
         var options = CreateOptions();
         await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
 
         dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
         {
@@ -72,6 +75,31 @@ public sealed class MigrationRaceSelectionParserTests
 
         var actualRow3 = preseasonAnswers.Single(x => x.RowNumber == 3 && x.Subject == "ACTUAL" && x.IsActualOutcome);
         Assert.Equal("NOR | VER | PIA", actualRow3.NormalizedAnswer);
+
+        var questionTemplates = await dbContext.QuestionTemplates
+            .OrderBy(x => x.QuestionId)
+            .ToListAsync();
+        Assert.Equal(new[] { "PRE-002", "PRE-003" }, questionTemplates.Select(x => x.QuestionId).ToArray());
+
+        var genericAnswers = await dbContext.QuestionAnswers
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.SourceRow)
+            .ThenBy(x => x.ParticipantId)
+            .ToListAsync();
+        Assert.Equal(MigrationPhil2025CsvContractPolicy.ParticipantColumns.Length * 2, genericAnswers.Count);
+
+        var genericPhilipRow2 = genericAnswers.Single(x => x.SourceRow == 2 && x.ParticipantId == "Philip");
+        Assert.Equal(2, genericPhilipRow2.SourceRow);
+        Assert.Equal(MigrationPhil2025CsvContractPolicy.ParticipantStartColumnIndex + 1, genericPhilipRow2.SourceColumn);
+        Assert.Equal("Y", genericPhilipRow2.NormalizedAnswer);
+
+        var genericActuals = await dbContext.QuestionActuals
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.SourceRow)
+            .ToListAsync();
+        Assert.Equal(2, genericActuals.Count);
+        Assert.Equal("NOR | VER | PIA", genericActuals.Single(x => x.SourceRow == 3).NormalizedAnswer);
+        Assert.Equal("[\"MULTI_TOKEN_ACTUAL_NORMALIZED\"]", genericActuals.Single(x => x.SourceRow == 3).NormalizationDiagnosticsJson);
     }
 
     [Fact]
@@ -80,6 +108,8 @@ public sealed class MigrationRaceSelectionParserTests
         var runId = Guid.NewGuid();
         var options = CreateOptions();
         await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 1, 2025);
 
         dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
         {
@@ -109,6 +139,13 @@ public sealed class MigrationRaceSelectionParserTests
 
         Assert.Equal("@@@", malformed.RawAnswer);
         Assert.Equal("@@@", malformed.NormalizedAnswer);
+
+        var genericActual = await dbContext.QuestionActuals.SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2);
+        Assert.Equal("Y", genericActual.NormalizedAnswer);
+
+        var genericPhilip = await dbContext.QuestionAnswers
+            .SingleAsync(x => x.ImportRunId == runId && x.SourceRow == 2 && x.ParticipantId == "Philip");
+        Assert.Equal("@@@", genericPhilip.NormalizedAnswer);
     }
 
     [Fact]
@@ -703,6 +740,19 @@ public sealed class MigrationRaceSelectionParserTests
         return new DbContextOptionsBuilder<F1DbContext>()
             .UseInMemoryDatabase($"m3-parser-{Guid.NewGuid():N}")
             .Options;
+    }
+
+    private static void SeedCompetition(F1DbContext dbContext, int competitionId, int year)
+    {
+        dbContext.Competitions.Add(new Competition
+        {
+            Id = competitionId,
+            Name = $"Competition {competitionId}",
+            Year = year,
+            Description = "Parser test competition"
+        });
+
+        dbContext.SaveChanges();
     }
 
     private sealed class TestDbContextFactory : IDbContextFactory<F1DbContext>
