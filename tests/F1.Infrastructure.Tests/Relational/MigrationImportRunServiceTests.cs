@@ -490,6 +490,218 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
+    public async Task RunOnceAsync_WhenConflictPolicyFail_RecordsDiagnosticsAndFailsRun()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var competition = new F1.Core.Models.Competition
+        {
+            Name = "Migration Import 2025",
+            Year = 2025,
+            Description = "Seeded for conflict policy tests"
+        };
+        setupContext.Competitions.Add(competition);
+        await setupContext.SaveChangesAsync();
+
+        setupContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "OLD", FullName = "Existing Driver", Code = "OLD" });
+        setupContext.Races.Add(new F1.Core.Models.Race
+        {
+            Id = "migration-2025-albert-park",
+            CompetitionId = competition.Id,
+            Season = 2025,
+            Round = 1,
+            RaceName = "albert_park",
+            CircuitName = "albert_park",
+            StartTimeUtc = DateTime.UtcNow,
+            PreQualyDeadlineUtc = DateTime.UtcNow,
+            FinalDeadlineUtc = DateTime.UtcNow
+        });
+        var existingSelectionId = Guid.NewGuid();
+        setupContext.Selections.Add(new F1.Core.Models.Selection
+        {
+            Id = existingSelectionId,
+            UserId = "Philip",
+            RaceId = "migration-2025-albert-park",
+            BetType = F1.Core.Models.BetType.Regular,
+            SubmittedAtUtc = DateTime.UtcNow
+        });
+        setupContext.SelectionPositions.Add(new SelectionPositionEntity
+        {
+            SelectionId = existingSelectionId,
+            Position = 1,
+            DriverId = "OLD"
+        });
+        await setupContext.SaveChangesAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025,
+                    CanonicalConflictPolicy = "fail"
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.RunOnceAsync(CancellationToken.None));
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().OrderByDescending(x => x.StartedAtUtc).FirstAsync();
+            Assert.Equal("Failed", run.Status);
+
+            var diagnostics = await verificationContext.MigrationImportConflictDiagnostics
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == run.Id)
+                .ToListAsync();
+            Assert.NotEmpty(diagnostics);
+            Assert.Contains(diagnostics, x => x.EntityType == "Selection" && x.PolicyOutcome == "Failed");
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenConflictPolicySkip_RecordsDiagnosticsAndSkipsOverwrite()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var competition = new F1.Core.Models.Competition
+        {
+            Name = "Migration Import 2025",
+            Year = 2025,
+            Description = "Seeded for conflict policy tests"
+        };
+        setupContext.Competitions.Add(competition);
+        await setupContext.SaveChangesAsync();
+
+        setupContext.Drivers.Add(new F1.Core.Models.Driver { DriverId = "OLD", FullName = "Existing Driver", Code = "OLD" });
+        setupContext.Races.Add(new F1.Core.Models.Race
+        {
+            Id = "migration-2025-albert-park",
+            CompetitionId = competition.Id,
+            Season = 2025,
+            Round = 1,
+            RaceName = "albert_park",
+            CircuitName = "albert_park",
+            StartTimeUtc = DateTime.UtcNow,
+            PreQualyDeadlineUtc = DateTime.UtcNow,
+            FinalDeadlineUtc = DateTime.UtcNow
+        });
+        var existingSelectionId = Guid.NewGuid();
+        setupContext.Selections.Add(new F1.Core.Models.Selection
+        {
+            Id = existingSelectionId,
+            UserId = "Philip",
+            RaceId = "migration-2025-albert-park",
+            BetType = F1.Core.Models.BetType.Regular,
+            SubmittedAtUtc = DateTime.UtcNow
+        });
+        setupContext.SelectionPositions.Add(new SelectionPositionEntity
+        {
+            SelectionId = existingSelectionId,
+            Position = 1,
+            DriverId = "OLD"
+        });
+        await setupContext.SaveChangesAsync();
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025,
+                    CanonicalConflictPolicy = "skip"
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().OrderByDescending(x => x.StartedAtUtc).FirstAsync();
+            Assert.Equal("Completed", run.Status);
+
+            var diagnostics = await verificationContext.MigrationImportConflictDiagnostics
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == run.Id)
+                .ToListAsync();
+            Assert.NotEmpty(diagnostics);
+            Assert.Contains(diagnostics, x => x.PolicyOutcome == "Skipped");
+
+            var preservedPosition = await verificationContext.SelectionPositions
+                .AsNoTracking()
+                .Where(x => x.SelectionId == existingSelectionId)
+                .SingleAsync();
+            Assert.Equal("OLD", preservedPosition.DriverId);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
     public async Task RunOnceAsync_WhenUnresolvedTokensReachThreshold_FailsRun()
     {
         await using var setupContext = CreateContext();

@@ -547,6 +547,21 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.TotalDeltaPoints))
             .ToArrayAsync(cancellationToken);
 
+        var conflictDiagnostics = await _dbContext.MigrationImportConflictDiagnostics
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .ThenBy(x => x.EntityType)
+            .Select(x => new AdminMigrationConflictDiagnosticDto(
+                x.EntityType,
+                x.ConflictType,
+                x.KeyFields,
+                x.SourceReference,
+                x.PolicyOutcome,
+                x.RecommendedAction,
+                x.CreatedAtUtc))
+            .ToArrayAsync(cancellationToken);
+
         var preseasonSummary = new AdminMigrationPreseasonSummaryDto(
             QuestionDiffCount: preseasonQuestionDiffs.Length,
             ParticipantDeltaCount: preseasonParticipantDeltas.Length,
@@ -577,6 +592,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 PreseasonParticipantDeltas: preseasonParticipantDeltas,
                 PreseasonQuestionDiffs: preseasonQuestionDiffs,
                 PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
+                ConflictDiagnostics: conflictDiagnostics,
                 RaceDiffs: raceDiffs,
                 PickDiffs: pickDiffs);
         }

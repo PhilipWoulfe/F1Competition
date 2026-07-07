@@ -43,6 +43,7 @@ public class F1DbContext : DbContext
     public DbSet<MigrationImportUnresolvedTokenEntity> MigrationImportUnresolvedTokens => Set<MigrationImportUnresolvedTokenEntity>();
     public DbSet<MigrationImportJolpicaRaceSnapshotEntity> MigrationImportJolpicaRaceSnapshots => Set<MigrationImportJolpicaRaceSnapshotEntity>();
     public DbSet<MigrationImportRaceRoundMappingEntity> MigrationImportRaceRoundMappings => Set<MigrationImportRaceRoundMappingEntity>();
+    public DbSet<MigrationImportConflictDiagnosticEntity> MigrationImportConflictDiagnostics => Set<MigrationImportConflictDiagnosticEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -575,6 +576,25 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.ImportRunId, x.RaceSequence }).IsUnique();
+        });
+
+        modelBuilder.Entity<MigrationImportConflictDiagnosticEntity>(entity =>
+        {
+            entity.ToTable("MigrationImportConflictDiagnostics");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EntityType).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ConflictType).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.KeyFields).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.SourceReference).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.PolicyOutcome).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.RecommendedAction).HasMaxLength(256).IsRequired();
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ImportRunId, x.EntityType, x.KeyFields });
         });
     }
 }

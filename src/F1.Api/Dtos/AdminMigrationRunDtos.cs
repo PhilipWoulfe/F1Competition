@@ -46,7 +46,17 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonQuestionDiffDto> PreseasonQuestionDiffs,
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
-    IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs);
+    IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
+    IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null);
+
+public sealed record AdminMigrationConflictDiagnosticDto(
+    string EntityType,
+    string ConflictType,
+    string KeyFields,
+    string SourceReference,
+    string PolicyOutcome,
+    string RecommendedAction,
+    DateTime CreatedAtUtc);
 
 public sealed record AdminMigrationUnresolvedTokenSummaryDto(
     string RawToken,

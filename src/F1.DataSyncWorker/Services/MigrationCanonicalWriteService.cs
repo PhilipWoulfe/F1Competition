@@ -51,6 +51,7 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
 
         try
         {
+            var normalizedConflictPolicy = NormalizeConflictPolicy(_importOptions.CanonicalConflictPolicy);
             var competition = await dbContext.Competitions
                 .OrderBy(x => x.Id)
                 .FirstOrDefaultAsync(x => x.Year == _importOptions.Season, cancellationToken);
@@ -150,9 +151,69 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 .GroupBy(x => new { x.Subject, x.RaceCode })
                 .ToList();
 
+            var incomingScopes = groupedSelections
+                .Select(group => new IncomingSelectionScope(
+                    group.Key.Subject,
+                    group.Key.RaceCode,
+                    raceIdByCode.TryGetValue(group.Key.RaceCode, out var raceId) ? raceId : string.Empty,
+                    group.Min(x => x.RowNumber)))
+                .Where(x => !string.IsNullOrWhiteSpace(x.RaceId))
+                .ToList();
+
+            var incomingRaceIds = incomingScopes.Select(x => x.RaceId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var incomingSubjects = incomingScopes.Select(x => x.Subject).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+            var existingSelections = await dbContext.Selections
+                .Where(x => incomingRaceIds.Contains(x.RaceId) && incomingSubjects.Contains(x.UserId))
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+            var existingSelectionKeys = existingSelections
+                .Select(x => BuildSelectionKey(x.RaceId, x.UserId))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var conflictDiagnostics = incomingScopes
+                .Where(scope => existingSelectionKeys.Contains(BuildSelectionKey(scope.RaceId, scope.Subject)))
+                .Select(scope => new MigrationImportConflictDiagnosticEntity
+                {
+                    ImportRunId = runId,
+                    EntityType = "Selection",
+                    ConflictType = "existing_active_selection",
+                    KeyFields = BuildSelectionKey(scope.RaceId, scope.Subject),
+                    SourceReference = $"row:{scope.SourceRowNumber}|race:{scope.RaceCode}|subject:{scope.Subject}",
+                    PolicyOutcome = ResolvePolicyOutcome(normalizedConflictPolicy),
+                    RecommendedAction = ResolveRecommendedAction(normalizedConflictPolicy),
+                    CreatedAtUtc = DateTime.UtcNow
+                })
+                .ToList();
+
+            if (conflictDiagnostics.Count > 0)
+            {
+                if (normalizedConflictPolicy == "fail")
+                {
+                    await PersistConflictDiagnosticsAsync(conflictDiagnostics, cancellationToken);
+                    throw new InvalidOperationException(
+                        $"Canonical write conflict policy blocked commit. ConflictCount={conflictDiagnostics.Count}, Policy={normalizedConflictPolicy}.");
+                }
+
+                await dbContext.MigrationImportConflictDiagnostics.AddRangeAsync(conflictDiagnostics, cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            var skippedSelectionKeys = conflictDiagnostics
+                .Where(x => string.Equals(x.PolicyOutcome, "Skipped", StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.KeyFields)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             foreach (var group in groupedSelections)
             {
                 if (!raceIdByCode.TryGetValue(group.Key.RaceCode, out var raceId))
+                {
+                    continue;
+                }
+
+                var selectionKey = BuildSelectionKey(raceId, group.Key.Subject);
+                if (skippedSelectionKeys.Contains(selectionKey))
                 {
                     continue;
                 }
@@ -239,4 +300,72 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
 
     [GeneratedRegex("[\\s,;/|]+", RegexOptions.Compiled)]
     private static partial Regex DriverTokenSplitRegex();
+
+    private static string NormalizeConflictPolicy(string? policy)
+    {
+        if (string.IsNullOrWhiteSpace(policy))
+        {
+            return "override";
+        }
+
+        var normalized = policy.Trim().ToLowerInvariant();
+        return normalized is "fail" or "skip" or "override" ? normalized : "override";
+    }
+
+    private static string ResolvePolicyOutcome(string policy)
+    {
+        return policy switch
+        {
+            "fail" => "Failed",
+            "skip" => "Skipped",
+            _ => "Overridden"
+        };
+    }
+
+    private static string ResolveRecommendedAction(string policy)
+    {
+        return policy switch
+        {
+            "fail" => "Review conflicting canonical rows and rerun with approved policy.",
+            "skip" => "Review skipped entities and run targeted reconciliation.",
+            _ => "Verify overridden rows in reconciliation report."
+        };
+    }
+
+    private static string BuildSelectionKey(string raceId, string subject)
+    {
+        return $"raceId:{raceId}|subject:{subject}";
+    }
+
+    private async Task PersistConflictDiagnosticsAsync(
+        IReadOnlyCollection<MigrationImportConflictDiagnosticEntity> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (diagnostics.Count == 0)
+        {
+            return;
+        }
+
+        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var detachedDiagnostics = diagnostics.Select(item => new MigrationImportConflictDiagnosticEntity
+        {
+            ImportRunId = item.ImportRunId,
+            EntityType = item.EntityType,
+            ConflictType = item.ConflictType,
+            KeyFields = item.KeyFields,
+            SourceReference = item.SourceReference,
+            PolicyOutcome = item.PolicyOutcome,
+            RecommendedAction = item.RecommendedAction,
+            CreatedAtUtc = item.CreatedAtUtc
+        });
+
+        await context.MigrationImportConflictDiagnostics.AddRangeAsync(detachedDiagnostics, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private readonly record struct IncomingSelectionScope(
+        string Subject,
+        string RaceCode,
+        string RaceId,
+        int SourceRowNumber);
 }

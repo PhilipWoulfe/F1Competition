@@ -109,6 +109,52 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_IncludesConflictDiagnosticsForAdmins()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "test.csv",
+                SourceFileChecksum = "abc",
+                IsDryRun = false,
+                Status = "Failed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportConflictDiagnostics.Add(new MigrationImportConflictDiagnosticEntity
+            {
+                ImportRunId = runId,
+                EntityType = "Selection",
+                ConflictType = "existing_active_selection",
+                KeyFields = "raceId:migration-2025-albert-park|subject:Philip",
+                SourceReference = "row:2|race:albert_park|subject:Philip",
+                PolicyOutcome = "Failed",
+                RecommendedAction = "Review conflicting canonical rows and rerun with approved policy.",
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+        Assert.NotNull(detail);
+        Assert.NotNull(detail!.ConflictDiagnostics);
+        Assert.Single(detail.ConflictDiagnostics!);
+        Assert.Equal("Selection", detail.ConflictDiagnostics![0].EntityType);
+        Assert.Equal("Failed", detail.ConflictDiagnostics[0].PolicyOutcome);
+    }
+
+    [Fact]
     public async Task GetRunsAsync_IncludesPreseasonParticipantDelta_InTotalDeltaPoints()
     {
         var runId = Guid.NewGuid();

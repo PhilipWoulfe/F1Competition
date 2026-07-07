@@ -24,4 +24,6 @@ public sealed class MigrationImportOptions
     public bool FailOnPreseasonTallyParseError { get; set; } = false;
 
     public string? CanonicalWriteFailureInjectionStage { get; set; }
+
+    public string CanonicalConflictPolicy { get; set; } = "override";
 }
