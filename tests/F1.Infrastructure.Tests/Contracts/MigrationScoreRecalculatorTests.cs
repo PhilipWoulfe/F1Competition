@@ -79,6 +79,63 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPhilBooleanAnswerMatchesActual_ScoresExactForDavePre002()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = $"/tmp/{MigrationPhil2025CsvContractPolicy.SourceFileName}",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                RawPayload = "Question,Philip,New Sexy Ayrton,Andy,Claire,Dave,Kevin,Pious ,Shane,Veronica,BINGPT,,"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "SeasonQuestionPrediction",
+                RawPayload = "At least one driver will win 4 consecutive races?,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,20"
+            });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            ColumnIndex = 12,
+            CellReference = "M2",
+            RawPointsPerQuestion = "20",
+            PointsPerQuestion = 20
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+        await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var daveScore = await dbContext.MigrationImportPreseasonCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.QuestionKey == "PRE-002" && x.Subject == "Dave");
+
+        AssertPreseasonScore(daveScore, 20, "PRESEASON_EXACT");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenPreseasonPolicyMissing_SetsPolicyMissingReasonAndZeroPoints()
     {
         var runId = Guid.NewGuid();

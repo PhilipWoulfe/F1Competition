@@ -139,8 +139,9 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
                     run.RunId);
             }
 
-            var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
+            // Import legacy/preseason source tallies first so scoring can read preseason policy values (M2).
             var legacyResult = await _legacyScoreImporter.ImportAndPersistAsync(run.RunId, cancellationToken);
+            var scoreResult = await _scoreRecalculator.RecalculateAndPersistAsync(run.RunId, cancellationToken);
             await EnsurePreseasonRaceIsolationAsync(run.RunId, cancellationToken);
             var reconciliationResult = await _reconciliationService.ReconcileAndPersistAsync(run.RunId, cancellationToken);
 

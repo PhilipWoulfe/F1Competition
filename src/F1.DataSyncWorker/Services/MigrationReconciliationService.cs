@@ -264,45 +264,56 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             .ToList();
 
         var preseasonImportedByKey = preseasonImported
-            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
                 x => x.Any(y => y.ImportedPoints is null) ? (int?)null : x.Sum(y => y.ImportedPoints ?? 0),
                 PreseasonQuestionDiffKeyComparer.Instance);
 
         var preseasonImportedRowsByKey = preseasonImported
-            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
                 x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
                 PreseasonQuestionDiffKeyComparer.Instance);
 
         var preseasonCalculatedByKey = preseasonCalculated
-            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
                 x => x.Sum(y => y.Points),
                 PreseasonQuestionDiffKeyComparer.Instance);
 
         var preseasonCalculatedRowsByKey = preseasonCalculated
-            .GroupBy(x => new PreseasonQuestionDiffKey(x.RowNumber, x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
+            .GroupBy(x => new PreseasonQuestionDiffKey(x.QuestionKey, x.Subject), PreseasonQuestionDiffKeyComparer.Instance)
             .ToDictionary(
                 x => x.Key,
                 x => x.Select(y => y.RowNumber).Distinct().OrderBy(y => y).ToArray(),
                 PreseasonQuestionDiffKeyComparer.Instance);
 
         var preseasonQuestionTextByKey = preseasonImported
-            .Select(x => new { x.RowNumber, x.QuestionKey, x.QuestionText })
-            .Concat(preseasonCalculated.Select(x => new { x.RowNumber, x.QuestionKey, x.QuestionText }))
-            .GroupBy(x => (x.RowNumber, x.QuestionKey))
+            .Select(x => new { x.QuestionKey, x.QuestionText })
+            .Concat(preseasonCalculated.Select(x => new { x.QuestionKey, x.QuestionText }))
+            .GroupBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                x => (x.Key.RowNumber, x.Key.QuestionKey),
-                x => x.Select(y => y.QuestionText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? x.Key.QuestionKey);
+                x => x.Key,
+                x => x.Select(y => y.QuestionText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? x.Key,
+                StringComparer.OrdinalIgnoreCase);
+
+        var preseasonQuestionOrderByKey = preseasonImported
+            .Select(x => new { x.QuestionKey, x.RowNumber })
+            .Concat(preseasonCalculated.Select(x => new { x.QuestionKey, x.RowNumber }))
+            .GroupBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Min(y => y.RowNumber),
+                StringComparer.OrdinalIgnoreCase);
 
         var allPreseasonKeys = preseasonImportedByKey.Keys
             .Concat(preseasonCalculatedByKey.Keys)
             .Distinct(PreseasonQuestionDiffKeyComparer.Instance)
-            .OrderBy(x => x.RowNumber)
+            .OrderBy(x => preseasonQuestionOrderByKey.GetValueOrDefault(x.QuestionKey, int.MaxValue))
+            .ThenBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -319,8 +330,13 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             var importedRows = preseasonImportedRowsByKey.GetValueOrDefault(key, []);
             var calculatedRows = preseasonCalculatedRowsByKey.GetValueOrDefault(key, []);
             participantColumnBySubject.TryGetValue(key.Subject, out var participantColumn);
+            var rowNumber = importedRows.FirstOrDefault();
+            if (rowNumber == 0)
+            {
+                rowNumber = calculatedRows.FirstOrDefault();
+            }
 
-            var questionText = preseasonQuestionTextByKey.GetValueOrDefault((key.RowNumber, key.QuestionKey), key.QuestionKey);
+            var questionText = preseasonQuestionTextByKey.GetValueOrDefault(key.QuestionKey, key.QuestionKey);
             var reasonCode = ResolvePreseasonReasonCode(imported, calculatedValue, delta);
             var explanation = BuildPreseasonQuestionExplanation(
                 key,
@@ -336,7 +352,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             preseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
             {
                 ImportRunId = runId,
-                RowNumber = key.RowNumber,
+                RowNumber = rowNumber,
                 QuestionKey = key.QuestionKey,
                 QuestionText = questionText,
                 Subject = key.Subject,
@@ -684,7 +700,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
 
     private sealed record RaceDiffKey(string RaceCode, string Subject);
 
-    private sealed record PreseasonQuestionDiffKey(int RowNumber, string QuestionKey, string Subject);
+    private sealed record PreseasonQuestionDiffKey(string QuestionKey, string Subject);
 
     private sealed class PreseasonQuestionDiffKeyComparer : IEqualityComparer<PreseasonQuestionDiffKey>
     {
@@ -702,15 +718,13 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 return false;
             }
 
-            return x.RowNumber == y.RowNumber
-                && string.Equals(x.QuestionKey, y.QuestionKey, StringComparison.OrdinalIgnoreCase)
+            return string.Equals(x.QuestionKey, y.QuestionKey, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(x.Subject, y.Subject, StringComparison.OrdinalIgnoreCase);
         }
 
         public int GetHashCode(PreseasonQuestionDiffKey obj)
         {
             return HashCode.Combine(
-                obj.RowNumber,
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.QuestionKey),
                 StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Subject));
         }

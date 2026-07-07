@@ -64,6 +64,9 @@ public sealed class MigrationRaceSelectionParserTests
         var claireRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Claire" && !x.IsActualOutcome);
         Assert.Null(claireRow2.NormalizedAnswer);
 
+        var daveRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "Dave" && !x.IsActualOutcome);
+        Assert.Equal("N", daveRow2.NormalizedAnswer);
+
         var actualRow2 = preseasonAnswers.Single(x => x.RowNumber == 2 && x.Subject == "ACTUAL" && x.IsActualOutcome);
         Assert.Equal("N", actualRow2.NormalizedAnswer);
 
