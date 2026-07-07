@@ -17,6 +17,10 @@ public class F1DbContext : DbContext
     public DbSet<Selection> Selections => Set<Selection>();
     public DbSet<SelectionPositionEntity> SelectionPositions => Set<SelectionPositionEntity>();
     public DbSet<RaceMetadataEntity> RaceMetadata => Set<RaceMetadataEntity>();
+    public DbSet<QuestionTemplateEntity> QuestionTemplates => Set<QuestionTemplateEntity>();
+    public DbSet<QuestionAnswerEntity> QuestionAnswers => Set<QuestionAnswerEntity>();
+    public DbSet<QuestionActualEntity> QuestionActuals => Set<QuestionActualEntity>();
+    public DbSet<QuestionScoreEntity> QuestionScores => Set<QuestionScoreEntity>();
     public DbSet<MigrationImportRunEntity> MigrationImportRuns => Set<MigrationImportRunEntity>();
     public DbSet<MigrationImportRawRowEntity> MigrationImportRawRows => Set<MigrationImportRawRowEntity>();
     public DbSet<MigrationImportPreseasonAnswerEntity> MigrationImportPreseasonAnswers => Set<MigrationImportPreseasonAnswerEntity>();
@@ -126,6 +130,86 @@ public class F1DbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.RaceId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<QuestionTemplateEntity>(entity =>
+        {
+            entity.ToTable("QuestionTemplates");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.QuestionId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Category).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Prompt).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.OptionsJson).HasColumnType("text");
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => new { x.CompetitionId, x.Season, x.QuestionId }).IsUnique();
+            entity.HasIndex(x => new { x.CompetitionId, x.Season, x.Category, x.SortOrder });
+
+            entity.HasOne<Competition>()
+                .WithMany()
+                .HasForeignKey(x => x.CompetitionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionAnswerEntity>(entity =>
+        {
+            entity.ToTable("QuestionAnswers");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ImportedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId, x.ParticipantId }).IsUnique();
+            entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<QuestionTemplateEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.QuestionTemplateId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionActualEntity>(entity =>
+        {
+            entity.ToTable("QuestionActuals");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ActualAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizedAnswer).HasMaxLength(512);
+            entity.Property(x => x.NormalizationDiagnosticsJson).HasColumnType("text");
+            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId }).IsUnique();
+            entity.HasIndex(x => new { x.ImportRunId, x.SourceRow, x.SourceColumn });
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<QuestionTemplateEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.QuestionTemplateId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionScoreEntity>(entity =>
+        {
+            entity.ToTable("QuestionScores");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.ImportRunId, x.QuestionTemplateId, x.ParticipantId }).IsUnique();
+            entity.HasIndex(x => new { x.ImportRunId, x.DeltaPoints });
+
+            entity.HasOne<MigrationImportRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.ImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<QuestionTemplateEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.QuestionTemplateId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<MigrationImportRunEntity>(entity =>
