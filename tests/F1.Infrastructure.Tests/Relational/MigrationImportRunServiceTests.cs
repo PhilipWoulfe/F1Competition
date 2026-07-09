@@ -1,3 +1,5 @@
+using F1.Api.Configuration;
+using F1.Api.Services;
 using F1.DataSyncWorker.Options;
 using F1.DataSyncWorker.Services;
 using F1.DataSyncWorker.Clients;
@@ -150,6 +152,101 @@ public sealed class MigrationImportRunServiceTests
             Assert.NotEmpty(await verificationContext.Selections.AsNoTracking().ToListAsync());
             Assert.NotEmpty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
             Assert.NotEmpty(await verificationContext.RacePickScores.AsNoTracking().ToListAsync());
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_WhenMigrationStagingRowsAreDeleted_LeaderboardStillReadsCanonicalScores()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+        await SeedCanonicalRacesAsync(setupContext, season: 2025);
+
+        var sourceFilePath = await CreateTempCsvAsync(
+            "Question,Philip,,\n" +
+            "AUS-1,VER,VER\n" +
+            "DNF,NONE,\n" +
+            "AUS-1,10,10\n" +
+            "DNF,5,5\n" +
+            "Result,15\n");
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = false,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using (var mutationContext = CreateContext())
+            {
+                mutationContext.MigrationImportPickDiffs.RemoveRange(mutationContext.MigrationImportPickDiffs);
+                mutationContext.MigrationImportParticipantDeltaSummaries.RemoveRange(mutationContext.MigrationImportParticipantDeltaSummaries);
+                mutationContext.MigrationImportPreseasonQuestionDiffs.RemoveRange(mutationContext.MigrationImportPreseasonQuestionDiffs);
+                mutationContext.MigrationImportPreseasonParticipantDeltaSummaries.RemoveRange(mutationContext.MigrationImportPreseasonParticipantDeltaSummaries);
+                mutationContext.MigrationImportCalculatedScores.RemoveRange(mutationContext.MigrationImportCalculatedScores);
+                mutationContext.MigrationImportLegacyPickScores.RemoveRange(mutationContext.MigrationImportLegacyPickScores);
+                mutationContext.MigrationImportRuns.RemoveRange(mutationContext.MigrationImportRuns);
+                await mutationContext.SaveChangesAsync();
+            }
+
+            await using var verificationContext = CreateContext();
+            var service = new CompetitionLeaderboardService(
+                verificationContext,
+                Options.Create(new CompetitionLeaderboardOptions
+                {
+                    Contexts =
+                    [
+                        new CompetitionLeaderboardContextOption
+                        {
+                            CompetitionSlug = "migration",
+                            Season = 2025,
+                            DisplayName = "Migration Import 2025",
+                            SourceType = "Canonical",
+                            ActiveScoreSource = "ImportedLegacy"
+                        }
+                    ]
+                }));
+
+            var leaderboard = await service.GetLeaderboardAsync("migration", 2025, "active", isAdmin: false, CancellationToken.None);
+            var detail = await service.GetParticipantDetailAsync("migration", 2025, "Philip", CancellationToken.None);
+
+            Assert.True(leaderboard.IsDataAvailable);
+            Assert.Single(leaderboard.Items);
+            Assert.Equal("Philip", leaderboard.Items[0].ParticipantName);
+            Assert.Equal(15, leaderboard.Items[0].DisplayPoints);
+
+            Assert.NotEmpty(detail.RacePicks.Items);
+            Assert.Equal(15, detail.RacePicks.ImportedTotalPoints);
+            Assert.Equal(15, detail.RacePicks.RecalculatedTotalPoints);
         }
         finally
         {
