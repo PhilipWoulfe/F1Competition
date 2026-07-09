@@ -16,7 +16,6 @@ public interface ICompetitionLeaderboardService
 
 public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOptions<CompetitionLeaderboardOptions> options) : ICompetitionLeaderboardService
 {
-    private const string SourceTypeMigrationRun = "MigrationRun";
     private const string SourceTypeUnavailable = "Unavailable";
     private const string ViewActive = "active";
     private const string ViewImported = "imported";
@@ -45,17 +44,6 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 normalizedScoreView,
                 isAdmin,
                 context?.UnavailableMessage ?? "Leaderboard data is not available for this competition yet.");
-        }
-
-        if (!string.Equals(context.SourceType, SourceTypeMigrationRun, StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateUnavailableResponse(
-                normalizedCompetitionSlug,
-                season,
-                displayName,
-                normalizedScoreView,
-                isAdmin,
-                "Leaderboard data source is not supported for this competition.");
         }
 
         var competition = await ResolveCompetitionAsync(displayName, season, cancellationToken);
