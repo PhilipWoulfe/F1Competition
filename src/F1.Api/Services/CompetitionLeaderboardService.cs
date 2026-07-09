@@ -57,16 +57,6 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 "Leaderboard data source is not supported for this competition.");
         }
 
-        var completedRuns = dbContext.MigrationImportRuns
-            .AsNoTracking()
-            .Where(run => string.Equals(run.Status, "Completed", StringComparison.OrdinalIgnoreCase));
-
-        if (!string.IsNullOrWhiteSpace(context.MigrationSourcePathContains))
-        {
-            var sourcePathToken = context.MigrationSourcePathContains.Trim().ToLowerInvariant();
-            completedRuns = completedRuns.Where(run => run.SourceFilePath.ToLower().Contains(sourcePathToken));
-        }
-
         var sourceRun = await GetLatestCompletedRunAsync(context, cancellationToken);
 
         if (sourceRun is null)

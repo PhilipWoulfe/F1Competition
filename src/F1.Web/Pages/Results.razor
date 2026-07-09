@@ -275,10 +275,18 @@ else
             return;
         }
 
-        participantDetail = await Http.GetFromJsonAsync<CompetitionParticipantDetailResponse>($"races/results/participants/{Uri.EscapeDataString(participantName)}?competition={selectedCompetitionSlug}&season={selectedSeason.Value}");
-        if (syncQuery)
+        try
         {
-            SyncQueryString();
+            participantDetail = await Http.GetFromJsonAsync<CompetitionParticipantDetailResponse>($"races/results/participants/{Uri.EscapeDataString(participantName)}?competition={selectedCompetitionSlug}&season={selectedSeason.Value}");
+            if (syncQuery)
+            {
+                SyncQueryString();
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            error = ex.Message;
+            participantDetail = null;
         }
     }
 
@@ -444,7 +452,21 @@ else
             foreach (var item in section.Items)
             {
                 builder.OpenElement(seq++, "tr");
-                builder.AddMarkupContent(seq++, $"<td>{item.Label}</td><td>{item.Description}</td><td>{item.ImportedPoints?.ToString() ?? string.Empty}</td><td>{item.CalculatedPoints}</td><td>{item.DeltaPoints}</td>");
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.Label);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.Description);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.ImportedPoints?.ToString() ?? string.Empty);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.CalculatedPoints);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.DeltaPoints);
+                builder.CloseElement();
                 builder.CloseElement();
             }
             builder.CloseElement();
