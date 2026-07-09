@@ -202,6 +202,20 @@ public sealed class MigrationRunAdminServiceTests
                 DriverId = "VER"
             });
 
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "migration-2025-albert-park",
+                RaceCode = "albert_park",
+                PickType = "1",
+                ParticipantId = "Philip",
+                ImportedPoints = 10,
+                CalculatedPoints = 10,
+                SourceRunId = runId,
+                DeltaPoints = 0,
+                ReasonCode = "RACE_CORRECT",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
             var outOfScopeSelectionId = Guid.NewGuid();
             dbContext.Selections.Add(new F1.Core.Models.Selection
             {
@@ -216,6 +230,20 @@ public sealed class MigrationRunAdminServiceTests
                 SelectionId = outOfScopeSelectionId,
                 Position = 1,
                 DriverId = "VER"
+            });
+
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "migration-2024-albert-park",
+                RaceCode = "albert_park",
+                PickType = "1",
+                ParticipantId = "Alex",
+                ImportedPoints = 10,
+                CalculatedPoints = 10,
+                SourceRunId = Guid.NewGuid(),
+                DeltaPoints = 0,
+                ReasonCode = "RACE_CORRECT",
+                RecordedAtUtc = DateTime.UtcNow
             });
 
             await dbContext.SaveChangesAsync();
@@ -235,6 +263,8 @@ public sealed class MigrationRunAdminServiceTests
         await using var verificationContext = new F1DbContext(options);
         Assert.Single(verificationContext.Selections);
         Assert.Single(verificationContext.SelectionPositions);
+        Assert.Single(verificationContext.RacePickScores);
+        Assert.Empty(verificationContext.RacePickScores.Where(x => x.RaceId == "migration-2025-albert-park"));
         Assert.Empty(verificationContext.Races.Where(x => x.Id == "migration-2025-albert-park"));
         Assert.NotNull(await verificationContext.Races.FirstOrDefaultAsync(x => x.Id == "migration-2024-albert-park"));
 

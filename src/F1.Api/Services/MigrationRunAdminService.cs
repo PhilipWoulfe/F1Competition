@@ -386,6 +386,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var racePickScores = await _dbContext.RacePickScores
+                .Where(x => raceIds.Contains(x.RaceId))
+                .ToListAsync(cancellationToken);
             var selectionPositions = await _dbContext.SelectionPositions
                 .Where(x => selectionIds.Contains(x.SelectionId))
                 .ToListAsync(cancellationToken);
@@ -400,6 +403,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             var affectedSelectionCount = selections.Count;
             var affectedRaceCount = races.Count;
 
+            _dbContext.RacePickScores.RemoveRange(racePickScores);
             _dbContext.SelectionPositions.RemoveRange(selectionPositions);
             _dbContext.Selections.RemoveRange(selections);
             _dbContext.Races.RemoveRange(races);
