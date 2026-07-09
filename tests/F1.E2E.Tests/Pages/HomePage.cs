@@ -6,6 +6,22 @@ namespace F1.E2E.Tests.Pages;
 
 internal class HomePage
 {
+    private static readonly string[] AuthenticatedNavigationSelectors =
+    [
+        "a[href='results']",
+        "a[href='/results']",
+        "a[href='drivers']",
+        "a[href='/drivers']",
+        "a[href='selection']",
+        "a[href='/selection']",
+        "a[href^='selection/']",
+        "a[href^='/selection/']",
+        "a[href='admin']",
+        "a[href='/admin']",
+        "a[href='admin/migration-runs']",
+        "a[href='/admin/migration-runs']"
+    ];
+
     private readonly IWebDriver _driver;
     private readonly WebDriverWait _wait;
     private readonly string _baseUrl;
@@ -32,7 +48,7 @@ internal class HomePage
         PageReadiness.WaitForAppReady(
             _driver,
             _wait.Timeout,
-            driver => driver.FindElements(By.CssSelector("a[href^='selection/']")).Count > 0);
+            driver => AuthenticatedNavigationSelectors.Any(selector => driver.FindElements(By.CssSelector(selector)).Count > 0));
         _trace("Authenticated navigation link rendered.");
     }
 
