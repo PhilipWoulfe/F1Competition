@@ -30,11 +30,15 @@ public sealed class QuestionFrameworkModelContractTests
         Assert.False(answer!.FindProperty(nameof(QuestionAnswerEntity.ParticipantId))!.IsNullable);
         Assert.False(actual!.FindProperty(nameof(QuestionActualEntity.QuestionTemplateId))!.IsNullable);
         Assert.False(score!.FindProperty(nameof(QuestionScoreEntity.ParticipantId))!.IsNullable);
+        Assert.True(score.FindProperty(nameof(QuestionScoreEntity.OverrideScore))!.IsNullable);
+        Assert.True(score.FindProperty(nameof(QuestionScoreEntity.OverrideReasonCode))!.IsNullable);
+        Assert.True(score.FindProperty(nameof(QuestionScoreEntity.OverrideSourceRunId))!.IsNullable);
 
         Assert.Contains(template.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionTemplateEntity.CompetitionId), nameof(QuestionTemplateEntity.Season), nameof(QuestionTemplateEntity.QuestionId)));
         Assert.Contains(answer.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionAnswerEntity.QuestionTemplateId), nameof(QuestionAnswerEntity.ParticipantId)));
         Assert.Contains(actual.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionActualEntity.QuestionTemplateId)));
         Assert.Contains(score.GetIndexes(), index => index.IsUnique && Matches(index.Properties, nameof(QuestionScoreEntity.QuestionTemplateId), nameof(QuestionScoreEntity.ParticipantId)));
+        Assert.Contains(score.GetIndexes(), index => Matches(index.Properties, nameof(QuestionScoreEntity.OverrideSourceRunId)));
     }
 
     [Fact]

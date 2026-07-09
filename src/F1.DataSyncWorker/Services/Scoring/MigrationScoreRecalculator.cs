@@ -167,6 +167,15 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 ParticipantId = computation.ParticipantId,
                 ImportedPoints = computation.ImportedPoints,
                 CalculatedPoints = computation.CalculatedPoints,
+                OverrideScore = computation.ImportedPoints.HasValue && computation.ImportedPoints.Value != computation.CalculatedPoints
+                    ? computation.ImportedPoints.Value
+                    : null,
+                OverrideReasonCode = computation.ImportedPoints.HasValue && computation.ImportedPoints.Value != computation.CalculatedPoints
+                    ? computation.ReasonCode
+                    : null,
+                OverrideSourceRunId = computation.ImportedPoints.HasValue && computation.ImportedPoints.Value != computation.CalculatedPoints
+                    ? runId
+                    : null,
                 DeltaPoints = computation.DeltaPoints,
                 RecordedAtUtc = DateTime.UtcNow
             })

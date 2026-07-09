@@ -111,18 +111,65 @@ Test notes:
 ### Story E8: Separate migration storage from main domain data
 As an engineer, I want migration-prefixed tables isolated from the main application data model so admin migration workflows do not leak into product read paths and the final data is persisted in the correct canonical tables.
 
+Decision gate before implementation:
+- Confirm product read strategy for scores: persisted canonical score artifacts vs calculate-on-read.
+- Confirm override behavior: when migration differs from canonical calculation, write the migrated value into a dedicated override field and preserve the calculated baseline.
+
 Acceptance criteria:
 - Any table or entity whose name starts with `Migration` or `MigrationImport` is only used by migration/admin workflows, import staging, reconciliation, or audit views.
 - Core product features read from canonical domain tables only and do not depend on migration-prefixed tables for runtime behavior.
 - The migration pipeline explicitly moves or materializes the needed data into the proper canonical tables before the app or UI consumes it.
 - If the implementation chooses a separate schema or separate database, the boundary is documented and enforced so migration storage and canonical storage cannot be mixed accidentally.
-- The storage model includes an explicit mapping from migration tables to their canonical target tables for every persisted data type that needs to survive import.
+- The storage model includes an explicit mapping from migration tables to canonical target tables for every persisted data type that needs to survive import.
 - Idempotent re-run behavior is preserved so imports can be repeated without duplicating canonical data or leaving orphaned migration records.
 
 Test notes:
 - Add architecture-level tests or static checks that fail if non-admin code paths reference `Migration*` tables directly.
 - Add import/integration tests proving the required data lands in canonical tables after migration completes.
 - Add rerun/idempotency tests for the migration-to-canonical handoff.
+
+### Story E8.1: Enforce canonical-only runtime reads
+As an engineer, I want non-admin runtime code to read canonical tables only so migration staging data cannot become a product dependency.
+
+Acceptance criteria:
+- Leaderboard and participant detail runtime services read only canonical entities.
+- Any runtime dependency on migration-prefixed entities is removed.
+- A guardrail test fails if non-admin namespaces reference migration entities.
+
+Test notes:
+- Add architecture boundary tests with an allowlist for admin/import namespaces.
+- Update runtime service tests to seed canonical fixtures only.
+
+### Story E8.2: Define score truth model and override contract
+As a product owner, I want a single score truth model so users get predictable totals while migration discrepancies remain traceable.
+
+Acceptance criteria:
+- Score model is hybrid and fixed for this epic: persist canonical per-component scores for runtime reads and recompute during write/import workflows.
+- `QuestionScores` is canonical runtime storage for both migrated data and new/live competitions.
+- Runtime does not read migration-prefixed tables for scoring decisions.
+- If migrated/imported score differs from canonical calculation, `OverrideScore` is populated with the migrated value and the canonical calculated value remains available.
+- API/UI expose effective score source (`Calculated` vs `Override`) and allow admin visibility of the difference.
+- Tie-break behavior remains unchanged from base scoring rules even when effective score comes from an override.
+- Recalculation behavior for current/live competition edits is explicitly documented before implementation.
+- Override lifecycle for current/live competition is explicitly documented before implementation.
+
+Test notes:
+- Add parity tests for `Calculated` only, `Override` only, and mixed scenarios.
+- Add idempotency tests proving repeated import does not create duplicate or conflicting override writes.
+- Add tests proving `QuestionScores` powers both migrated and non-migrated (live) competition paths.
+
+### Story E8.3: Migration handoff and mapping hardening
+As an engineer, I want a deterministic migration-to-canonical handoff so imports can be re-run safely.
+
+Acceptance criteria:
+- A mapping matrix exists for all migration source tables to canonical target tables.
+- Canonical write stage is mandatory before product runtime can use imported data.
+- Handoff is idempotent and leaves no orphaned canonical or migration records.
+- Runbook wording matches current entity model.
+
+Test notes:
+- Add handoff integration tests that delete migration staging rows after write and still pass product endpoint checks.
+- Add regression coverage for checksum repeat runs.
 
 ## Delivery Plan
 1. Finalize role-based post-login destinations and context contract
@@ -147,3 +194,47 @@ Test notes:
 - Leaderboard and participant drilldowns show clear score-source semantics.
 - Accessibility and keyboard flow coverage exists for primary review tasks.
 - Migration-prefixed tables are isolated from main product reads and only feed canonical domain tables through explicit import steps.
+
+## Story E8 Findings and Implementation Backlog
+
+### Current findings
+- High: Non-admin runtime path still depends on migration-prefixed tables, conflicting with Story E8 canonical-only read criteria.
+- Medium: Service tests currently reinforce migration-table dependency in runtime paths.
+- Medium: No architecture/static guard currently blocks future non-admin references to `Migration` or `MigrationImport` entities.
+- Low: Runbook language is partly stale versus the current question entity model.
+
+### What is already implemented well
+- Canonical write step exists in write mode and is orchestrated after reconciliation.
+- Canonical persistence for race-domain entities is implemented with transaction and conflict policy.
+- Idempotency/parity metadata and tests are present for migration run orchestration.
+
+### Backlog to close Story E8
+1. Move leaderboard read model to canonical storage.
+2. Add canonical source tables/views or aggregates used by runtime leaderboard reads.
+3. Refactor leaderboard/detail services to canonical-only queries.
+4. Keep migration-prefixed table usage admin/import-only by explicit contract.
+5. Add architecture boundary tests with namespace allowlist.
+6. Rewrite runtime service tests to canonical fixtures only.
+7. Add handoff integration tests proving product endpoints work after staging rows are removed.
+8. Extend idempotency verification to canonical leaderboard artifacts.
+9. Publish and maintain migration-to-canonical mapping matrix.
+10. Update stale runbook statements to match current entity model.
+11. Add CI gates for architecture boundary and handoff coverage.
+
+### Score model decisions (agreed)
+
+1. Persist canonical component scores for runtime (including `QuestionScores`) across migrated and new/live competitions.
+2. Recompute during import/write workflows and explicit maintenance/repair workflows; runtime stays canonical-only.
+3. Keep override as exception path for migration parity only unless current/live competition policy explicitly extends it.
+
+Override policy (agreed):
+- If migration score equals canonical calculation, keep `OverrideScore` null.
+- If migration score differs, store canonical calculated score in baseline field and store migrated score in `OverrideScore`.
+- Effective score used by runtime is `OverrideScore` when present, otherwise canonical calculated score.
+- Record override reason and provenance (migration run/source) for auditability.
+- API/UI for admin expose both baseline and effective score when override exists.
+- Tie-break behavior is unchanged from baseline rules.
+
+Open policy decisions before coding current/live competition overrides:
+- Override lifecycle policy for non-migration scenarios (who can set/clear, and when).
+- Recalculation triggers for non-migration scenarios (event-driven domain edits vs scheduled reconciliation vs both).

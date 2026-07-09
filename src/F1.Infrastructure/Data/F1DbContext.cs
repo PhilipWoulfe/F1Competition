@@ -186,8 +186,10 @@ public class F1DbContext : DbContext
             entity.ToTable("QuestionScores");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.OverrideReasonCode).HasMaxLength(64);
             entity.HasIndex(x => new { x.QuestionTemplateId, x.ParticipantId }).IsUnique();
             entity.HasIndex(x => x.DeltaPoints);
+            entity.HasIndex(x => x.OverrideSourceRunId);
 
             entity.HasOne<QuestionTemplateEntity>()
                 .WithMany()

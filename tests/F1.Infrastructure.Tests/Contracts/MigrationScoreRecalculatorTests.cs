@@ -333,6 +333,26 @@ public sealed class MigrationScoreRecalculatorTests
             PointsPerQuestion = 20
         });
 
+        dbContext.MigrationImportPreseasonImportedTallies.AddRange(
+            new MigrationImportPreseasonImportedTallyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                QuestionKey = "PRE-002",
+                Subject = "Philip",
+                RawPoints = "5",
+                ImportedPoints = 5
+            },
+            new MigrationImportPreseasonImportedTallyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                QuestionKey = "PRE-002",
+                Subject = "Andy",
+                RawPoints = "0",
+                ImportedPoints = 0
+            });
+
         dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
         {
             Id = 101,
@@ -382,6 +402,10 @@ public sealed class MigrationScoreRecalculatorTests
         Assert.Equal(2, questionScores.Count);
         Assert.Equal(20, questionScores.Single(x => x.ParticipantId == "Philip").CalculatedPoints);
         Assert.Equal(0, questionScores.Single(x => x.ParticipantId == "Andy").CalculatedPoints);
+        Assert.Equal(5, questionScores.Single(x => x.ParticipantId == "Philip").OverrideScore);
+        Assert.Equal("PRESEASON_EXACT", questionScores.Single(x => x.ParticipantId == "Philip").OverrideReasonCode);
+        Assert.Equal(runId, questionScores.Single(x => x.ParticipantId == "Philip").OverrideSourceRunId);
+        Assert.Null(questionScores.Single(x => x.ParticipantId == "Andy").OverrideScore);
 
         var legacyScore = await dbContext.MigrationImportPreseasonCalculatedScores
             .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Philip");

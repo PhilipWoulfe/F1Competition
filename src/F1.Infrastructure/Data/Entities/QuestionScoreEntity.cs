@@ -7,6 +7,9 @@ public sealed class QuestionScoreEntity
     public string ParticipantId { get; set; } = string.Empty;
     public int? ImportedPoints { get; set; }
     public int CalculatedPoints { get; set; }
+    public int? OverrideScore { get; set; }
+    public string? OverrideReasonCode { get; set; }
+    public Guid? OverrideSourceRunId { get; set; }
     public int DeltaPoints { get; set; }
     public DateTime RecordedAtUtc { get; set; }
 }
