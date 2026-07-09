@@ -274,6 +274,95 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 .Select(x => x.KeyFields)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            var calculatedPickScores = await dbContext.MigrationImportCalculatedScores
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == runId)
+                .ToListAsync(cancellationToken);
+
+            var importedPickScores = await dbContext.MigrationImportLegacyPickScores
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == runId)
+                .ToListAsync(cancellationToken);
+
+            var importedPickScoreByKey = importedPickScores
+                .GroupBy(
+                    x => new CanonicalPickScoreKey(x.RaceCode, x.PickType, x.Subject),
+                    CanonicalPickScoreKey.Comparer)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.OrderByDescending(x => x.LegacyPoints.HasValue).First(),
+                    CanonicalPickScoreKey.Comparer);
+
+            var scopeKeysToWrite = incomingScopes
+                .Select(scope => BuildSelectionKey(scope.RaceId, scope.Subject))
+                .Where(key => !skippedSelectionKeys.Contains(key))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (scopeKeysToWrite.Count > 0)
+            {
+                var existingRacePickScores = await dbContext.RacePickScores
+                    .Where(x => incomingRaceIds.Contains(x.RaceId) && incomingSubjects.Contains(x.ParticipantId))
+                    .ToListAsync(cancellationToken);
+
+                var scoresToRemove = existingRacePickScores
+                    .Where(x => scopeKeysToWrite.Contains(BuildSelectionKey(x.RaceId, x.ParticipantId)))
+                    .ToList();
+
+                if (scoresToRemove.Count > 0)
+                {
+                    dbContext.RacePickScores.RemoveRange(scoresToRemove);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+
+                var canonicalRacePickScores = calculatedPickScores
+                    .Where(score => raceIdByCode.ContainsKey(score.RaceCode))
+                    .Select(score =>
+                    {
+                        var raceId = raceIdByCode[score.RaceCode];
+                        if (!scopeKeysToWrite.Contains(BuildSelectionKey(raceId, score.Subject)))
+                        {
+                            return null;
+                        }
+
+                        importedPickScoreByKey.TryGetValue(
+                            new CanonicalPickScoreKey(score.RaceCode, score.PickType, score.Subject),
+                            out var importedScore);
+
+                        var importedPoints = importedScore?.LegacyPoints;
+                        int? overrideScore = importedPoints.HasValue && importedPoints.Value != score.Points
+                            ? importedPoints.Value
+                            : null;
+
+                        return new RacePickScoreEntity
+                        {
+                            RaceId = raceId,
+                            RaceCode = score.RaceCode,
+                            PickType = score.PickType,
+                            ParticipantId = score.Subject,
+                            PredictedValue = score.PredictedValue,
+                            ActualValue = score.ActualValue,
+                            ImportedPoints = importedPoints,
+                            CalculatedPoints = score.Points,
+                            OverrideScore = overrideScore,
+                            OverrideReasonCode = overrideScore.HasValue ? "MIGRATION_IMPORTED_OVERRIDE" : null,
+                            SourceRunId = runId,
+                            DeltaPoints = importedPoints.HasValue ? score.Points - importedPoints.Value : 0,
+                            ReasonCode = score.ReasonCode,
+                            Explanation = null,
+                            RecordedAtUtc = DateTime.UtcNow
+                        };
+                    })
+                    .Where(score => score is not null)
+                    .Cast<RacePickScoreEntity>()
+                    .ToList();
+
+                if (canonicalRacePickScores.Count != 0)
+                {
+                    await dbContext.RacePickScores.AddRangeAsync(canonicalRacePickScores, cancellationToken);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
+
             foreach (var group in groupedSelections)
             {
                 if (!raceIdByCode.TryGetValue(group.Key.RaceCode, out var raceId))
@@ -458,4 +547,27 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
         string RaceCode,
         string RaceId,
         int SourceRowNumber);
+
+    private readonly record struct CanonicalPickScoreKey(string RaceCode, string PickType, string Subject)
+    {
+        public static IEqualityComparer<CanonicalPickScoreKey> Comparer { get; } = new CanonicalPickScoreKeyComparer();
+
+        private sealed class CanonicalPickScoreKeyComparer : IEqualityComparer<CanonicalPickScoreKey>
+        {
+            public bool Equals(CanonicalPickScoreKey x, CanonicalPickScoreKey y)
+            {
+                return string.Equals(x.RaceCode, y.RaceCode, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(x.PickType, y.PickType, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(x.Subject, y.Subject, StringComparison.OrdinalIgnoreCase);
+            }
+
+            public int GetHashCode(CanonicalPickScoreKey obj)
+            {
+                return HashCode.Combine(
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(obj.RaceCode),
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(obj.PickType),
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Subject));
+            }
+        }
+    }
 }

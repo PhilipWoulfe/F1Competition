@@ -18,24 +18,49 @@ public sealed class CompetitionLeaderboardServiceTests
 
         await using (var dbContext = new F1DbContext(options))
         {
-            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            dbContext.Competitions.Add(new F1.Core.Models.Competition
             {
-                Id = runId,
-                SourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
-                SourceFileChecksum = "abc123",
-                Status = "Completed",
-                StartedAtUtc = DateTime.UtcNow.AddMinutes(-5),
-                FinishedAtUtc = DateTime.UtcNow
+                Id = 42,
+                Name = "Philip 2025",
+                Year = 2025,
+                Description = "Philip canonical competition"
             });
 
-            dbContext.MigrationImportParticipantDeltaSummaries.AddRange(
-                new MigrationImportParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Charlie", ImportedTotalPoints = 20, CalculatedTotalPoints = 18 },
-                new MigrationImportParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Alice", ImportedTotalPoints = 20, CalculatedTotalPoints = 17 },
-                new MigrationImportParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Bob", ImportedTotalPoints = 10, CalculatedTotalPoints = 25 });
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "aus-2025",
+                CompetitionId = 42,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
 
-            dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
-                new MigrationImportPreseasonParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Alice", ImportedTotalPoints = 5, CalculatedTotalPoints = 4 },
-                new MigrationImportPreseasonParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Bob", ImportedTotalPoints = 5, CalculatedTotalPoints = 2 });
+            dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+            {
+                Id = 100,
+                CompetitionId = 42,
+                Season = 2025,
+                QuestionId = "PRE-001",
+                Category = F1.Core.Models.QuestionCategory.Preseason,
+                Prompt = "Preseason winner",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.AddRange(
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Charlie", ImportedPoints = 20, CalculatedPoints = 18, OverrideScore = 20, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = -2, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Alice", ImportedPoints = 20, CalculatedPoints = 17, OverrideScore = 20, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = -3, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Bob", ImportedPoints = 10, CalculatedPoints = 25, OverrideScore = 10, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = 15, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow });
+
+            dbContext.QuestionScores.AddRange(
+                new QuestionScoreEntity { QuestionTemplateId = 100, ParticipantId = "Alice", ImportedPoints = 5, CalculatedPoints = 4, OverrideScore = 5, OverrideReasonCode = "PRESEASON_EXACT", OverrideSourceRunId = runId, DeltaPoints = -1, RecordedAtUtc = DateTime.UtcNow },
+                new QuestionScoreEntity { QuestionTemplateId = 100, ParticipantId = "Bob", ImportedPoints = 5, CalculatedPoints = 2, OverrideScore = 5, OverrideReasonCode = "PRESEASON_EXACT", OverrideSourceRunId = runId, DeltaPoints = -3, RecordedAtUtc = DateTime.UtcNow });
 
             await dbContext.SaveChangesAsync();
         }
@@ -60,19 +85,30 @@ public sealed class CompetitionLeaderboardServiceTests
 
         await using (var dbContext = new F1DbContext(options))
         {
-            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            dbContext.Competitions.Add(new F1.Core.Models.Competition
             {
-                Id = runId,
-                SourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
-                SourceFileChecksum = "abc123",
-                Status = "Completed",
-                StartedAtUtc = DateTime.UtcNow.AddMinutes(-5),
-                FinishedAtUtc = DateTime.UtcNow
+                Id = 42,
+                Name = "Philip 2025",
+                Year = 2025,
+                Description = "Philip canonical competition"
             });
 
-            dbContext.MigrationImportParticipantDeltaSummaries.AddRange(
-                new MigrationImportParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Alice", ImportedTotalPoints = 25, CalculatedTotalPoints = 12 },
-                new MigrationImportParticipantDeltaSummaryEntity { ImportRunId = runId, Subject = "Bob", ImportedTotalPoints = 15, CalculatedTotalPoints = 30 });
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "aus-2025",
+                CompetitionId = 42,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.AddRange(
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Alice", ImportedPoints = 25, CalculatedPoints = 12, OverrideScore = 25, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = -13, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Bob", ImportedPoints = 15, CalculatedPoints = 30, OverrideScore = 15, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = 15, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow });
 
             await dbContext.SaveChangesAsync();
         }
@@ -118,6 +154,19 @@ public sealed class CompetitionLeaderboardServiceTests
                 Description = "Philip 2025 season competition"
             });
 
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "aus-2025",
+                CompetitionId = 42,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
             dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
             {
                 Id = 100,
@@ -132,6 +181,20 @@ public sealed class CompetitionLeaderboardServiceTests
                 UpdatedAtUtc = DateTime.UtcNow
             });
 
+            dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+            {
+                Id = 101,
+                CompetitionId = 42,
+                Season = 2025,
+                QuestionId = "WDC",
+                Category = F1.Core.Models.QuestionCategory.Preseason,
+                Prompt = "Who wins the championship?",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
             dbContext.QuestionScores.Add(new QuestionScoreEntity
             {
                 QuestionTemplateId = 100,
@@ -142,41 +205,34 @@ public sealed class CompetitionLeaderboardServiceTests
                 RecordedAtUtc = DateTime.UtcNow
             });
 
-            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            dbContext.QuestionScores.Add(new QuestionScoreEntity
             {
-                Id = runId,
-                SourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv",
-                SourceFileChecksum = "abc123",
-                Status = "Completed",
-                StartedAtUtc = DateTime.UtcNow.AddMinutes(-5),
-                FinishedAtUtc = DateTime.UtcNow
-            });
-
-            dbContext.MigrationImportPickDiffs.Add(new MigrationImportPickDiffEntity
-            {
-                ImportRunId = runId,
-                RaceCode = "AUS",
-                PickType = "1",
-                Subject = "Alice",
-                ImportedPoints = 3,
-                CalculatedPoints = 5,
-                DeltaPoints = 2,
-                ReasonCode = "RACE_CORRECT",
-                Explanation = "Exact pick"
-            });
-
-            dbContext.MigrationImportPreseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
-            {
-                ImportRunId = runId,
-                RowNumber = 1,
-                QuestionKey = "WDC",
-                QuestionText = "Who wins the championship?",
-                Subject = "Alice",
+                QuestionTemplateId = 101,
+                ParticipantId = "Alice",
                 ImportedPoints = 4,
                 CalculatedPoints = 6,
+                OverrideScore = 4,
+                OverrideReasonCode = "PRESEASON_CORRECT",
+                OverrideSourceRunId = runId,
                 DeltaPoints = 2,
-                ReasonCode = "PRESEASON_CORRECT",
-                Explanation = "Matched answer"
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "aus-2025",
+                RaceCode = "AUS",
+                PickType = "1",
+                ParticipantId = "Alice",
+                ImportedPoints = 3,
+                CalculatedPoints = 5,
+                OverrideScore = 3,
+                OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE",
+                SourceRunId = runId,
+                DeltaPoints = 2,
+                ReasonCode = "RACE_CORRECT",
+                Explanation = "Exact pick",
+                RecordedAtUtc = DateTime.UtcNow
             });
 
             await dbContext.SaveChangesAsync();

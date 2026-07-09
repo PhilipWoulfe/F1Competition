@@ -149,6 +149,7 @@ public sealed class MigrationImportRunServiceTests
             Assert.NotEmpty(await verificationContext.Races.AsNoTracking().ToListAsync());
             Assert.NotEmpty(await verificationContext.Selections.AsNoTracking().ToListAsync());
             Assert.NotEmpty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await verificationContext.RacePickScores.AsNoTracking().ToListAsync());
         }
         finally
         {
@@ -1170,6 +1171,7 @@ public sealed class MigrationImportRunServiceTests
             Assert.NotEmpty(await verificationContext.Races.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.Selections.AsNoTracking().ToListAsync());
             Assert.Empty(await verificationContext.SelectionPositions.AsNoTracking().ToListAsync());
+            Assert.Empty(await verificationContext.RacePickScores.AsNoTracking().ToListAsync());
         }
         finally
         {

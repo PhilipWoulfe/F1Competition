@@ -16,6 +16,7 @@ public class F1DbContext : DbContext
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<Selection> Selections => Set<Selection>();
     public DbSet<SelectionPositionEntity> SelectionPositions => Set<SelectionPositionEntity>();
+    public DbSet<RacePickScoreEntity> RacePickScores => Set<RacePickScoreEntity>();
     public DbSet<RaceMetadataEntity> RaceMetadata => Set<RaceMetadataEntity>();
     public DbSet<QuestionTemplateEntity> QuestionTemplates => Set<QuestionTemplateEntity>();
     public DbSet<QuestionAnswerEntity> QuestionAnswers => Set<QuestionAnswerEntity>();
@@ -118,6 +119,29 @@ public class F1DbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(x => new { x.SelectionId, x.Position }).IsUnique();
+        });
+
+        modelBuilder.Entity<RacePickScoreEntity>(entity =>
+        {
+            entity.ToTable("RacePickScores");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RaceId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RaceCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PickType).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.PredictedValue).HasMaxLength(256);
+            entity.Property(x => x.ActualValue).HasMaxLength(256);
+            entity.Property(x => x.OverrideReasonCode).HasMaxLength(64);
+            entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Explanation).HasMaxLength(1024);
+            entity.HasIndex(x => new { x.RaceId, x.PickType, x.ParticipantId }).IsUnique();
+            entity.HasIndex(x => new { x.RaceId, x.ParticipantId });
+            entity.HasIndex(x => x.SourceRunId);
+
+            entity.HasOne<Race>()
+                .WithMany()
+                .HasForeignKey(x => x.RaceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RaceMetadataEntity>(entity =>

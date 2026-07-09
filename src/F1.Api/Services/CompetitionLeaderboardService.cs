@@ -1,5 +1,6 @@
 using F1.Api.Configuration;
 using F1.Api.Dtos;
+using F1.Core.Models;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -57,9 +58,8 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 "Leaderboard data source is not supported for this competition.");
         }
 
-        var sourceRun = await GetLatestCompletedRunAsync(context, cancellationToken);
-
-        if (sourceRun is null)
+        var competition = await ResolveCompetitionAsync(displayName, season, cancellationToken);
+        if (competition is null)
         {
             return CreateUnavailableResponse(
                 normalizedCompetitionSlug,
@@ -67,41 +67,56 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 displayName,
                 normalizedScoreView,
                 isAdmin,
-                "No approved leaderboard run is available for this competition yet.");
+                "No canonical leaderboard data is available for this competition yet.");
         }
 
-        var raceTotals = await dbContext.MigrationImportParticipantDeltaSummaries
+        var raceTotals = await dbContext.RacePickScores
             .AsNoTracking()
-            .Where(row => row.ImportRunId == sourceRun.Id)
+            .Join(
+                dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
+                score => score.RaceId,
+                race => race.Id,
+                (score, _) => score)
             .ToListAsync(cancellationToken);
 
-        var preseasonTotals = await dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+        var preseasonTotals = await dbContext.QuestionScores
             .AsNoTracking()
-            .Where(row => row.ImportRunId == sourceRun.Id)
+            .Join(
+                dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season && template.Category == QuestionCategory.Preseason),
+                score => score.QuestionTemplateId,
+                template => template.Id,
+                (score, _) => score)
             .ToListAsync(cancellationToken);
 
         var combined = raceTotals
-            .GroupBy(row => row.Subject, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(row => row.ParticipantId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
                 group => new ScoreTotals(
-                    ImportedPoints: group.Sum(item => item.ImportedTotalPoints),
-                    RecalculatedPoints: group.Sum(item => item.CalculatedTotalPoints)),
+                    ImportedPoints: group.Sum(item => item.ImportedPoints ?? 0),
+                    RecalculatedPoints: group.Sum(item => item.CalculatedPoints),
+                    ActivePoints: group.Sum(item => item.OverrideScore ?? item.CalculatedPoints),
+                    SourceRunId: group.Select(item => (Guid?)item.SourceRunId).OrderByDescending(item => item).FirstOrDefault()),
                 StringComparer.OrdinalIgnoreCase);
 
         foreach (var preseasonRow in preseasonTotals)
         {
-            if (combined.TryGetValue(preseasonRow.Subject, out var existingTotals))
+            if (combined.TryGetValue(preseasonRow.ParticipantId, out var existingTotals))
             {
-                combined[preseasonRow.Subject] = existingTotals with
+                combined[preseasonRow.ParticipantId] = existingTotals with
                 {
-                    ImportedPoints = existingTotals.ImportedPoints + preseasonRow.ImportedTotalPoints,
-                    RecalculatedPoints = existingTotals.RecalculatedPoints + preseasonRow.CalculatedTotalPoints
+                    ImportedPoints = existingTotals.ImportedPoints + (preseasonRow.ImportedPoints ?? 0),
+                    RecalculatedPoints = existingTotals.RecalculatedPoints + preseasonRow.CalculatedPoints,
+                    ActivePoints = existingTotals.ActivePoints + (preseasonRow.OverrideScore ?? preseasonRow.CalculatedPoints)
                 };
             }
             else
             {
-                combined[preseasonRow.Subject] = new ScoreTotals(preseasonRow.ImportedTotalPoints, preseasonRow.CalculatedTotalPoints);
+                combined[preseasonRow.ParticipantId] = new ScoreTotals(
+                    ImportedPoints: preseasonRow.ImportedPoints ?? 0,
+                    RecalculatedPoints: preseasonRow.CalculatedPoints,
+                    ActivePoints: preseasonRow.OverrideScore ?? preseasonRow.CalculatedPoints,
+                    SourceRunId: preseasonRow.OverrideSourceRunId);
             }
         }
 
@@ -134,7 +149,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             IsComparisonAvailable: isAdmin,
             IsDataAvailable: leaderboardItems.Length > 0,
             EmptyStateMessage: leaderboardItems.Length > 0 ? null : "No participant totals are available for this competition yet.",
-            SourceRunId: sourceRun.Id,
+            SourceRunId: combined.Values.Select(item => item.SourceRunId).OrderByDescending(item => item).FirstOrDefault(),
             Items: leaderboardItems);
     }
 
@@ -152,41 +167,69 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
         var context = ResolveContextOption(normalizedCompetitionSlug, season);
         var displayName = GetDisplayName(context, normalizedCompetitionSlug, season);
 
-        var sourceRun = context is not null
-            ? await GetLatestCompletedRunAsync(context, cancellationToken)
-            : null;
+        var competition = await ResolveCompetitionAsync(displayName, season, cancellationToken);
 
-        var racePickItems = sourceRun is null
+        var racePickItems = competition is null
             ? []
-            : await dbContext.MigrationImportPickDiffs
+            : await dbContext.RacePickScores
                 .AsNoTracking()
-                .Where(item => item.ImportRunId == sourceRun.Id && item.Subject == normalizedParticipantName)
-                .OrderBy(item => item.RaceCode)
+                .Join(
+                    dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
+                    score => score.RaceId,
+                    race => race.Id,
+                    (score, race) => new
+                    {
+                        race.Round,
+                        score.RaceCode,
+                        score.PickType,
+                        score.ParticipantId,
+                        score.ImportedPoints,
+                        score.CalculatedPoints,
+                        score.DeltaPoints,
+                        score.ReasonCode,
+                        score.Explanation
+                    })
+                .Where(item => item.ParticipantId == normalizedParticipantName)
+                .OrderBy(item => item.Round)
                 .ThenBy(item => item.PickType)
                 .Select(item => new CompetitionParticipantDetailItemDto(
                     item.RaceCode,
                     item.PickType,
                     item.ImportedPoints,
-                    item.CalculatedPoints ?? 0,
+                    item.CalculatedPoints,
                     item.DeltaPoints,
                     item.ReasonCode,
                     item.Explanation))
                 .ToArrayAsync(cancellationToken);
 
-        var preseasonItems = sourceRun is null
+        var preseasonItems = competition is null
             ? []
-            : await dbContext.MigrationImportPreseasonQuestionDiffs
+            : await dbContext.QuestionScores
                 .AsNoTracking()
-                .Where(item => item.ImportRunId == sourceRun.Id && item.Subject == normalizedParticipantName)
-                .OrderBy(item => item.RowNumber)
+                .Join(
+                    dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season && template.Category == QuestionCategory.Preseason),
+                    score => score.QuestionTemplateId,
+                    template => template.Id,
+                    (score, template) => new
+                    {
+                        score.ParticipantId,
+                        template.SortOrder,
+                        template.QuestionId,
+                        template.Prompt,
+                        score.ImportedPoints,
+                        score.CalculatedPoints,
+                        score.DeltaPoints
+                    })
+                .Where(item => item.ParticipantId == normalizedParticipantName)
+                .OrderBy(item => item.SortOrder)
                 .Select(item => new CompetitionParticipantDetailItemDto(
-                    item.QuestionKey,
-                    item.QuestionText,
+                    item.QuestionId,
+                    item.Prompt,
                     item.ImportedPoints,
-                    item.CalculatedPoints ?? 0,
+                    item.CalculatedPoints,
                     item.DeltaPoints,
-                    item.ReasonCode,
-                    item.Explanation))
+                    null,
+                    null))
                 .ToArrayAsync(cancellationToken);
 
         var h2hItems = await BuildH2hItemsAsync(displayName, season, normalizedParticipantName, cancellationToken);
@@ -232,7 +275,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
         {
             ViewImported => totals.ImportedPoints,
             ViewRecalculated => totals.RecalculatedPoints,
-            _ when string.Equals(activeScoreSource, ActiveScoreSourceImportedLegacy, StringComparison.OrdinalIgnoreCase) => totals.ImportedPoints,
+            _ when string.Equals(activeScoreSource, ActiveScoreSourceImportedLegacy, StringComparison.OrdinalIgnoreCase) => totals.ActivePoints,
             _ => totals.RecalculatedPoints
         };
     }
@@ -292,21 +335,12 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             : displayName;
     }
 
-    private async Task<F1.Infrastructure.Data.Entities.MigrationImportRunEntity?> GetLatestCompletedRunAsync(CompetitionLeaderboardContextOption context, CancellationToken cancellationToken)
+    private async Task<Competition?> ResolveCompetitionAsync(string competitionDisplayName, int season, CancellationToken cancellationToken)
     {
-        var completedRuns = dbContext.MigrationImportRuns
+        return await dbContext.Competitions
             .AsNoTracking()
-            .Where(run => run.Status == "Completed" || run.Status == "completed");
-
-        if (!string.IsNullOrWhiteSpace(context.MigrationSourcePathContains))
-        {
-            var sourcePathToken = context.MigrationSourcePathContains.Trim().ToLowerInvariant();
-            completedRuns = completedRuns.Where(run => run.SourceFilePath.ToLower().Contains(sourcePathToken));
-        }
-
-        return await completedRuns
-            .OrderByDescending(run => run.FinishedAtUtc ?? run.StartedAtUtc)
-            .ThenByDescending(run => run.Id)
+            .Where(item => item.Name == competitionDisplayName && item.Year == season)
+            .OrderBy(item => item.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -359,5 +393,5 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             Items: items);
     }
 
-    private sealed record ScoreTotals(int ImportedPoints, int RecalculatedPoints);
+    private sealed record ScoreTotals(int ImportedPoints, int RecalculatedPoints, int ActivePoints, Guid? SourceRunId);
 }
