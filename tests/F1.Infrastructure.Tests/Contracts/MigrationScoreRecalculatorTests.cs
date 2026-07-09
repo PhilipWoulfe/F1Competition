@@ -305,6 +305,44 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenDnfUsesMappedDriverIds_MatchesExpectedActualTokens()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "AUS", "1", "ACTUAL", "max_verstappen", isActual: true),
+            Selection(runId, 101, "AUS", "2", "ACTUAL", "norris", isActual: true),
+            Selection(runId, 102, "AUS", "3", "ACTUAL", "leclerc", isActual: true),
+            Selection(runId, 103, "AUS", "DNF", "ACTUAL", "sainz doohan bortoleto", isActual: true),
+            Selection(runId, 10, "AUS", "DNF", "Kevin", "bortoleto"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(1, result.ScoredPickCount);
+        Assert.Equal(5, result.TotalPoints);
+
+        var dnfScore = await dbContext.MigrationImportCalculatedScores
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "Kevin" && x.PickType == "DNF");
+
+        AssertScore(dnfScore, 5, "DNF_MATCH");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenGenericPreseasonQuestionsPresent_PersistsQuestionScoresThroughStrategyDispatch()
     {
         var runId = Guid.NewGuid();

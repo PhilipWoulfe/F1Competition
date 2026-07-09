@@ -171,6 +171,33 @@ Test notes:
 - Add handoff integration tests that delete migration staging rows after write and still pass product endpoint checks.
 - Add regression coverage for checksum repeat runs.
 
+### Story E9: Complete canonical leaderboard boundary and release guardrails
+As an engineer, I want the leaderboard and participant runtime read path fully isolated to canonical storage with enforceable guardrails so migration staging data cannot leak into product behavior.
+
+Scope:
+- Move leaderboard and participant detail runtime reads to canonical tables/views/aggregates materialized during write mode.
+- Keep migration-prefixed tables admin/import-only by explicit architecture contract.
+- Add test and CI enforcement so regressions are blocked automatically.
+- Publish and maintain the migration-to-canonical mapping matrix in runbook documentation.
+
+Acceptance criteria:
+- Canonical leaderboard source model exists and is populated in write mode before runtime reads.
+- Product runtime endpoints no longer read `Migration*`/`MigrationImport*` entities.
+- `CompetitionLeaderboardService` and participant detail reads use canonical-only queries.
+- Migration-prefixed tables remain available only to admin/import/reconciliation/audit code paths.
+- Architecture boundary tests fail the build if non-admin namespaces reference migration entities.
+- Leaderboard service tests are rewritten to canonical fixtures only.
+- Handoff integration tests prove product endpoints continue to work after migration staging/diff rows are removed.
+- Idempotency tests cover canonical leaderboard artifacts and prove repeated checksum runs do not duplicate canonical rows.
+- Runbook includes an explicit migration source -> canonical target mapping matrix and removes stale wording.
+- CI includes required guardrails for architecture boundary checks, canonical handoff integration, and idempotency regression tests.
+
+Test notes:
+- Add architecture tests with namespace allowlist (`admin`, `import`, reconciliation/audit paths only).
+- Add API integration tests validating leaderboard/detail endpoints against canonical data with migration staging removed.
+- Add rerun tests verifying stable canonical counts and no duplicate aggregates/snapshots for identical checksums.
+- Add documentation checks or PR policy gate requiring mapping matrix updates when migration or canonical entities change.
+
 ## Delivery Plan
 1. Finalize role-based post-login destinations and context contract
 2. Implement competition-season selection and remembered context

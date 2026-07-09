@@ -1,6 +1,6 @@
 {
   "ruleSetId": "phil-2025-expected-variance",
-  "ruleSetVersion": "2026.07.06.16",
+  "ruleSetVersion": "2026.07.09.01",
   "rules": [
     {
       "ruleId": "phil-2025-shanghai-andy-p2-row145-colD",
@@ -214,9 +214,9 @@
     },
     {
       "ruleId": "phil-2025-vegas-andy-p1-row224-colD",
-      "reasonCode": "KNOWN_LEGACY_POINTS_ERROR",
+      "reasonCode": "PODIUM_RULE_VARIANCE",
       "subject": "Andy",
-      "raceCode": "las_vegas",
+      "raceCode": "vegas",
       "pickType": "1",
       "importedSourcePattern": "race-points row 224, column D",
       "calculatedSourcePattern": "race-picks row 127, column D",
@@ -230,7 +230,7 @@
       "ruleId": "phil-2025-vegas-kevin-dnf-missing-colG",
       "reasonCode": "LEGACY_POINTS_MISSING",
       "subject": "Kevin",
-      "raceCode": "las_vegas",
+      "raceCode": "vegas",
       "pickType": "DNF",
       "importedSourcePattern": "race-points row n/a, column G",
       "calculatedSourcePattern": "race-picks row 130, column G",

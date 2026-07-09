@@ -25,7 +25,7 @@ internal static class MigrationPhil2025RaceSequenceMapper
         "americas",
         "rodriguez",
         "interlagos",
-        "las_vegas",
+        "vegas",
         "losail",
         "yas_marina"
     ];

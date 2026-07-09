@@ -732,7 +732,7 @@ public sealed class MigrationRaceSelectionParserTests
             ("COTA-1", "americas"),
             ("MEX-1", "rodriguez"),
             ("BRA-1", "interlagos"),
-            ("LAS-1", "las_vegas"),
+            ("LAS-1", "vegas"),
             ("QAT-1", "losail"),
             ("ABD-1", "yas_marina")
         };

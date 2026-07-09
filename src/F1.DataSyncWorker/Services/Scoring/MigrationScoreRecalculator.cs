@@ -572,14 +572,16 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
-        return DriverCodeRegex()
-            .Matches(value.ToUpperInvariant())
-            .Select(x => x.Value)
+        // DNF values can contain either 3-letter codes (BOR) or mapped driver IDs (bortoleto).
+        // Tokenize on common delimiters so both representations compare consistently.
+        return DnfTokenSplitRegex()
+            .Split(value.Trim().ToUpperInvariant())
+            .Where(token => token.Length > 0)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    [GeneratedRegex("[A-Z]{3}", RegexOptions.Compiled)]
-    private static partial Regex DriverCodeRegex();
+    [GeneratedRegex("[\\s,;/|]+", RegexOptions.Compiled)]
+    private static partial Regex DnfTokenSplitRegex();
 
     [GeneratedRegex("\\s*\\|\\s*", RegexOptions.Compiled)]
     private static partial Regex PreseasonActualSplitRegex();
