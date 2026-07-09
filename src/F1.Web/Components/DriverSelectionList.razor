@@ -6,7 +6,7 @@
     var rank = i;
     <div class="mb-2">
         <label class="form-label">Position @(i + 1)</label>
-        <select id="driver-select-@(i + 1)" class="form-select" value="@SelectedDriverIds[rank]" @onchange="e => OnDriverChanged(rank, e.Value?.ToString())" disabled="@IsReadOnly">
+        <select id="driver-select-@(i + 1)" class="form-select driver-selection" value="@SelectedDriverIds[rank]" @onchange="e => OnDriverChanged(rank, e.Value?.ToString())" disabled="@IsReadOnly">
             <option value="">-- Select driver --</option>
             @foreach (var driver in Drivers)
             {

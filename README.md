@@ -191,6 +191,28 @@ Notes:
 - `/api/users/debug/me` returns sanitized post-auth claims, groups, and role resolution data only when `DEV_ENABLE_DEBUG_ENDPOINTS=true` and the API is running in `Development` or `Test`.
 - `TAG` applies to API, Web, and Data Sync worker images. Use `TAG=test` for the test host, `TAG=stable` for production, and `TAG=sha-<shortsha>` for rollback or pinning a specific build.
 
+Web post-login landing config:
+
+- `src/F1.Web/wwwroot/appsettings.json` contains the `PostLoginRouting` section used by the web client after authentication.
+- `AdminLandingPath` defaults to `/admin/migration-runs`.
+- `AuthenticatedUserLandingPath` defaults to `/results`.
+- `FallbackPath` is used when the user session is missing or a role-specific landing path is blank, and defaults to `/results`.
+- Environment-specific overrides can be added in `src/F1.Web/wwwroot/appsettings.Development.json`, `src/F1.Web/wwwroot/appsettings.Test.json`, or `src/F1.Web/wwwroot/appsettings.Production.json`.
+
+Web competition context config:
+
+- `src/F1.Web/wwwroot/appsettings.json` also contains the `SelectionContext` section used by the race-selection workspace selector.
+- Each entry defines `CompetitionSlug`, `CompetitionLabel`, `Season`, and `DefaultRound`.
+- Visiting `/selection` restores the last-used competition and season from browser storage when the saved context is still configured; otherwise the client falls back to the default configured context.
+- Removing a context from configuration automatically causes stored stale selections to fall back to a valid configured context on the next visit.
+
+Competition leaderboard config:
+
+- `src/F1.Api/appsettings.json` contains the `CompetitionLeaderboard` section used by the standings endpoint.
+- Each context can be backed by a completed migration run or marked unavailable until a leaderboard source is approved.
+- For migration-backed contexts, `MigrationSourcePathContains` selects the latest completed run used for leaderboard totals.
+- Official leaderboard totals currently use imported legacy scores for approved migrated contexts; admins can request recalculated comparison mode from the API/UI.
+
 #### B. Data Sync Worker (`src/F1.DataSyncWorker/appsettings*.json`)
 The worker reads `ConnectionStrings:Postgres` and the `DataSyncWorker` section. Default config includes the three baseline competitions for this epic:
 

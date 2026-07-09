@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using F1.Web.Configuration;
 using F1.Web.Models;
 using F1.Web.Pages;
@@ -12,12 +13,25 @@ namespace F1.Web.Tests.Pages;
 
 public class RaceSelectionTests : BunitContext
 {
+    private readonly InMemorySelectionContextStore _selectionContextStore = new();
+
     public RaceSelectionTests()
     {
         Services.AddSingleton<ITimeProvider>(new FrozenTimeProvider(new DateTime(2025, 12, 6, 9, 0, 0, DateTimeKind.Utc)));
         Services.AddSingleton<IMockDateService, TestMockDateService>();
         Services.AddSingleton<ISelectionPageService, SelectionPageService>();
         Services.AddSingleton<ISelectionCountdownFormatter, SelectionCountdownFormatter>();
+        Services.AddSingleton<ISelectionContextStore>(_selectionContextStore);
+        Services.AddSingleton<ISelectionContextService, SelectionContextService>();
+        Services.Configure<SelectionContextOptions>(options =>
+        {
+            options.Options =
+            [
+                new SelectionContextOption { CompetitionSlug = "david", CompetitionLabel = "David", Season = 2025, DefaultRound = 1 },
+                new SelectionContextOption { CompetitionSlug = "main", CompetitionLabel = "Main", Season = 2026, DefaultRound = 1 },
+                new SelectionContextOption { CompetitionSlug = "philip", CompetitionLabel = "Philip", Season = 2025, DefaultRound = 1 }
+            ];
+        });
     }
 
     private static readonly RaceConfig DefaultRaceConfig = new()
@@ -102,7 +116,7 @@ public class RaceSelectionTests : BunitContext
             Assert.Contains("Race Selection", cut.Markup);
             Assert.Contains("07 Dec 2025 04:30 UTC", cut.Markup);
             Assert.Contains("Countdown:", cut.Markup);
-            Assert.Equal(string.Empty, cut.FindAll("select")[0].GetAttribute("value"));
+            Assert.Equal(string.Empty, GetDriverSelects(cut)[0].GetAttribute("value"));
         });
     }
 
@@ -208,8 +222,8 @@ public class RaceSelectionTests : BunitContext
         cut.WaitForAssertion(() => Assert.Contains("This pre-qualy selection is locked.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
         // Snapshot overrides drivers: norris P1, leclerc P2
-        Assert.Equal("norris", cut.FindAll("select")[0].GetAttribute("value"));
-        Assert.Equal("leclerc", cut.FindAll("select")[1].GetAttribute("value"));
+        Assert.Equal("norris", GetDriverSelects(cut)[0].GetAttribute("value"));
+        Assert.Equal("leclerc", GetDriverSelects(cut)[1].GetAttribute("value"));
         Assert.True(cut.Find("#strategy-prequaly").HasAttribute("checked"));
     }
 
@@ -246,7 +260,7 @@ public class RaceSelectionTests : BunitContext
             .ReturnsAsync(savedSelection);
 
         var cut = RenderForRace(raceId);
-        cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
+        cut.WaitForAssertion(() => Assert.Equal(5, GetDriverSelects(cut).Count));
 
         ChangeSelect(cut, 0, "norris");
         ChangeSelect(cut, 1, "leclerc");
@@ -257,11 +271,11 @@ public class RaceSelectionTests : BunitContext
         cut.Find("button[type='submit']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Selection saved successfully.", cut.Markup));
-        Assert.Equal("norris", cut.FindAll("select")[0].GetAttribute("value"));
-        Assert.Equal("leclerc", cut.FindAll("select")[1].GetAttribute("value"));
-        Assert.Equal("hamilton", cut.FindAll("select")[2].GetAttribute("value"));
-        Assert.Equal("piastri", cut.FindAll("select")[3].GetAttribute("value"));
-        Assert.Equal("verstappen", cut.FindAll("select")[4].GetAttribute("value"));
+    Assert.Equal("norris", GetDriverSelects(cut)[0].GetAttribute("value"));
+    Assert.Equal("leclerc", GetDriverSelects(cut)[1].GetAttribute("value"));
+    Assert.Equal("hamilton", GetDriverSelects(cut)[2].GetAttribute("value"));
+    Assert.Equal("piastri", GetDriverSelects(cut)[3].GetAttribute("value"));
+    Assert.Equal("verstappen", GetDriverSelects(cut)[4].GetAttribute("value"));
         selectionMock.Verify(
             s => s.SaveMineAsync(raceId, It.IsAny<SelectionSubmission>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -280,7 +294,7 @@ public class RaceSelectionTests : BunitContext
             .ThrowsAsync(new ApiServiceException(new ApiError(HttpStatusCode.BadRequest, "Exactly 5 unique drivers must be selected.")));
 
         var cut = RenderForRace(DefaultRaceConfig.RaceId);
-        cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
+        cut.WaitForAssertion(() => Assert.Equal(5, GetDriverSelects(cut).Count));
 
         cut.Find("button[type='submit']").Click();
 
@@ -301,7 +315,7 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace("philip-2025-24-abu-dhabi-grand-prix");
 
-        cut.WaitForAssertion(() => Assert.Equal(3, cut.FindAll("select").Count));
+        cut.WaitForAssertion(() => Assert.Equal(3, GetDriverSelects(cut).Count));
         Assert.Contains("Top 3 Driver Predictions", cut.Markup);
     }
 
@@ -317,7 +331,7 @@ public class RaceSelectionTests : BunitContext
             .ThrowsAsync(new ApiServiceException(new ApiError(statusCode, $"Saving race selection failed with status code {(int)statusCode}.")));
 
         var cut = RenderForRace(DefaultRaceConfig.RaceId);
-        cut.WaitForAssertion(() => Assert.Equal(5, cut.FindAll("select").Count));
+        cut.WaitForAssertion(() => Assert.Equal(5, GetDriverSelects(cut).Count));
 
         cut.Find("button[type='submit']").Click();
 
@@ -365,8 +379,8 @@ public class RaceSelectionTests : BunitContext
 
         var cut = RenderForRace(DefaultRaceConfig.RaceId);
 
-        cut.WaitForAssertion(() => Assert.Equal("norris", cut.FindAll("select")[0].GetAttribute("value")));
-        Assert.Equal("leclerc", cut.FindAll("select")[1].GetAttribute("value"));
+        cut.WaitForAssertion(() => Assert.Equal("norris", GetDriverSelects(cut)[0].GetAttribute("value")));
+        Assert.Equal("leclerc", GetDriverSelects(cut)[1].GetAttribute("value"));
         Assert.True(cut.Find("#strategy-prequaly").HasAttribute("checked"));
     }
 
@@ -388,7 +402,7 @@ public class RaceSelectionTests : BunitContext
 
         cut.WaitForAssertion(() => Assert.Contains("All deadlines have passed.", cut.Markup));
         Assert.True(cut.Find("button[type='submit']").HasAttribute("disabled"));
-        Assert.True(cut.FindAll("select").All(s => s.HasAttribute("disabled")));
+        Assert.True(GetDriverSelects(cut).All(s => s.HasAttribute("disabled")));
     }
 
     [Fact]
@@ -484,9 +498,57 @@ public class RaceSelectionTests : BunitContext
     {
         RegisterDefaultMocks();
 
+        _selectionContextStore.StoredContext = new StoredSelectionContext("philip", 2025);
+
         var cut = Render<RaceSelection>();
 
-        cut.WaitForAssertion(() => Assert.Contains("Race context is missing.", cut.Markup));
+        cut.WaitForAssertion(() => Assert.EndsWith("/selection/philip/2025/round/1", Services.GetRequiredService<NavigationManager>().Uri, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldFallbackToDefaultContext_WhenStoredContextIsUnavailable()
+    {
+        RegisterDefaultMocks();
+
+        _selectionContextStore.StoredContext = new StoredSelectionContext("removed", 2030);
+
+        var cut = Render<RaceSelection>();
+
+        cut.WaitForAssertion(() => Assert.EndsWith("/selection/main/2026/round/1", Services.GetRequiredService<NavigationManager>().Uri, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RaceSelection_ShouldPersistAndDisplayCurrentCompetitionContext_WhenRouteIsResolved()
+    {
+        var resolved = new RaceContextResolution
+        {
+            RaceId = "main-2026-2-australian-grand-prix",
+            CompetitionSlug = "main",
+            Season = 2026,
+            Round = 2,
+            RaceSlug = "australian-grand-prix"
+        };
+
+        RegisterDefaultMocks(
+            config: new RaceConfig
+            {
+                RaceId = resolved.RaceId,
+                PreQualyDeadlineUtc = new DateTime(2026, 3, 13, 4, 30, 0, DateTimeKind.Utc),
+                FinalDeadlineUtc = new DateTime(2026, 3, 14, 3, 30, 0, DateTimeKind.Utc),
+                BetOptions = DefaultRaceConfig.BetOptions
+            },
+            resolvedContext: resolved);
+
+        NavigateTo("selection/main/2026/round/2");
+        var cut = Render<RaceSelection>(parameters => parameters
+            .Add(p => p.Competition, "main")
+            .Add(p => p.Season, 2026)
+            .Add(p => p.Round, 2));
+
+        cut.WaitForAssertion(() => Assert.Contains("Current context: Main 2026", cut.Markup));
+        Assert.Equal("main", cut.Find("#selection-context-competition").GetAttribute("value"));
+        Assert.Equal("2026", cut.Find("#selection-context-season").GetAttribute("value"));
+        Assert.Equal(new StoredSelectionContext("main", 2026), _selectionContextStore.StoredContext);
     }
 
     [Fact]
@@ -569,7 +631,12 @@ public class RaceSelectionTests : BunitContext
 
     private static void ChangeSelect(IRenderedComponent<RaceSelection> cut, int index, string value)
     {
-        cut.FindAll("select")[index].Change(value);
+        GetDriverSelects(cut)[index].Change(value);
+    }
+
+    private static IReadOnlyList<IElement> GetDriverSelects(IRenderedComponent<RaceSelection> cut)
+    {
+        return cut.FindAll("select.driver-selection");
     }
 
     private IRenderedComponent<RaceSelection> RenderForRace(string raceId)
@@ -594,6 +661,22 @@ public class RaceSelectionTests : BunitContext
         public DateTime? GetMockDate() => null;
         public Task RefreshAsync() => Task.CompletedTask;
         public Task SetMockDateAsync(DateTime? dateUtc) => Task.CompletedTask;
+    }
+
+    private sealed class InMemorySelectionContextStore : ISelectionContextStore
+    {
+        public StoredSelectionContext? StoredContext { get; set; }
+
+        public Task<StoredSelectionContext?> GetAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(StoredContext);
+        }
+
+        public Task SaveAsync(StoredSelectionContext context, CancellationToken cancellationToken = default)
+        {
+            StoredContext = context;
+            return Task.CompletedTask;
+        }
     }
 }
 

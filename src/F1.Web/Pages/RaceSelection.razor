@@ -9,11 +9,44 @@
 @inject ISelectionPageService SelectionPageService
 @inject IRaceContextApiService RaceContextApiService
 @inject ISelectionCountdownFormatter CountdownFormatter
+@inject ISelectionContextService SelectionContextService
 @inject F1.Web.Services.ITimeProvider TimeProvider
 @inject F1.Web.Services.IMockDateService MockDateService
 @inject NavigationManager Navigation
 
 <h1>@GetPageTitle()</h1>
+
+@if (availableContexts.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label" for="selection-context-competition">Competition</label>
+                    <select id="selection-context-competition" class="form-select" value="@selectedCompetitionSlug" @onchange="OnCompetitionChangedAsync">
+                        @foreach (var competition in GetCompetitionOptions())
+                        {
+                            <option value="@competition.CompetitionSlug">@competition.GetCompetitionLabel()</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="selection-context-season">Season</label>
+                    <select id="selection-context-season" class="form-select" value="@GetSelectedSeasonValue()" @onchange="OnSeasonChangedAsync">
+                        @foreach (var context in GetSeasonOptions())
+                        {
+                            <option value="@context.Season">@context.Season</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            @if (GetSelectedContext() is { } selectedContext)
+            {
+                <div class="text-muted small mt-2">Current context: @selectedContext.DisplayLabel</div>
+            }
+        </div>
+    </div>
+}
 
 @if (!string.IsNullOrWhiteSpace(routeContextErrorMessage))
 {
@@ -75,9 +108,32 @@ else
     private string? loadedRaceId;
     private string? loadedContextKey;
     private string? routeContextErrorMessage;
+    private IReadOnlyList<SelectionContextOption> availableContexts = [];
+    private string? selectedCompetitionSlug;
+    private int? selectedSeason;
+
+    protected override void OnInitialized()
+    {
+        availableContexts = SelectionContextService.GetAvailableContexts();
+        var defaultContext = SelectionContextService.GetDefaultContext();
+        selectedCompetitionSlug = defaultContext.CompetitionSlug;
+        selectedSeason = defaultContext.Season;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
+        if (availableContexts.Count == 0)
+        {
+            routeContextErrorMessage = "No competition contexts are configured.";
+            return;
+        }
+
+        if (!HasExplicitRouteContext())
+        {
+            await RestoreSelectionContextAsync();
+            return;
+        }
+
         if (!TryResolveRouteContext(out var routeContext))
         {
             loadedContextKey = null;
@@ -110,6 +166,12 @@ else
 
         routeContextErrorMessage = null;
         loadedRaceId = activeRaceId;
+        if (SelectionContextService.ResolveContext(routeContext, activeRaceId) is { } resolvedContext)
+        {
+            SetSelectedContext(resolvedContext);
+            await SelectionContextService.SaveLastUsedAsync(resolvedContext);
+        }
+
         await MockDateService.RefreshAsync();
         await LoadDataAsync(activeRaceId);
     }
@@ -271,6 +333,122 @@ else
         timerCts = new CancellationTokenSource();
         countdownTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         tickTask = TickCountdownAsync(timerCts.Token);
+    }
+
+    private bool HasExplicitRouteContext()
+    {
+        return !string.IsNullOrWhiteSpace(RaceId)
+            || !string.IsNullOrWhiteSpace(Competition)
+            || Season.HasValue
+            || Round.HasValue
+            || !string.IsNullOrWhiteSpace(RaceSlug);
+    }
+
+    private async Task RestoreSelectionContextAsync()
+    {
+        loadedContextKey = null;
+        loadedRaceId = null;
+        drivers = null;
+        raceConfig = null;
+        raceMetadata = null;
+        isReadOnly = false;
+        routeContextErrorMessage = null;
+
+        var restoredContext = await SelectionContextService.GetRestoredOrDefaultAsync();
+        SetSelectedContext(restoredContext);
+        Navigation.NavigateTo(SelectionContextService.BuildSelectionPath(restoredContext), replace: true);
+    }
+
+    private async Task OnCompetitionChangedAsync(ChangeEventArgs args)
+    {
+        var competitionSlug = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(competitionSlug))
+        {
+            return;
+        }
+
+        selectedCompetitionSlug = competitionSlug;
+        var nextContext = GetSelectedContext() ?? GetSeasonOptions().FirstOrDefault();
+        if (nextContext is null)
+        {
+            return;
+        }
+
+        SetSelectedContext(nextContext);
+        await NavigateToContextAsync(nextContext);
+    }
+
+    private async Task OnSeasonChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var season))
+        {
+            return;
+        }
+
+        selectedSeason = season;
+        var nextContext = GetSelectedContext();
+        if (nextContext is null)
+        {
+            return;
+        }
+
+        await NavigateToContextAsync(nextContext);
+    }
+
+    private async Task NavigateToContextAsync(SelectionContextOption context)
+    {
+        SetSelectedContext(context);
+        await SelectionContextService.SaveLastUsedAsync(context);
+
+        var targetPath = SelectionContextService.BuildSelectionPath(context);
+        var currentPath = new Uri(Navigation.Uri).AbsolutePath;
+        if (!string.Equals(currentPath, targetPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo(targetPath);
+        }
+    }
+
+    private void SetSelectedContext(SelectionContextOption context)
+    {
+        selectedCompetitionSlug = context.CompetitionSlug;
+        selectedSeason = context.Season;
+    }
+
+    private SelectionContextOption? GetSelectedContext()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug))
+        {
+            return null;
+        }
+
+        return availableContexts.FirstOrDefault(context =>
+            string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal)
+            && context.Season == selectedSeason);
+    }
+
+    private IEnumerable<SelectionContextOption> GetCompetitionOptions()
+    {
+        return availableContexts
+            .GroupBy(context => context.CompetitionSlug, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(context => context.GetCompetitionLabel(), StringComparer.Ordinal);
+    }
+
+    private IEnumerable<SelectionContextOption> GetSeasonOptions()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug))
+        {
+            return Enumerable.Empty<SelectionContextOption>();
+        }
+
+        return availableContexts
+            .Where(context => string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal))
+            .OrderByDescending(context => context.Season);
+    }
+
+    private string GetSelectedSeasonValue()
+    {
+        return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     }
 
     private bool TryResolveRouteContext(out RaceSelectionContext routeContext)

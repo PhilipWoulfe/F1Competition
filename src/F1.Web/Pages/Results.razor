@@ -1,55 +1,478 @@
 @page "/results"
+@using F1.Web.Configuration
 @using F1.Web.Models
+@using F1.Web.Services
+@using F1.Web.Services.Api
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ISelectionContextService SelectionContextService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IMigrationRunsApiService MigrationRunsApi
+@inject NavigationManager NavigationManager
 @inject HttpClient Http
 
-<PageTitle>Driver Standings</PageTitle>
+<PageTitle>Competition Leaderboard</PageTitle>
 
-<h1>Driver Standings</h1>
+<h1>Competition Leaderboard</h1>
+
+@if (availableContexts.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label" for="results-context-competition">Competition</label>
+                    <select id="results-context-competition" class="form-select" value="@selectedCompetitionSlug" @onchange="OnCompetitionChangedAsync">
+                        @foreach (var competition in GetCompetitionOptions())
+                        {
+                            <option value="@competition.CompetitionSlug">@competition.GetCompetitionLabel()</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="results-context-season">Season</label>
+                    <select id="results-context-season" class="form-select" value="@GetSelectedSeasonValue()" @onchange="OnSeasonChangedAsync">
+                        @foreach (var context in GetSeasonOptions())
+                        {
+                            <option value="@context.Season">@context.Season</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (isAdmin)
+            {
+                <div class="btn-group mt-3" role="group" aria-label="Score view mode">
+                    <button id="results-view-active" class="btn @(selectedScoreView == "active" ? "btn-primary" : "btn-outline-primary")" type="button" @onclick='() => ChangeScoreViewAsync("active")'>Official</button>
+                    <button id="results-view-recalculated" class="btn @(selectedScoreView == "recalculated" ? "btn-primary" : "btn-outline-primary")" type="button" @onclick='() => ChangeScoreViewAsync("recalculated")'>Recalculated</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (isAdmin && recentMigrationRuns.Count > 0)
+{
+    <div class="card mb-3 admin-migration-strip">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h5 mb-0">Recent Migration Runs</h2>
+                <a class="btn btn-sm btn-outline-secondary" href="admin/migration-runs">Open migration workspace</a>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var run in recentMigrationRuns)
+                {
+                    <a class="btn btn-sm btn-outline-dark migration-status-chip" href="@GetMigrationRunLink(run.RunId)">
+                        <span class="@GetRunStatusBadgeClass(run.Status)">@run.Status</span>
+                        <span class="ms-2">@FormatRunId(run.RunId)</span>
+                        <span class="ms-2 @GetRunModeBadgeClass(run.IsDryRun)">@(run.IsDryRun ? "Dry-run" : "Write")</span>
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(deepLinkRecoveryMessage))
+{
+    <div class="alert alert-info" role="status">@deepLinkRecoveryMessage</div>
+}
 
 @if (!string.IsNullOrEmpty(error))
 {
     <p><em>@error</em></p>
 }
-else if (results == null)
+else if (leaderboard == null)
 {
-    <p><em>Loading race results...</em></p>
+    <p><em>Loading leaderboard...</em></p>
+}
+else if (!string.IsNullOrWhiteSpace(leaderboard.ScoreSourceLabel))
+{
+    <div class="alert alert-secondary" role="status">
+        <div class="fw-semibold">@leaderboard.ScoreSourceLabel</div>
+        <div>@leaderboard.ScoreSourceHelperText</div>
+    </div>
+
+    if (!leaderboard.IsDataAvailable)
+    {
+        <div class="alert alert-info" role="status">@leaderboard.EmptyStateMessage</div>
+    }
+    else
+    {
+        <table class="table table-striped leaderboard-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Participant</th>
+                    <th>Points</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in leaderboard.Items)
+                {
+                    <tr>
+                        <td>@entry.Position</td>
+                        <td>
+                            <button class="btn btn-link p-0 participant-drilldown" type="button" @onclick='() => LoadParticipantDetailAsync(entry.ParticipantName)'>@entry.ParticipantName</button>
+                        </td>
+                        <td>@entry.DisplayPoints</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (participantDetail is not null)
+        {
+            <section class="card mt-4 participant-detail" aria-label="Participant detail">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h2 class="h4 mb-1">@participantDetail.ParticipantName</h2>
+                            <div class="text-muted">@participantDetail.DisplayName leaderboard detail</div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ClearParticipantDetail">Back to leaderboard</button>
+                    </div>
+
+                    @RenderSection(participantDetail.RacePicks, "No race pick data is available for this participant.")
+                    @RenderSection(participantDetail.Preseason, "No preseason question data is available for this participant.")
+                    @RenderSection(participantDetail.H2h, "No H2H question data is available for this participant.")
+                </div>
+            </section>
+        }
+    }
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Position</th>
-                <th>Driver</th>
-                <th>Points</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var result in results)
-            {
-                <tr style="background-color: @result.PositionColor">
-                    <td>@result.Position</td>
-                    <td>@result.DriverId</td>
-                    <td>@result.Points</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="alert alert-info" role="status">Leaderboard data is not available.</div>
 }
 
 @code {
-    private List<RaceResult>? results;
+    [SupplyParameterFromQuery(Name = "competition")]
+    public string? QueryCompetition { get; set; }
+
+    [SupplyParameterFromQuery(Name = "season")]
+    public int? QuerySeason { get; set; }
+
+    [SupplyParameterFromQuery(Name = "participant")]
+    public string? QueryParticipant { get; set; }
+
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? QueryView { get; set; }
+
+    private CompetitionLeaderboardResponse? leaderboard;
+    private CompetitionParticipantDetailResponse? participantDetail;
     private string? error;
+    private string? deepLinkRecoveryMessage;
+    private IReadOnlyList<SelectionContextOption> availableContexts = [];
+    private string? selectedCompetitionSlug;
+    private int? selectedSeason;
+    private string selectedScoreView = "active";
+    private bool isAdmin;
+    private IReadOnlyList<AdminMigrationRunListItem> recentMigrationRuns = [];
 
     protected override async Task OnInitializedAsync()
     {
+        availableContexts = SelectionContextService.GetAvailableContexts();
+        var restoredContext = await SelectionContextService.GetRestoredOrDefaultAsync();
+        selectedCompetitionSlug = restoredContext.CompetitionSlug;
+        selectedSeason = restoredContext.Season;
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdmin = authState.User.IsInRole("Admin");
+
+        ApplyQueryState(restoredContext);
+
+        if (isAdmin)
+        {
+            await LoadRecentMigrationRunsAsync();
+        }
+
+        await LoadLeaderboardAsync();
+
+        if (!string.IsNullOrWhiteSpace(QueryParticipant))
+        {
+            await LoadParticipantDetailAsync(QueryParticipant, syncQuery: false);
+        }
+    }
+
+    private async Task LoadRecentMigrationRunsAsync()
+    {
         try
         {
-            results = await Http.GetFromJsonAsync<List<RaceResult>>("races/results");
+            var response = await MigrationRunsApi.GetRunsAsync(page: 1, pageSize: 3);
+            recentMigrationRuns = response.Items
+                .OrderByDescending(item => item.StartedAtUtc)
+                .Take(3)
+                .ToArray();
+        }
+        catch
+        {
+            recentMigrationRuns = [];
+        }
+    }
+
+    private async Task LoadLeaderboardAsync()
+    {
+        error = null;
+        leaderboard = null;
+
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            error = "Leaderboard context is missing.";
+            return;
+        }
+
+        try
+        {
+            leaderboard = await Http.GetFromJsonAsync<CompetitionLeaderboardResponse>($"races/results?competition={selectedCompetitionSlug}&season={selectedSeason.Value}&view={selectedScoreView}");
+            participantDetail = null;
         }
         catch (HttpRequestException ex)
         {
             error = ex.Message;
         }
     }
+
+    private async Task OnCompetitionChangedAsync(ChangeEventArgs args)
+    {
+        var competitionSlug = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(competitionSlug))
+        {
+            return;
+        }
+
+        selectedCompetitionSlug = competitionSlug;
+        selectedSeason = GetSeasonOptions().FirstOrDefault()?.Season;
+        await PersistContextAndReloadAsync();
+    }
+
+    private async Task OnSeasonChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var season))
+        {
+            return;
+        }
+
+        selectedSeason = season;
+        await PersistContextAndReloadAsync();
+    }
+
+    private async Task ChangeScoreViewAsync(string scoreView)
+    {
+        selectedScoreView = scoreView;
+        SyncQueryString();
+        await LoadLeaderboardAsync();
+    }
+
+    private async Task LoadParticipantDetailAsync(string participantName)
+    {
+        await LoadParticipantDetailAsync(participantName, syncQuery: true);
+    }
+
+    private async Task LoadParticipantDetailAsync(string participantName, bool syncQuery)
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            participantDetail = await Http.GetFromJsonAsync<CompetitionParticipantDetailResponse>($"races/results/participants/{Uri.EscapeDataString(participantName)}?competition={selectedCompetitionSlug}&season={selectedSeason.Value}");
+            if (syncQuery)
+            {
+                SyncQueryString();
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            error = ex.Message;
+            participantDetail = null;
+        }
+    }
+
+    private void ClearParticipantDetail()
+    {
+        participantDetail = null;
+        SyncQueryString();
+    }
+
+    private async Task PersistContextAndReloadAsync()
+    {
+        var context = GetSelectedContext();
+        if (context is not null)
+        {
+            await SelectionContextService.SaveLastUsedAsync(context);
+        }
+
+        SyncQueryString();
+        await LoadLeaderboardAsync();
+    }
+
+    private SelectionContextOption? GetSelectedContext()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug) || !selectedSeason.HasValue)
+        {
+            return null;
+        }
+
+        return availableContexts.FirstOrDefault(context =>
+            string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal)
+            && context.Season == selectedSeason.Value);
+    }
+
+    private IEnumerable<SelectionContextOption> GetCompetitionOptions()
+    {
+        return availableContexts
+            .GroupBy(context => context.CompetitionSlug, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(context => context.GetCompetitionLabel(), StringComparer.Ordinal);
+    }
+
+    private IEnumerable<SelectionContextOption> GetSeasonOptions()
+    {
+        if (string.IsNullOrWhiteSpace(selectedCompetitionSlug))
+        {
+            return Enumerable.Empty<SelectionContextOption>();
+        }
+
+        return availableContexts
+            .Where(context => string.Equals(context.CompetitionSlug, selectedCompetitionSlug, StringComparison.Ordinal))
+            .OrderByDescending(context => context.Season);
+    }
+
+    private string GetSelectedSeasonValue()
+    {
+        return selectedSeason?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private void ApplyQueryState(SelectionContextOption restoredContext)
+    {
+        deepLinkRecoveryMessage = null;
+
+        if (!string.IsNullOrWhiteSpace(QueryCompetition) && QuerySeason.HasValue)
+        {
+            var queryContext = availableContexts.FirstOrDefault(context =>
+                string.Equals(context.CompetitionSlug, QueryCompetition, StringComparison.OrdinalIgnoreCase)
+                && context.Season == QuerySeason.Value);
+
+            if (queryContext is not null)
+            {
+                selectedCompetitionSlug = queryContext.CompetitionSlug;
+                selectedSeason = queryContext.Season;
+            }
+            else
+            {
+                selectedCompetitionSlug = restoredContext.CompetitionSlug;
+                selectedSeason = restoredContext.Season;
+                deepLinkRecoveryMessage = "Requested leaderboard context was unavailable. Restored a valid competition and season instead.";
+            }
+        }
+
+        if (isAdmin && string.Equals(QueryView, "recalculated", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedScoreView = "recalculated";
+        }
+        else if (!string.IsNullOrWhiteSpace(QueryView) && !string.Equals(QueryView, "active", StringComparison.OrdinalIgnoreCase))
+        {
+            selectedScoreView = "active";
+            deepLinkRecoveryMessage ??= "Requested leaderboard view was invalid. Restored the official score view instead.";
+        }
+    }
+
+    private void SyncQueryString()
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["competition"] = selectedCompetitionSlug,
+            ["season"] = selectedSeason,
+            ["participant"] = participantDetail?.ParticipantName,
+            ["view"] = isAdmin && string.Equals(selectedScoreView, "recalculated", StringComparison.Ordinal) ? selectedScoreView : null
+        };
+
+        var targetUri = NavigationManager.GetUriWithQueryParameters(parameters);
+        NavigationManager.NavigateTo(targetUri, replace: true);
+    }
+
+    private static string GetRunStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Completed" => "badge bg-success",
+            "Started" or "Queued" => "badge bg-warning text-dark",
+            "Failed" => "badge bg-danger",
+            _ => "badge bg-secondary"
+        };
+    }
+
+    private static string GetRunModeBadgeClass(bool isDryRun)
+    {
+        return isDryRun ? "badge bg-secondary" : "badge bg-dark";
+    }
+
+    private static string FormatRunId(Guid runId)
+    {
+        var runIdText = runId.ToString();
+        return $"{runIdText[..8]}...{runIdText[^6..]}";
+    }
+
+    private static string GetMigrationRunLink(Guid runId)
+    {
+        return $"admin/migration-runs?run={Uri.EscapeDataString(runId.ToString())}&tab=overview";
+    }
+
+    private RenderFragment RenderSection(CompetitionParticipantSectionSummary section, string emptyStateMessage) => builder =>
+    {
+        builder.OpenElement(0, "section");
+        builder.AddAttribute(1, "class", "mb-4");
+        builder.OpenElement(2, "h3");
+        builder.AddAttribute(3, "class", "h5");
+        builder.AddContent(4, section.Title);
+        builder.CloseElement();
+        builder.OpenElement(5, "div");
+        builder.AddAttribute(6, "class", "text-muted mb-2");
+        builder.AddContent(7, $"Imported total: {section.ImportedTotalPoints} | Recalculated total: {section.RecalculatedTotalPoints}");
+        builder.CloseElement();
+
+        if (section.Items.Count == 0)
+        {
+            builder.OpenElement(8, "div");
+            builder.AddAttribute(9, "class", "alert alert-light");
+            builder.AddContent(10, emptyStateMessage);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(11, "table");
+            builder.AddAttribute(12, "class", "table table-sm");
+            builder.OpenElement(13, "thead");
+            builder.AddMarkupContent(14, "<tr><th>Item</th><th>Description</th><th>Imported</th><th>Recalculated</th><th>Delta</th></tr>");
+            builder.CloseElement();
+            builder.OpenElement(15, "tbody");
+            var seq = 16;
+            foreach (var item in section.Items)
+            {
+                builder.OpenElement(seq++, "tr");
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.Label);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.Description);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.ImportedPoints?.ToString() ?? string.Empty);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.CalculatedPoints);
+                builder.CloseElement();
+                builder.OpenElement(seq++, "td");
+                builder.AddContent(seq++, item.DeltaPoints);
+                builder.CloseElement();
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
 }
