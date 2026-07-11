@@ -83,6 +83,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 group => new ScoreTotals(
                     ImportedPoints: group.Sum(item => item.ImportedPoints ?? 0),
                     RecalculatedPoints: group.Sum(item => item.CalculatedPoints),
+                    // Active standings can honor official legacy corrections via OverrideScore.
                     ActivePoints: group.Sum(item => item.OverrideScore ?? item.CalculatedPoints),
                     SourceRunId: group.Select(item => (Guid?)item.SourceRunId).OrderByDescending(item => item).FirstOrDefault()),
                 StringComparer.OrdinalIgnoreCase);

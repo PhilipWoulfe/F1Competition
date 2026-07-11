@@ -22,7 +22,6 @@ public sealed class MigrationRaceSelectionParserTests
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
-            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
 
             await using var dbContext = new F1DbContext(options);
@@ -100,7 +99,6 @@ public sealed class MigrationRaceSelectionParserTests
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
-            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
 
             await using var dbContext = new F1DbContext(options);
@@ -200,7 +198,6 @@ public sealed class MigrationRaceSelectionParserTests
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
-            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
             File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
 
             await using var dbContext = new F1DbContext(options);

@@ -18,7 +18,6 @@ public sealed class Dave2025SourcePackageContractTests : IDisposable
         CreateFile(Dave2025SourcePackageContract.RacesFile, "header");
         CreateFile(Dave2025SourcePackageContract.BonusFile, "header");
         CreateFile(Dave2025SourcePackageContract.BonusAnswersFile, "header");
-        CreateFile(Dave2025SourcePackageContract.SideBetsFile, "header");
         CreateFile(Dave2025SourcePackageContract.LeaderboardFile, "header");
 
         var result = Dave2025SourcePackageContract.Validate(_tempDirectory);
@@ -34,7 +33,6 @@ public sealed class Dave2025SourcePackageContractTests : IDisposable
         CreateFile(Dave2025SourcePackageContract.RacesFile, "header");
         CreateFile(Dave2025SourcePackageContract.BonusFile, "header");
         CreateFile(Dave2025SourcePackageContract.BonusAnswersFile, "header");
-        CreateFile(Dave2025SourcePackageContract.SideBetsFile, "header");
 
         var result = Dave2025SourcePackageContract.Validate(_tempDirectory);
 

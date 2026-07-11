@@ -7,7 +7,6 @@ Define the migration input contract for the Dave 2025 multi-file package.
 - races.csv
 - bonus.csv
 - bonusAnswers.csv
-- sideBets.csv
 - Leaderboard.csv
 
 ## Optional Files
@@ -28,10 +27,6 @@ Define the migration input contract for the Dave 2025 multi-file package.
 ### bonusAnswers.csv
 - Must include Question and Answer columns.
 - Notes column is optional metadata.
-
-### sideBets.csv
-- Must include Race, Bet, P1, P1Pick, P2, P2Pick, Result columns.
-- Empty Result means pending side bet and must not be scored.
 
 ### Leaderboard.csv
 - Must include Name plus summary columns used for reconciliation.

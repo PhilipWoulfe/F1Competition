@@ -8,7 +8,6 @@ public static class Dave2025SourcePackageContract
     public const string RacesFile = "races.csv";
     public const string BonusFile = "bonus.csv";
     public const string BonusAnswersFile = "bonusAnswers.csv";
-    public const string SideBetsFile = "sideBets.csv";
     public const string LeaderboardFile = "Leaderboard.csv";
     public const string RulesReferenceFile = "raceResults.ps1";
     public const string QuestionSupplementFile = "MostOF the boionus Questions.txt";
@@ -18,7 +17,6 @@ public static class Dave2025SourcePackageContract
         RacesFile,
         BonusFile,
         BonusAnswersFile,
-        SideBetsFile,
         LeaderboardFile
     ];
 

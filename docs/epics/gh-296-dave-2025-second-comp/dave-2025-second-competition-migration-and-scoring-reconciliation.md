@@ -7,8 +7,8 @@ This epic delivers deterministic import, score recalculation, reconciliation aga
 
 ## Why This Epic
 Current migration flow is contract-coupled to the Phil 2025 single-file CSV shape. The Dave 2025 competition uses a different source model and scoring rules:
-- Separate files for race picks, preseason questions, preseason answers, side bets, and leaderboard snapshots.
-- Different points rules (including pre-qualifying multipliers, all-picks jackpot, race bonus variants, and side-bet deltas).
+- Separate files for race picks, preseason questions, preseason answers, and leaderboard snapshots.
+- Different points rules (including pre-qualifying multipliers, all-picks jackpot, and race bonus variants).
 - Different participant roster and question text corpus.
 
 Without a dedicated adapter and explicit run contract, importing Dave 2025 risks silent score drift and ambiguous mapping behavior.
@@ -18,7 +18,6 @@ Expected source package (same run scope/checksum boundary):
 - races.csv
 - bonus.csv
 - bonusAnswers.csv
-- sideBets.csv
 - Leaderboard.csv
 - raceResults.ps1 (rule-reference artifact)
 - MostOF the boionus Questions.txt (question metadata supplement)
@@ -28,12 +27,11 @@ The second competition source is not shape-compatible with the current pipeline 
 - Current parser/classifier expects one staged CSV stream and Phil-specific row windows.
 - Legacy score importer expects race points embedded in the same staged dataset.
 - Current question scoring strategies do not yet cover all Dave-specific bonus/track rule variants.
-- Side bets are not represented in canonical scoring entities today.
 
 ## Goals
 - Add a first-class source adapter for Dave 2025 multi-file ingestion.
 - Preserve imported legacy totals and component-level scores for reconciliation.
-- Recalculate race picks, preseason, H2H, race bonus, and side bets from explicit rules.
+- Recalculate race picks, preseason, H2H, and race bonus from explicit rules.
 - Produce explainable diffs at pick/race/participant/component levels.
 - Keep migration deterministic, idempotent, and auditable in dry-run and write modes.
 
@@ -65,8 +63,6 @@ Baseline race scoring from rule script:
 - Race bonus question:
   - Default exact match = 20.
   - Track-specific variants exist (for example SAU gap formula, MON/GBR +/-1 tolerance pattern).
-- Side bets:
-  - Correct = +5, wrong = -5.
 - Preseason bonus:
   - Correct answer = +30 per question.
 - Tie-break:
@@ -77,7 +73,6 @@ Baseline race scoring from rule script:
 - Migration run records preserve source bundle fingerprint and file manifest.
 - Imported totals include component splits where available:
   - Race points
-  - Side bet points
   - Preseason bonus points
   - Combined total/final values
 - Calculated totals preserve same component splits and recomposed total.
@@ -161,17 +156,6 @@ Acceptance criteria:
 Test notes:
 - Add mapping tests for all summary columns and null/blank final columns.
 
-### Story D7: Model and ingest side bets from sideBets.csv
-As a reviewer, I want side-bet outcomes imported and scored so final totals match source behavior.
-
-Acceptance criteria:
-- Side-bet records persist race, participants, picks, result, and score impact.
-- Empty-result side bets are tracked as pending and excluded from scored totals.
-- Side-bet score component is included in reconciliation summaries.
-
-Test notes:
-- Add tests for +5/-5 scoring and pending/empty result handling.
-
 ### Story D8: Implement Dave race scoring strategy extensions
 As a product owner, I want Dave race scoring semantics implemented exactly so recalculated outputs are trustworthy.
 
@@ -206,7 +190,7 @@ Test notes:
 - Add tests proving policy override changes only intended scoring components.
 
 ### Story D11: Add componentized reconciliation outputs for Dave totals
-As an analyst, I want race/preseason/side-bet component diffs so total variance can be explained quickly.
+As an analyst, I want race and preseason component diffs so total variance can be explained quickly.
 
 Acceptance criteria:
 - Reconciliation includes component-level imported vs calculated deltas.
@@ -221,7 +205,7 @@ As an admin operator, I want file-level diagnostics and component breakdowns in 
 
 Acceptance criteria:
 - Run detail shows source manifest, per-file parse counts, and contract diagnostics.
-- UI includes component tabs or sections for race, preseason, side bets, and totals.
+- UI includes component tabs or sections for race, preseason, and totals.
 - Filters/export continue to work with deterministic sorting.
 
 Test notes:
@@ -264,7 +248,7 @@ Test notes:
 As a QA engineer, I want a canonical fixture suite so future changes can be regression-tested against known Dave outcomes.
 
 Acceptance criteria:
-- Fixture package includes races, bonus, bonusAnswers, sideBets, and leaderboard snapshots.
+- Fixture package includes races, bonus, bonusAnswers, and leaderboard snapshots.
 - Expected-output fixtures capture participant totals, component totals, and rank ordering.
 - CI gate runs Dave-focused migration tests alongside existing Phil tests.
 
@@ -287,7 +271,7 @@ Test notes:
 2. D2 source-profile architecture
 3. D3 multi-file staging
 4. D4/D5 parser ingestion for race and preseason
-5. D6/D7 legacy component import (leaderboard and side bets)
+5. D6 legacy component import (leaderboard)
 6. D8/D9/D10 scoring strategy extensions
 7. D11 reconciliation componentization
 8. D13 kickoff profile support

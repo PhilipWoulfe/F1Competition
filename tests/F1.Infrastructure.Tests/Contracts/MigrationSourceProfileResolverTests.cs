@@ -30,7 +30,6 @@ public sealed class MigrationSourceProfileResolverTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
         File.WriteAllText(Path.Combine(_tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
         File.WriteAllText(Path.Combine(_tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
-        File.WriteAllText(Path.Combine(_tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
         File.WriteAllText(Path.Combine(_tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
 
         var profile = MigrationSourceProfileResolver.Resolve(_tempDirectory);
