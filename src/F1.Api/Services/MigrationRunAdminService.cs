@@ -1865,6 +1865,17 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             return false;
         }
 
+        if (raceDiff.CalculatedPoints == rawImportedPoints)
+        {
+            deltaPoints = 0m;
+            reasonCode = "RACE_POINTS_MATCH";
+            explanation = BuildDaveDecimalRaceDiffExplanation(raceDiff, rawImportedPoints, deltaPoints, reasonCode);
+            isExpectedVariance = false;
+            expectedVarianceReasonCode = null;
+            expectedVarianceRuleId = null;
+            return true;
+        }
+
         if (TryConvertWholeDecimalToInt(importedRacePoints, out var convertedImportedPoints))
         {
             importedPoints = convertedImportedPoints;
@@ -1935,6 +1946,16 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private static string BuildDaveRaceDiffExplanation(
         MigrationImportRaceDiffEntity raceDiff,
         int importedPoints,
+        decimal deltaPoints,
+        string reasonCode)
+    {
+        var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedPoints}, calculated {raceDiff.CalculatedPoints}, delta {deltaPoints}. Reason: {reasonCode}.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static string BuildDaveDecimalRaceDiffExplanation(
+        MigrationImportRaceDiffEntity raceDiff,
+        decimal importedPoints,
         decimal deltaPoints,
         string reasonCode)
     {

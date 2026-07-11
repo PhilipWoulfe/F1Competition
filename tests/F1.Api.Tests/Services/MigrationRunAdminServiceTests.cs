@@ -1255,6 +1255,84 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunImportedRacePointsExactlyMatchCalculatedDecimal_TreatsRaceAsMatch()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 11, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 11, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+            {
+                ImportRunId = runId,
+                RaceSequence = 1,
+                SourceRowNumber = 2,
+                SourceRaceCode = "R01",
+                MappedCircuitId = "americas"
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,USA,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DearbhlaR,27.5,0,0,0,0,0,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 11,
+                ImportRunId = runId,
+                RaceCode = "americas",
+                Subject = "DearbhlaR",
+                ImportedPoints = 0,
+                CalculatedPoints = 27.5m,
+                DeltaPoints = 27.5m,
+                ReasonCode = "LEGACY_POINTS_MISSING",
+                Explanation = "missing"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        var race = Assert.Single(detail!.RaceDiffs);
+        Assert.Equal(27.5m, race.ImportedRacePoints);
+        Assert.Equal(27.5m, race.CalculatedPoints);
+        Assert.Equal(0m, race.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", race.ReasonCode);
+        Assert.DoesNotContain("LEGACY_POINTS_MISSING", race.ReasonCode, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_WhenUnexpectedStatusRequested_FiltersToUnexpectedAndReportsBothTotals()
     {
         var runId = Guid.NewGuid();
