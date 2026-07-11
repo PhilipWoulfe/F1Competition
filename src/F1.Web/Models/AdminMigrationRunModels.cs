@@ -18,8 +18,8 @@ public sealed record AdminMigrationRunListItem(
     int UnresolvedTokenCount,
     int PickDiffCount,
     int RaceDiffCount,
-    int TotalDeltaPoints,
-    int UnexpectedTotalDeltaPoints,
+    decimal TotalDeltaPoints,
+    decimal UnexpectedTotalDeltaPoints,
     string? ErrorMessage);
 
 public sealed record AdminMigrationRunDetailResponse(
@@ -35,8 +35,8 @@ public sealed record AdminMigrationRunDetailResponse(
     int UnresolvedTokenCount,
     int PickDiffCount,
     int RaceDiffCount,
-    int TotalDeltaPoints,
-    int UnexpectedTotalDeltaPoints,
+    decimal TotalDeltaPoints,
+    decimal UnexpectedTotalDeltaPoints,
     IReadOnlyList<AdminMigrationUnresolvedTokenSummary> UnresolvedTokenSummary,
     IReadOnlyList<AdminMigrationParticipantDelta> ParticipantDeltas,
     AdminMigrationPreseasonSummary PreseasonSummary,
@@ -93,8 +93,8 @@ public sealed record AdminMigrationUnresolvedTokenSummary(
 public sealed record AdminMigrationParticipantDelta(
     string Subject,
     int ImportedTotalPoints,
-    int CalculatedTotalPoints,
-    int NetDeltaPoints,
+    decimal CalculatedTotalPoints,
+    decimal NetDeltaPoints,
     string? TopReasonCode,
     int TopReasonCount);
 
@@ -133,12 +133,12 @@ public sealed record AdminMigrationPreseasonReasonCategorySummary(
 public sealed record AdminMigrationParticipantComponentDelta(
     string Subject,
     int ImportedRacePoints,
-    int CalculatedRacePoints,
+    decimal CalculatedRacePoints,
     int ImportedPreseasonPoints,
     int CalculatedPreseasonPoints,
     int ImportedTotalPoints,
-    int CalculatedTotalPoints,
-    int NetDeltaPoints,
+    decimal CalculatedTotalPoints,
+    decimal NetDeltaPoints,
     string? TopReasonCode,
     int TopReasonCount);
 
@@ -171,8 +171,8 @@ public sealed record AdminMigrationRaceDiff(
     string? ChosenPicks,
     string? ActualPicks,
     int ImportedPoints,
-    int CalculatedPoints,
-    int DeltaPoints,
+    decimal CalculatedPoints,
+    decimal DeltaPoints,
     string ReasonCode,
     string Explanation,
     bool IsExpectedVariance = false,
@@ -187,8 +187,8 @@ public sealed record AdminMigrationPickDiff(
     string? ChosenAnswer,
     string? ActualAnswer,
     int? ImportedPoints,
-    int? CalculatedPoints,
-    int DeltaPoints,
+    decimal? CalculatedPoints,
+    decimal DeltaPoints,
     string ReasonCode,
     string Explanation,
     bool IsExpectedVariance = false,

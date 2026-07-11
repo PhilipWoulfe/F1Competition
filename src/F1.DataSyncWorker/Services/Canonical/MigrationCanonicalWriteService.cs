@@ -329,7 +329,8 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                             out var importedScore);
 
                         var importedPoints = importedScore?.LegacyPoints;
-                        int? overrideScore = importedPoints.HasValue && importedPoints.Value != score.Points
+                        var calculatedPoints = decimal.ToInt32(decimal.Round(score.Points, 0, MidpointRounding.AwayFromZero));
+                        int? overrideScore = importedPoints.HasValue && importedPoints.Value != calculatedPoints
                             ? importedPoints.Value
                             : null;
 
@@ -342,11 +343,11 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                             PredictedValue = score.PredictedValue,
                             ActualValue = score.ActualValue,
                             ImportedPoints = importedPoints,
-                            CalculatedPoints = score.Points,
+                            CalculatedPoints = calculatedPoints,
                             OverrideScore = overrideScore,
                             OverrideReasonCode = overrideScore.HasValue ? "MIGRATION_IMPORTED_OVERRIDE" : null,
                             SourceRunId = runId,
-                            DeltaPoints = importedPoints.HasValue ? score.Points - importedPoints.Value : 0,
+                            DeltaPoints = importedPoints.HasValue ? calculatedPoints - importedPoints.Value : 0,
                             ReasonCode = score.ReasonCode,
                             Explanation = null,
                             RecordedAtUtc = DateTime.UtcNow

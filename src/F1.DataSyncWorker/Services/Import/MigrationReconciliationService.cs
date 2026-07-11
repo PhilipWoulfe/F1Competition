@@ -129,8 +129,8 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             var hasCalculated = calculatedByKey.TryGetValue(key, out var calculatedPoints);
 
             int? imported = hasImported ? importedPoints : null;
-            int? calculatedValue = hasCalculated ? calculatedPoints : null;
-            var delta = (calculatedValue ?? 0) - (imported ?? 0);
+            decimal? calculatedValue = hasCalculated ? calculatedPoints : null;
+            var delta = (calculatedValue ?? 0m) - (imported ?? 0);
 
             var importedRows = legacyRowsByKey.GetValueOrDefault(key, []);
             var calculatedRows = calculatedRowsByKey.GetValueOrDefault(key, []);
@@ -139,7 +139,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             var calculatedSource = FormatSourceReference(calculatedRows, participantColumn, "race-picks");
 
             var reasonCode = ResolveReasonCode(key.PickType, imported, calculatedValue, delta);
-            var expectedVariance = delta == 0
+            var expectedVariance = delta == 0m
                 ? new MigrationExpectedVarianceClassification(false, null, null)
                 : _expectedVarianceClassifier.Classify(new MigrationExpectedVarianceContext(
                     key.Subject,
@@ -182,9 +182,9 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             .Select(group =>
             {
                 var importedPoints = group.Sum(x => x.ImportedPoints ?? 0);
-                var calculatedPoints = group.Sum(x => x.CalculatedPoints ?? 0);
+                var calculatedPoints = group.Sum(x => x.CalculatedPoints ?? 0m);
                 var delta = calculatedPoints - importedPoints;
-                var nonZeroContributors = group.Where(x => x.DeltaPoints != 0).ToList();
+                var nonZeroContributors = group.Where(x => x.DeltaPoints != 0m).ToList();
                 var isExpectedVariance = nonZeroContributors.Count > 0 && nonZeroContributors.All(x => x.IsExpectedVariance);
                 var expectedVarianceReasonCode = isExpectedVariance
                     ? nonZeroContributors.Select(x => x.ExpectedVarianceReasonCode).FirstOrDefault(reasonCode => !string.IsNullOrWhiteSpace(reasonCode))
@@ -509,7 +509,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
-    private static string ResolveReasonCode(string pickType, int? imported, int? calculated, int delta)
+    private static string ResolveReasonCode(string pickType, int? imported, decimal? calculated, decimal delta)
     {
         if (!imported.HasValue)
         {
@@ -521,7 +521,7 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             return "CALCULATED_POINTS_MISSING";
         }
 
-        if (delta == 0)
+        if (delta == 0m)
         {
             return "POINTS_MATCH";
         }
@@ -542,8 +542,8 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
     private static string BuildPickExplanation(
         PickDiffKey key,
         int? imported,
-        int? calculated,
-        int delta,
+        decimal? calculated,
+        decimal delta,
         string reasonCode,
         IReadOnlyList<int> importedRows,
         IReadOnlyList<int> calculatedRows,
@@ -563,8 +563,8 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
         string raceCode,
         string subject,
         int importedPoints,
-        int calculatedPoints,
-        int delta,
+        decimal calculatedPoints,
+        decimal delta,
         IEnumerable<MigrationImportPickDiffEntity> pickDiffs,
         IReadOnlyDictionary<PickDiffKey, int[]> legacyRowsByKey,
         IReadOnlyDictionary<PickDiffKey, int[]> calculatedRowsByKey,

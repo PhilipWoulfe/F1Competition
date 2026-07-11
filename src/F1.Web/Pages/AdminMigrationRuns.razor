@@ -1546,19 +1546,19 @@
         return $"{runIdText[..8]}...{runIdText[^6..]}";
     }
 
-    private int GetRaceTotalDeltaPoints()
+    private decimal GetRaceTotalDeltaPoints()
     {
         if (selectedRunDetail is null)
         {
-            return 0;
+            return 0m;
         }
 
         return selectedRunDetail.TotalDeltaPoints - selectedRunDetail.PreseasonSummary.TotalDeltaPoints;
     }
 
-    private static string GetVarianceStatusText(bool isExpectedVariance, int deltaPoints)
+    private static string GetVarianceStatusText(bool isExpectedVariance, decimal deltaPoints)
     {
-        if (deltaPoints == 0)
+        if (deltaPoints == 0m)
         {
             return "No variance";
         }
@@ -1566,9 +1566,9 @@
         return isExpectedVariance ? "Expected" : "Unexpected";
     }
 
-    private static string GetVarianceBadgeClass(bool isExpectedVariance, int deltaPoints)
+    private static string GetVarianceBadgeClass(bool isExpectedVariance, decimal deltaPoints)
     {
-        if (deltaPoints == 0)
+        if (deltaPoints == 0m)
         {
             return "badge bg-secondary";
         }

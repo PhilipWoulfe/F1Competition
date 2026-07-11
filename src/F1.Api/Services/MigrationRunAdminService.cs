@@ -1839,7 +1839,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         bool isDaveProfile,
         decimal? importedRacePoints,
         out int importedPoints,
-        out int deltaPoints,
+        out decimal deltaPoints,
         out string reasonCode,
         out string explanation,
         out bool isExpectedVariance,
@@ -1898,7 +1898,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         importedPoints = roundedImportedPoints;
-        deltaPoints = 0;
+        deltaPoints = 0m;
         reasonCode = "RACE_POINTS_MATCH";
         explanation = BuildDaveHalfPointRoundingExplanation(raceDiff, rawImportedPoints, roundedImportedPoints);
         isExpectedVariance = false;
@@ -1935,7 +1935,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private static string BuildDaveRaceDiffExplanation(
         MigrationImportRaceDiffEntity raceDiff,
         int importedPoints,
-        int deltaPoints,
+        decimal deltaPoints,
         string reasonCode)
     {
         var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedPoints}, calculated {raceDiff.CalculatedPoints}, delta {deltaPoints}. Reason: {reasonCode}.";

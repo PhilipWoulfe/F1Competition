@@ -21,7 +21,7 @@ public sealed record MigrationRaceSelectionParseResult(
 
 public sealed record MigrationScoreRecalculationResult(
     int ScoredPickCount,
-    int TotalPoints,
+    decimal TotalPoints,
     int PreseasonScoredQuestionCount = 0,
     int PreseasonTotalPoints = 0,
     int PreseasonScoringWarningCount = 0);
@@ -36,7 +36,7 @@ public sealed record MigrationReconciliationResult(
     int RaceDiffCount,
     int ParticipantSummaryCount,
     int ReasonSummaryCount,
-    int TotalDelta,
+    decimal TotalDelta,
     int PreseasonQuestionDiffCount = 0,
     int PreseasonParticipantSummaryCount = 0,
     int PreseasonReasonSummaryCount = 0,

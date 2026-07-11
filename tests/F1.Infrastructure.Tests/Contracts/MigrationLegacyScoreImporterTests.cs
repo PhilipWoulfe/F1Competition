@@ -338,7 +338,7 @@ public sealed class MigrationLegacyScoreImporterTests
 
         // Imported and calculated totals are intentionally persisted separately.
         Assert.NotEqual(
-            importedTotals.Single(x => x.Subject == "Philip").ImportedTotalPoints,
+            (decimal?)importedTotals.Single(x => x.Subject == "Philip").ImportedTotalPoints,
             calculatedTotals.Single(x => x.Subject == "Philip").CalculatedTotalPoints);
     }
 

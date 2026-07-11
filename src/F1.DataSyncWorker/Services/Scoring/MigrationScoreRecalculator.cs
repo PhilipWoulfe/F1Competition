@@ -19,7 +19,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     private const int PodiumExactPointsPostMode = 10;
     private const int PodiumTop3WrongSlotPointsPostMode = 5;
     private const int PodiumExactPointsYesMode = 15;
-    private const int PodiumTop3WrongSlotPointsYesModeRounded = 8;
+    private const decimal PodiumTop3WrongSlotPointsYesMode = 7.5m;
     private const int AllModeJackpotPoints = 100;
     private const int RaceBonusBq1ExactPoints = 5;
     private const int RaceBonusBq2PlusExactPoints = 20;
@@ -614,8 +614,8 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
         if (PodiumPickTypes.Contains(participant.PickType))
         {
-            var exactPoints = preQualyMode == PreQualyMode.Yes ? PodiumExactPointsYesMode : PodiumExactPointsPostMode;
-            var top3WrongSlotPoints = preQualyMode == PreQualyMode.Yes ? PodiumTop3WrongSlotPointsYesModeRounded : PodiumTop3WrongSlotPointsPostMode;
+            decimal exactPoints = preQualyMode == PreQualyMode.Yes ? PodiumExactPointsYesMode : PodiumExactPointsPostMode;
+            decimal top3WrongSlotPoints = preQualyMode == PreQualyMode.Yes ? PodiumTop3WrongSlotPointsYesMode : PodiumTop3WrongSlotPointsPostMode;
             var exactReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_EXACT_PQ_YES" : "PODIUM_EXACT";
             var wrongSlotReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_TOP3_WRONG_SLOT_PQ_YES" : "PODIUM_TOP3_WRONG_SLOT";
             var missReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_MISS_PQ_YES" : "PODIUM_MISS";
@@ -665,7 +665,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_ACTUAL_MISSING");
             }
 
-            var raceBonusPoints = ResolveRaceBonusExactPoints(participant.PickType);
+            decimal raceBonusPoints = ResolveRaceBonusExactPoints(participant.PickType);
 
             return string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase)
                 ? CreateCalculated(participant, predicted, actualForPickType, raceBonusPoints, "RACE_BONUS_EXACT")
@@ -739,7 +739,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         return PreQualyMode.Post;
     }
 
-    private static int ResolveRaceBonusExactPoints(string pickType)
+    private static decimal ResolveRaceBonusExactPoints(string pickType)
     {
         if (!pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase))
         {
@@ -767,7 +767,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         MigrationImportRaceSelectionEntity participant,
         string? predicted,
         string? actual,
-        int points,
+        decimal points,
         string reasonCode)
     {
         return new MigrationImportCalculatedScoreEntity
@@ -779,7 +779,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             Subject = participant.Subject,
             PredictedValue = predicted,
             ActualValue = actual,
-            Points = Math.Max(0, points),
+            Points = decimal.Max(0m, points),
             ReasonCode = reasonCode
         };
     }

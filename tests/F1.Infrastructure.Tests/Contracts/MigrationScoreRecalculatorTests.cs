@@ -383,14 +383,14 @@ public sealed class MigrationScoreRecalculatorTests
         var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         Assert.Equal(10, result.ScoredPickCount);
-        Assert.Equal(48, result.TotalPoints);
+        Assert.Equal(47.5m, result.TotalPoints);
 
         var scores = await dbContext.MigrationImportCalculatedScores
             .Where(x => x.ImportRunId == runId)
             .ToListAsync();
 
         AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "1"), 15, "PODIUM_EXACT_PQ_YES");
-        AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "2"), 8, "PODIUM_TOP3_WRONG_SLOT_PQ_YES");
+        AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "2"), 7.5m, "PODIUM_TOP3_WRONG_SLOT_PQ_YES");
         AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "DNF"), 5, "DNF_MATCH");
 
         AssertScore(scores.Single(x => x.Subject == "Andy" && x.PickType == "1"), 10, "PODIUM_EXACT");
@@ -1191,7 +1191,7 @@ public sealed class MigrationScoreRecalculatorTests
         };
     }
 
-    private static void AssertScore(MigrationImportCalculatedScoreEntity actual, int points, string reasonCode)
+    private static void AssertScore(MigrationImportCalculatedScoreEntity actual, decimal points, string reasonCode)
     {
         Assert.Equal(points, actual.Points);
         Assert.Equal(reasonCode, actual.ReasonCode);

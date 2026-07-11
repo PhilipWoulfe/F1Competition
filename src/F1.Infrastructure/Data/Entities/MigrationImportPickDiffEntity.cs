@@ -8,8 +8,8 @@ public sealed class MigrationImportPickDiffEntity
     public string PickType { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
     public int? ImportedPoints { get; set; }
-    public int? CalculatedPoints { get; set; }
-    public int DeltaPoints { get; set; }
+    public decimal? CalculatedPoints { get; set; }
+    public decimal DeltaPoints { get; set; }
     public string ReasonCode { get; set; } = string.Empty;
     public bool IsExpectedVariance { get; set; }
     public string? ExpectedVarianceReasonCode { get; set; }

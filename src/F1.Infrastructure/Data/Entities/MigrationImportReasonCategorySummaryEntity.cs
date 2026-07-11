@@ -6,5 +6,5 @@ public sealed class MigrationImportReasonCategorySummaryEntity
     public Guid ImportRunId { get; set; }
     public string ReasonCode { get; set; } = string.Empty;
     public int OccurrenceCount { get; set; }
-    public int TotalDeltaPoints { get; set; }
+    public decimal TotalDeltaPoints { get; set; }
 }
