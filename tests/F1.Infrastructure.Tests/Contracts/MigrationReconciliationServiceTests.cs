@@ -553,6 +553,73 @@ public sealed class MigrationReconciliationServiceTests
         Assert.Contains("preseason-calculated row 2, column C", diff.Explanation);
     }
 
+    [Fact]
+    public async Task ReconcileAndPersistAsync_WhenDavePreseasonImportedRowsAreMissing_UsesLeaderboardBonusTotalForParticipantSummary()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025-package",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.Add(new MigrationImportRawRowEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 1,
+            SectionType = "Header",
+            RawPayload = "Question,ColmF,"
+        });
+
+        dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 13,
+            RaceCode = "LEADERBOARD",
+            PickType = "BONUS_TOTAL",
+            Subject = "ColmF",
+            LegacyPoints = 30
+        });
+
+        dbContext.MigrationImportPreseasonCalculatedScores.Add(new MigrationImportPreseasonCalculatedScoreEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 2,
+            QuestionKey = "PRE-001",
+            QuestionText = "At least one driver will win 4 consecutive races?",
+            Subject = "ColmF",
+            Points = 30,
+            ReasonCode = "PRESEASON_EXACT"
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var service = new MigrationReconciliationService(new TestDbContextFactory(options));
+        var result = await service.ReconcileAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(1, result.PreseasonQuestionDiffCount);
+        Assert.Equal(1, result.PreseasonParticipantSummaryCount);
+
+        var questionDiff = await dbContext.MigrationImportPreseasonQuestionDiffs
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "ColmF" && x.QuestionKey == "PRE-001");
+        Assert.Equal("PRESEASON_IMPORTED_MISSING", questionDiff.ReasonCode);
+        Assert.Equal(30, questionDiff.DeltaPoints);
+
+        var participantSummary = await dbContext.MigrationImportPreseasonParticipantDeltaSummaries
+            .SingleAsync(x => x.ImportRunId == runId && x.Subject == "ColmF");
+
+        Assert.Equal(30, participantSummary.ImportedTotalPoints);
+        Assert.Equal(30, participantSummary.CalculatedTotalPoints);
+        Assert.Equal(0, participantSummary.NetDeltaPoints);
+    }
+
     private static string GetGoldenFilePath(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -222,6 +222,36 @@ Acceptance criteria:
 Test notes:
 - Add API and UI tests for profile/path validation and duplicate conflict responses.
 
+### Story D18: Promote Dave race-level H2H and bonus picks into question scoring flow
+As an analyst, I want race-level H2H and race bonus picks from races.csv represented as question templates/answers so they score and reconcile through the same generic question pipeline.
+
+Acceptance criteria:
+- Dave package parsing materializes race-level H2H and race bonus picks into question templates, participant answers, and actual outcomes (in addition to existing race selection staging).
+- H2H and race bonus scoring strategies execute for Dave runs using source-profile policies and mode metadata.
+- Admin question diffs/exports include Dave race-level H2H and race bonus rows with deterministic ordering and reason codes.
+
+Test notes:
+- Add contract tests proving Dave races.csv H2H/BQ columns produce templates/answers/actuals.
+- Add scoring/reconciliation tests proving H2H and race bonus deltas appear in question outputs and exports.
+
+### Story D19: Support package archive upload for Dave migration kickoff
+As an admin, I want to upload a Dave source package (for example zip containing csv/txt artifacts) from the UI so I do not need server-side path setup before starting a migration run.
+
+Acceptance criteria:
+- Kickoff upload API accepts package archive uploads for Dave profile (zip) in addition to existing single-CSV uploads.
+- Uploaded archive is extracted into a run-scoped server directory under allowed import roots with path-traversal protection.
+- Contract validation runs on extracted files and returns clear diagnostics for missing/extra/invalid files before run creation.
+- Manifest checksum/deduplication uses extracted package contents (same behavior as path-based Dave package runs).
+- Admin UI supports selecting package upload mode and shows extraction/validation errors inline.
+
+Test notes:
+- Add API tests for valid zip upload, invalid extension, traversal attempt, oversized upload, and missing required files.
+- Add integration tests verifying extracted package kickoff parity with server-path kickoff (same checksum and duplicate conflict behavior).
+- Add UI tests for archive upload flow, validation errors, and successful kickoff confirmation.
+
+Completed above, uncompleted below
+--------------------------
+
 ### Story D14: Add write-mode canonical handoff for second competition scope
 As an operator, I want canonical writes scoped to Dave competition so data from multiple competitions does not collide.
 
@@ -266,32 +296,7 @@ Acceptance criteria:
 Test notes:
 - Dry-run runbook in a clean environment and verify no undocumented steps.
 
-### Story D18: Promote Dave race-level H2H and bonus picks into question scoring flow
-As an analyst, I want race-level H2H and race bonus picks from races.csv represented as question templates/answers so they score and reconcile through the same generic question pipeline.
 
-Acceptance criteria:
-- Dave package parsing materializes race-level H2H and race bonus picks into question templates, participant answers, and actual outcomes (in addition to existing race selection staging).
-- H2H and race bonus scoring strategies execute for Dave runs using source-profile policies and mode metadata.
-- Admin question diffs/exports include Dave race-level H2H and race bonus rows with deterministic ordering and reason codes.
-
-Test notes:
-- Add contract tests proving Dave races.csv H2H/BQ columns produce templates/answers/actuals.
-- Add scoring/reconciliation tests proving H2H and race bonus deltas appear in question outputs and exports.
-
-### Story D19: Support package archive upload for Dave migration kickoff
-As an admin, I want to upload a Dave source package (for example zip containing csv/txt artifacts) from the UI so I do not need server-side path setup before starting a migration run.
-
-Acceptance criteria:
-- Kickoff upload API accepts package archive uploads for Dave profile (zip) in addition to existing single-CSV uploads.
-- Uploaded archive is extracted into a run-scoped server directory under allowed import roots with path-traversal protection.
-- Contract validation runs on extracted files and returns clear diagnostics for missing/extra/invalid files before run creation.
-- Manifest checksum/deduplication uses extracted package contents (same behavior as path-based Dave package runs).
-- Admin UI supports selecting package upload mode and shows extraction/validation errors inline.
-
-Test notes:
-- Add API tests for valid zip upload, invalid extension, traversal attempt, oversized upload, and missing required files.
-- Add integration tests verifying extracted package kickoff parity with server-path kickoff (same checksum and duplicate conflict behavior).
-- Add UI tests for archive upload flow, validation errors, and successful kickoff confirmation.
 
 ## Suggested Delivery Sequence
 1. D1 source contract

@@ -21,6 +21,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private const string AllowedTempImportRootPath = "f1-imports";
     private const string SourceProfilePhil2025Csv = "phil-2025-csv";
     private const string SourceProfileDave2025Package = "dave-2025-package";
+    private const string DaveLeaderboardFileName = "Leaderboard.csv";
     private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
@@ -1220,7 +1221,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 Message: "All required Dave package files are present in staged manifest."));
         }
 
-        var unclassifiedRows = sourceManifest.Sum(x => x.UnclassifiedCount);
+        var unclassifiedRows = sourceManifest
+            .Where(x => !IsDaveLeaderboardManifestItem(x.SourceFileName))
+            .Sum(x => x.UnclassifiedCount);
         if (unclassifiedRows > 0)
         {
             diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
@@ -1230,6 +1233,14 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         return diagnostics;
+    }
+
+    private static bool IsDaveLeaderboardManifestItem(string sourceFileName)
+    {
+        return string.Equals(
+            Path.GetFileName(sourceFileName),
+            DaveLeaderboardFileName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<MigrationRunDiffExportResponse?> ExportRunDiffsAsync(

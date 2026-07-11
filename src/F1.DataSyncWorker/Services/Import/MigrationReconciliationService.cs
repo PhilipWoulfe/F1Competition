@@ -7,6 +7,9 @@ namespace F1.DataSyncWorker.Services;
 
 public sealed class MigrationReconciliationService : IMigrationReconciliationService
 {
+    private const string DaveLeaderboardRaceCode = "LEADERBOARD";
+    private const string DaveLeaderboardBonusTotalPickType = "BONUS_TOTAL";
+
     private static readonly HashSet<string> PodiumPickTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "1",
@@ -369,6 +372,20 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
             .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
+                var hasImportedPreseasonRows = preseasonImported.Any(x => string.Equals(x.Subject, group.Key, StringComparison.OrdinalIgnoreCase));
+                var importedFromQuestionTallies = group.Sum(x => x.ImportedPoints ?? 0);
+                var importedFromDaveLeaderboard = legacy
+                    .Where(x =>
+                        string.Equals(x.Subject, group.Key, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(x.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(x.PickType, DaveLeaderboardBonusTotalPickType, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.LegacyPoints)
+                    .FirstOrDefault();
+                var effectiveImportedTotal = hasImportedPreseasonRows
+                    ? importedFromQuestionTallies
+                    : importedFromDaveLeaderboard ?? importedFromQuestionTallies;
+                var calculatedTotal = group.Sum(x => x.CalculatedPoints ?? 0);
+
                 var topReasonGroup = group
                     .Where(x => x.DeltaPoints != 0)
                     .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
@@ -380,9 +397,9 @@ public sealed class MigrationReconciliationService : IMigrationReconciliationSer
                 {
                     ImportRunId = runId,
                     Subject = group.Key,
-                    ImportedTotalPoints = group.Sum(x => x.ImportedPoints ?? 0),
-                    CalculatedTotalPoints = group.Sum(x => x.CalculatedPoints ?? 0),
-                    NetDeltaPoints = group.Sum(x => x.DeltaPoints),
+                    ImportedTotalPoints = effectiveImportedTotal,
+                    CalculatedTotalPoints = calculatedTotal,
+                    NetDeltaPoints = calculatedTotal - effectiveImportedTotal,
                     TopReasonCode = topReasonGroup?.Key,
                     TopReasonCount = topReasonGroup?.Count() ?? 0
                 };

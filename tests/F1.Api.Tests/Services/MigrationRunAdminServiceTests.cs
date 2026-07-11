@@ -1258,6 +1258,92 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_WhenOnlyDaveLeaderboardRowsAreUnclassified_DoesNotEmitUnclassifiedRowsWarning()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 5
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Name,Race1-1",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Philip",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    SourceFileName = "bonusAnswers.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Answer",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 4,
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "Unclassified",
+                    RawPayload = "Name,Race Points,Bonus Points,CDP,Total,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 5,
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "Unclassified",
+                    RawPayload = "Philip,512.5,60,14,572.5,590.5",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.Contains(detail!.SourceContractDiagnostics!, x => x.Code == "SOURCE_PROFILE" && x.Severity == "Info");
+        Assert.Contains(detail.SourceContractDiagnostics!, x => x.Code == "DAVE_CONTRACT_FILES_PRESENT" && x.Severity == "Info");
+        Assert.DoesNotContain(detail.SourceContractDiagnostics!, x => x.Code == "UNCLASSIFIED_ROWS");
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_CdpParity_CountsExactPodiumMatchesFromSelections()
     {
         var runId = Guid.NewGuid();
