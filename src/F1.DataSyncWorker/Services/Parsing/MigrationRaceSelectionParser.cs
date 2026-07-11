@@ -607,6 +607,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
         var parsed = new List<MigrationImportPreseasonAnswerEntity>();
         var questionOrdinal = 0;
+        var seenQuestionKeys = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in bonusRows.Skip(1))
         {
@@ -624,6 +625,24 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
             questionOrdinal++;
             var questionKey = $"PRE-{questionOrdinal:D3}";
+            var lookupKey = NormalizeQuestionLookupKey(questionText);
+            if (seenQuestionKeys.TryGetValue(lookupKey, out var firstRow))
+            {
+                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = "PRESEASON",
+                    PickType = "QUESTION_KEY",
+                    Subject = ActualSubject,
+                    RawToken = $"Normalized question-key collision in bonus.csv for '{lookupKey}' (first seen at row {firstRow})",
+                    CreatedAtUtc = createdAtUtc
+                });
+            }
+            else
+            {
+                seenQuestionKeys[lookupKey] = row.RowNumber;
+            }
 
             for (var index = 0; index < participants.Count; index++)
             {
@@ -644,7 +663,6 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 });
             }
 
-            var lookupKey = NormalizeQuestionLookupKey(questionText);
             var hasActualEntry = answersByQuestionKey.TryGetValue(lookupKey, out var actualEntry);
             if (!hasActualEntry)
             {
