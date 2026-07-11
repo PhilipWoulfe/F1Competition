@@ -1059,19 +1059,74 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             })
             .ToDictionaryAsync(x => x.Subject, x => x.ImportedCdp, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
-        var calculatedCdp = await _dbContext.MigrationImportCalculatedScores
+        var podiumSelections = await _dbContext.MigrationImportRaceSelections
             .AsNoTracking()
-            .Where(x =>
-                x.ImportRunId == runId &&
-                (x.PickType == "1" || x.PickType == "2" || x.PickType == "3") &&
-                EF.Functions.Like(x.ReasonCode, "PODIUM_EXACT%"))
-            .GroupBy(x => x.Subject)
-            .Select(group => new
+            .Where(x => x.ImportRunId == runId && (x.PickType == "1" || x.PickType == "2" || x.PickType == "3"))
+            .Select(x => new
             {
-                Subject = group.Key,
-                CalculatedCdp = group.Count()
+                x.RaceCode,
+                x.PickType,
+                x.Subject,
+                x.NormalizedValue,
+                x.IsActualOutcome
             })
-            .ToDictionaryAsync(x => x.Subject, x => x.CalculatedCdp, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            .ToListAsync(cancellationToken);
+
+        Dictionary<string, int> calculatedCdp;
+        if (podiumSelections.Count > 0)
+        {
+            var actualByRaceAndPickType = podiumSelections
+                .Where(x => x.IsActualOutcome)
+                .GroupBy(x => (x.RaceCode, x.PickType))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(x => x.NormalizedValue)
+                        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
+                    EqualityComparer<(string RaceCode, string PickType)>.Default);
+
+            calculatedCdp = podiumSelections
+                .Where(x => !x.IsActualOutcome && !string.IsNullOrWhiteSpace(x.Subject))
+                .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Count(selection =>
+                    {
+                        if (string.IsNullOrWhiteSpace(selection.NormalizedValue))
+                        {
+                            return false;
+                        }
+
+                        if (!actualByRaceAndPickType.TryGetValue((selection.RaceCode, selection.PickType), out var actualValue) ||
+                            string.IsNullOrWhiteSpace(actualValue))
+                        {
+                            return false;
+                        }
+
+                        return string.Equals(
+                            selection.NormalizedValue.Trim(),
+                            actualValue.Trim(),
+                            StringComparison.OrdinalIgnoreCase);
+                    }),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            // Fallback for legacy runs/tests that only persist calculated score rows.
+            calculatedCdp = await _dbContext.MigrationImportCalculatedScores
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    (x.PickType == "1" || x.PickType == "2" || x.PickType == "3") &&
+                    EF.Functions.Like(x.ReasonCode, "PODIUM_EXACT%"))
+                .GroupBy(x => x.Subject)
+                .Select(group => new
+                {
+                    Subject = group.Key,
+                    CalculatedCdp = group.Count()
+                })
+                .ToDictionaryAsync(x => x.Subject, x => x.CalculatedCdp, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        }
 
         var subjects = importedCdp.Keys
             .Concat(calculatedCdp.Keys)

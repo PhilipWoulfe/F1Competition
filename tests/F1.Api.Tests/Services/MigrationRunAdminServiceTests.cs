@@ -1258,6 +1258,93 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_CdpParity_CountsExactPodiumMatchesFromSelections()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "LEADERBOARD",
+                PickType = "CDP",
+                Subject = "Philip",
+                RawLegacyPoints = "1",
+                LegacyPoints = 1
+            });
+
+            dbContext.MigrationImportRaceSelections.AddRange(
+                new MigrationImportRaceSelectionEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RowNumber = 1,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "NORRIS",
+                    NormalizedValue = "NORRIS",
+                    IsActualOutcome = true
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "NORRIS",
+                    NormalizedValue = "NORRIS",
+                    IsActualOutcome = false
+                });
+
+            // This mirrors ALL-mode scoring output where exact podium picks are not tagged as PODIUM_EXACT.
+            dbContext.MigrationImportCalculatedScores.Add(new MigrationImportCalculatedScoreEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                Points = 0,
+                ReasonCode = "ALL_MODE_NO_JACKPOT"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var cdp = Assert.Single(detail!.CdpParity!);
+        Assert.Equal("Philip", cdp.Subject);
+        Assert.Equal(1, cdp.ImportedCdp);
+        Assert.Equal(1, cdp.CalculatedCdp);
+        Assert.True(cdp.IsParity);
+    }
+
+    [Fact]
     public async Task GetQuestionDiffsAsync_AppliesFiltersAndReturnsStablePagination()
     {
         var runId = Guid.NewGuid();
