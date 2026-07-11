@@ -96,6 +96,7 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
         var entities = rows.Select(row => new MigrationImportRawRowEntity
         {
             ImportRunId = runId,
+            SourceFileName = Truncate(row.SourceFileName, 256),
             RowNumber = row.RowNumber,
             SectionType = row.SectionType,
             RawPayload = row.RawPayload,

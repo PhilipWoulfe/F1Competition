@@ -479,42 +479,17 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
     private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(sourceFilePath);
-        using var reader = new StreamReader(stream);
         var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath);
         var applyPhil2025ContractPolicy = sourceProfile == MigrationSourceProfile.Phil2025Csv;
-
-        var rowNumber = 0;
         var stagedCount = 0;
         var rejectedCount = 0;
         var batch = new List<StagedImportRow>(BatchSize);
 
-        while (!reader.EndOfStream)
+        async Task FlushBatchAsync()
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
+            if (batch.Count == 0)
             {
-                continue;
-            }
-
-            rowNumber++;
-            var stagedRow = _rowClassifier.Classify(rowNumber, line);
-            if (applyPhil2025ContractPolicy)
-            {
-                stagedRow = MigrationPhil2025CsvContractPolicy.Apply(stagedRow);
-            }
-
-            batch.Add(stagedRow);
-            if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
-            {
-                rejectedCount++;
-            }
-
-            if (batch.Count < BatchSize)
-            {
-                continue;
+                return;
             }
 
             await _runService.StageRowsAsync(runId, batch, cancellationToken);
@@ -522,11 +497,78 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             batch.Clear();
         }
 
-        if (batch.Count > 0)
+        async Task StageSingleFileAsync(string filePath)
         {
-            await _runService.StageRowsAsync(runId, batch, cancellationToken);
-            stagedCount += batch.Count;
+            await using var stream = File.OpenRead(filePath);
+            using var reader = new StreamReader(stream);
+
+            var rowNumber = 0;
+            var sourceFileName = Path.GetFileName(filePath);
+            var isCsv = string.Equals(Path.GetExtension(filePath), ".csv", StringComparison.OrdinalIgnoreCase);
+
+            while (!reader.EndOfStream)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
+                {
+                    continue;
+                }
+
+                rowNumber++;
+
+                StagedImportRow stagedRow;
+                if (isCsv)
+                {
+                    stagedRow = _rowClassifier.Classify(rowNumber, line);
+                    if (applyPhil2025ContractPolicy)
+                    {
+                        stagedRow = MigrationPhil2025CsvContractPolicy.Apply(stagedRow);
+                    }
+                }
+                else
+                {
+                    stagedRow = new StagedImportRow(
+                        RowNumber: rowNumber,
+                        SectionType: MigrationImportSectionTypes.SourceArtifact,
+                        RawPayload: line,
+                        ClassificationReason: "Non-CSV source artifact staged for provenance.");
+                }
+
+                stagedRow = stagedRow with { SourceFileName = sourceFileName };
+                batch.Add(stagedRow);
+
+                if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
+                {
+                    rejectedCount++;
+                }
+
+                if (batch.Count >= BatchSize)
+                {
+                    await FlushBatchAsync();
+                }
+            }
         }
+
+        if (Directory.Exists(sourceFilePath))
+        {
+            var files = Directory
+                .EnumerateFiles(sourceFilePath, "*", SearchOption.TopDirectoryOnly)
+                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var file in files)
+            {
+                await StageSingleFileAsync(file);
+            }
+
+            await FlushBatchAsync();
+            return new RawRowStageResult(stagedCount, rejectedCount);
+        }
+
+        await StageSingleFileAsync(sourceFilePath);
+        await FlushBatchAsync();
 
         return new RawRowStageResult(stagedCount, rejectedCount);
     }

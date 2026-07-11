@@ -244,6 +244,7 @@ public class F1DbContext : DbContext
         {
             entity.ToTable("MigrationImportRawRows");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceFileName).HasMaxLength(256);
             entity.Property(x => x.SectionType).HasMaxLength(64).IsRequired();
             entity.Property(x => x.RawPayload).HasColumnType("text").IsRequired();
             entity.Property(x => x.ClassificationReason).HasMaxLength(512);
@@ -253,7 +254,7 @@ public class F1DbContext : DbContext
                 .HasForeignKey(x => x.ImportRunId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber }).IsUnique();
+            entity.HasIndex(x => new { x.ImportRunId, x.SourceFileName, x.RowNumber }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportRaceSelectionEntity>(entity =>
