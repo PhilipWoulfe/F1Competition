@@ -180,6 +180,10 @@ fi
 # 4. Fire up the containers
 echo "🏗️  Starting Docker Build ($MODE Mode with $CONFIG configuration)..."
 
+SHARED_UPLOAD_ROOT="${HOST_MIGRATION_UPLOAD_PATH:-/tmp/f1-migration-imports}"
+mkdir -p "$SHARED_UPLOAD_ROOT"
+chmod 1777 "$SHARED_UPLOAD_ROOT"
+
 # We export CONFIG so docker-compose can pick it up, 
 # or we pass it directly via --build-arg
 export CONFIGURATION=$CONFIG

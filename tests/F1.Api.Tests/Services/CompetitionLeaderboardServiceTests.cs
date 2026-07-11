@@ -56,7 +56,8 @@ public sealed class CompetitionLeaderboardServiceTests
             dbContext.RacePickScores.AddRange(
                 new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Charlie", ImportedPoints = 20, CalculatedPoints = 18, OverrideScore = 20, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = -2, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
                 new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Alice", ImportedPoints = 20, CalculatedPoints = 17, OverrideScore = 20, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = -3, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
-                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Bob", ImportedPoints = 10, CalculatedPoints = 25, OverrideScore = 10, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = 15, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow });
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "TOTAL", ParticipantId = "Bob", ImportedPoints = 10, CalculatedPoints = 25, OverrideScore = 10, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = 15, ReasonCode = "RACE_TOTAL", RecordedAtUtc = DateTime.UtcNow },
+                new RacePickScoreEntity { RaceId = "aus-2025", RaceCode = "AUS", PickType = "CDP", ParticipantId = "Alice", ImportedPoints = 50, CalculatedPoints = 50, OverrideScore = 50, OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE", SourceRunId = runId, DeltaPoints = 0, ReasonCode = "CDP_TIE_BREAK", RecordedAtUtc = DateTime.UtcNow });
 
             dbContext.QuestionScores.AddRange(
                 new QuestionScoreEntity { QuestionTemplateId = 100, ParticipantId = "Alice", ImportedPoints = 5, CalculatedPoints = 4, OverrideScore = 5, OverrideReasonCode = "PRESEASON_EXACT", OverrideSourceRunId = runId, DeltaPoints = -1, RecordedAtUtc = DateTime.UtcNow },
@@ -232,6 +233,23 @@ public sealed class CompetitionLeaderboardServiceTests
                 DeltaPoints = 2,
                 ReasonCode = "RACE_CORRECT",
                 Explanation = "Exact pick",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "aus-2025",
+                RaceCode = "AUS",
+                PickType = "CDP",
+                ParticipantId = "Alice",
+                ImportedPoints = 99,
+                CalculatedPoints = 99,
+                OverrideScore = 99,
+                OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE",
+                SourceRunId = runId,
+                DeltaPoints = 0,
+                ReasonCode = "CDP_TIE_BREAK",
+                Explanation = "Tie break only",
                 RecordedAtUtc = DateTime.UtcNow
             });
 

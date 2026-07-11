@@ -155,8 +155,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ConflictDiagnostics: [],
             RaceDiffs:
             [
-                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
-                new AdminMigrationRaceDiff("monza", "Alex", 20, 20, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationRaceDiff("albert_park", "Philip", "1:VER | 2:LEC | 3:HAM | DNF:DOO", "1:VER | 2:NOR | 3:LEC | DNF:SAI", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
+                new AdminMigrationRaceDiff("monza", "Alex", "DNF:DOO", "DNF:DOO", 20, 20, 0, "EXACT_MATCH", "No variance")
             ],
             PickDiffs:
             [
@@ -203,7 +203,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ConflictDiagnostics: [],
             RaceDiffs:
             [
-                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
+                new AdminMigrationRaceDiff("albert_park", "Philip", "1:VER | 2:LEC | 3:HAM | DNF:DOO", "1:VER | 2:NOR | 3:LEC | DNF:SAI", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
             ],
             PickDiffs:
             [

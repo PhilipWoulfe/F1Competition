@@ -80,6 +80,19 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
+    public void GetRunDetail_HasGuidRouteAttribute()
+    {
+        var attribute = typeof(MigrationRunsController)
+            .GetMethod(nameof(MigrationRunsController.GetRunDetail))?
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: true)
+            .Cast<HttpGetAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(attribute);
+        Assert.Equal("{runId:guid}", attribute!.Template);
+    }
+
+    [Fact]
     public async Task GetRunDetail_WhenAdminAndRunMissing_ReturnsNotFound()
     {
         var service = new Mock<IMigrationRunAdminService>();

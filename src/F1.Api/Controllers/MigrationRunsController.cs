@@ -347,20 +347,24 @@ public sealed class MigrationRunsController : ControllerBase
 
     private static string ResolveWritableUploadRoot()
     {
-        var primaryRoot = Path.GetFullPath(UploadDirectory, Directory.GetCurrentDirectory());
-        if (TryEnsureDirectoryWritable(primaryRoot))
+        var candidateRoots = new[]
         {
-            return primaryRoot;
-        }
+            Path.GetFullPath(UploadDirectory, Directory.GetCurrentDirectory()),
+            Path.GetFullPath(TempUploadDirectory, Path.GetTempPath()),
+            Path.GetFullPath("f1-imports", Path.GetTempPath()),
+            Path.Combine(Path.GetTempPath(), "f1-api-uploads")
+        };
 
-        var tempRoot = Path.GetFullPath(TempUploadDirectory, Path.GetTempPath());
-        if (TryEnsureDirectoryWritable(tempRoot))
+        foreach (var candidateRoot in candidateRoots.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            return tempRoot;
+            if (TryEnsureDirectoryWritable(candidateRoot))
+            {
+                return candidateRoot;
+            }
         }
 
         throw new UnauthorizedAccessException(
-            $"Unable to create a writable upload directory. Tried '{primaryRoot}' and '{tempRoot}'.");
+            $"Unable to create a writable upload directory. Tried '{string.Join("', '", candidateRoots)}'.");
     }
 
     private static bool TryEnsureDirectoryWritable(string path)
@@ -459,7 +463,6 @@ public sealed class MigrationRunsController : ControllerBase
     {
         await using var sourceStream = sourceFile.OpenReadStream();
         using var archive = new ZipArchive(sourceStream, ZipArchiveMode.Read, leaveOpen: false);
-
         if (archive.Entries.Count == 0)
         {
             throw new InvalidDataException("Uploaded archive is empty.");

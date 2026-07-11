@@ -183,6 +183,8 @@ public sealed record AdminMigrationSourceContractDiagnosticDto(
 public sealed record AdminMigrationRaceDiffDto(
     string RaceCode,
     string Subject,
+    string? ChosenPicks,
+    string? ActualPicks,
     int ImportedPoints,
     int CalculatedPoints,
     int DeltaPoints,
@@ -190,7 +192,8 @@ public sealed record AdminMigrationRaceDiffDto(
     string Explanation,
     bool IsExpectedVariance = false,
     string? ExpectedVarianceReasonCode = null,
-    string? ExpectedVarianceRuleId = null);
+    string? ExpectedVarianceRuleId = null,
+    decimal? ImportedRacePoints = null);
 
 public sealed record AdminMigrationPickDiffDto(
     string RaceCode,

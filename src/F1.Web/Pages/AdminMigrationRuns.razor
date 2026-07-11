@@ -749,7 +749,9 @@
                                     <tr>
                                         <th scope="col">Race</th>
                                         <th scope="col">Participant</th>
-                                        <th scope="col">Imported</th>
+                                        <th scope="col">Chosen Picks</th>
+                                        <th scope="col">Actual Picks</th>
+                                        <th scope="col">Imported Race Points</th>
                                         <th scope="col">Calculated</th>
                                         <th scope="col">Delta</th>
                                         <th scope="col">Reason</th>
@@ -764,7 +766,9 @@
                                         <tr>
                                             <td>@row.RaceCode</td>
                                             <td>@row.Subject</td>
-                                            <td>@row.ImportedPoints</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.ChosenPicks) ? "-" : row.ChosenPicks)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.ActualPicks) ? "-" : row.ActualPicks)</td>
+                                            <td>@(row.ImportedRacePoints?.ToString() ?? "-")</td>
                                             <td>@row.CalculatedPoints</td>
                                             <td>@row.DeltaPoints</td>
                                             <td>@row.ReasonCode</td>
