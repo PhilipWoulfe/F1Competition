@@ -178,8 +178,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             .Where(x => x.Id == runId)
             .Select(x => x.SourceFilePath)
             .SingleOrDefaultAsync(cancellationToken);
-        var usePhil2025SequenceMapping = !string.IsNullOrWhiteSpace(sourceFilePath) &&
-            MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath ?? string.Empty);
+        var usePhil2025SequenceMapping = sourceProfile == MigrationSourceProfile.Phil2025Csv;
 
         var stagedRows = await dbContext.MigrationImportRawRows
             .Where(x => x.ImportRunId == runId)

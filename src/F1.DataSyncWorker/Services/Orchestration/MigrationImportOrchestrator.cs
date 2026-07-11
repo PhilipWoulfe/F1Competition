@@ -481,7 +481,8 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
     {
         await using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
-        var applyPhil2025ContractPolicy = MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath);
+        var applyPhil2025ContractPolicy = sourceProfile == MigrationSourceProfile.Phil2025Csv;
 
         var rowNumber = 0;
         var stagedCount = 0;
