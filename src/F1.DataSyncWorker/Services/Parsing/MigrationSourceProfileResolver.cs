@@ -11,7 +11,9 @@ public static class MigrationSourceProfileResolver
             return MigrationSourceProfile.Unknown;
         }
 
-        if (File.Exists(sourcePath) && MigrationPhil2025CsvContractPolicy.AppliesTo(sourcePath))
+        // Phil profile should be selected by path contract, even for synthetic/nonexistent
+        // test paths that intentionally avoid filesystem dependencies.
+        if (MigrationPhil2025CsvContractPolicy.AppliesTo(sourcePath))
         {
             return MigrationSourceProfile.Phil2025Csv;
         }
