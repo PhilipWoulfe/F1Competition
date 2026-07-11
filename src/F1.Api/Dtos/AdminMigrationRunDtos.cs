@@ -47,6 +47,10 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
     IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
+    IReadOnlyList<AdminMigrationParticipantComponentDeltaDto>? ParticipantComponentDeltas = null,
+    IReadOnlyList<AdminMigrationCdpParityDto>? CdpParity = null,
+    IReadOnlyList<AdminMigrationSourceManifestItemDto>? SourceManifest = null,
+    IReadOnlyList<AdminMigrationSourceContractDiagnosticDto>? SourceContractDiagnostics = null,
     int? H2hPointsPolicy = null,
     int? PreseasonPointsPolicy = null,
     IReadOnlyList<AdminMigrationRaceBonusModeDto>? RaceBonusModes = null,
@@ -138,6 +142,41 @@ public sealed record AdminMigrationPreseasonReasonCategorySummaryDto(
     string ReasonCode,
     int OccurrenceCount,
     int TotalDeltaPoints);
+
+public sealed record AdminMigrationParticipantComponentDeltaDto(
+    string Subject,
+    int ImportedRacePoints,
+    int CalculatedRacePoints,
+    int ImportedPreseasonPoints,
+    int CalculatedPreseasonPoints,
+    int ImportedTotalPoints,
+    int CalculatedTotalPoints,
+    int NetDeltaPoints,
+    string? TopReasonCode,
+    int TopReasonCount);
+
+public sealed record AdminMigrationCdpParityDto(
+    string Subject,
+    int? ImportedCdp,
+    int CalculatedCdp,
+    int Delta,
+    bool IsParity);
+
+public sealed record AdminMigrationSourceManifestItemDto(
+    string SourceFileName,
+    int RowCount,
+    int HeaderCount,
+    int RacePickCount,
+    int SeasonQuestionPredictionCount,
+    int RacePointsCount,
+    int TotalsMetaCount,
+    int UnclassifiedCount,
+    int SourceArtifactCount);
+
+public sealed record AdminMigrationSourceContractDiagnosticDto(
+    string Code,
+    string Severity,
+    string Message);
 
 public sealed record AdminMigrationRaceDiffDto(
     string RaceCode,

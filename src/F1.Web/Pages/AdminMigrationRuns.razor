@@ -235,6 +235,8 @@
     <div class="col-12 col-lg-7 migration-runs-detail-pane" aria-live="polite">
         @{
             var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
+            var filteredParticipantComponentDeltas = GetFilteredParticipantComponentDeltas().ToList();
+            var filteredCdpParity = GetFilteredCdpParity().ToList();
             var filteredPreseasonParticipantDeltas = GetFilteredPreseasonParticipantDeltas().ToList();
             var filteredPreseasonQuestionDiffs = GetFilteredPreseasonQuestionDiffs().ToList();
             var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
@@ -357,6 +359,82 @@
                             </dl>
                         </div>
                     </div>
+
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h3 class="h5">Source Contract Diagnostics</h3>
+                            @if (selectedRunDetail.SourceContractDiagnostics is null || selectedRunDetail.SourceContractDiagnostics.Count == 0)
+                            {
+                                <p class="mb-0">No source contract diagnostics recorded for this run.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Code</th>
+                                                <th scope="col">Severity</th>
+                                                <th scope="col">Message</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var diagnostic in selectedRunDetail.SourceContractDiagnostics)
+                                            {
+                                                <tr>
+                                                    <td><code>@diagnostic.Code</code></td>
+                                                    <td>@diagnostic.Severity</td>
+                                                    <td>@diagnostic.Message</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <h3 class="h5">Source Manifest</h3>
+                    @if (selectedRunDetail.SourceManifest is null || selectedRunDetail.SourceManifest.Count == 0)
+                    {
+                        <p>No source manifest data available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">File</th>
+                                        <th scope="col">Rows</th>
+                                        <th scope="col">Headers</th>
+                                        <th scope="col">Race Picks</th>
+                                        <th scope="col">Season Questions</th>
+                                        <th scope="col">Race Points</th>
+                                        <th scope="col">Totals Meta</th>
+                                        <th scope="col">Artifacts</th>
+                                        <th scope="col">Unclassified</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in selectedRunDetail.SourceManifest)
+                                    {
+                                        <tr>
+                                            <td>@row.SourceFileName</td>
+                                            <td>@row.RowCount</td>
+                                            <td>@row.HeaderCount</td>
+                                            <td>@row.RacePickCount</td>
+                                            <td>@row.SeasonQuestionPredictionCount</td>
+                                            <td>@row.RacePointsCount</td>
+                                            <td>@row.TotalsMetaCount</td>
+                                            <td>@row.SourceArtifactCount</td>
+                                            <td>@row.UnclassifiedCount</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
 
                     <h3 class="h5">Unresolved Token Summary</h3>
                     @if (selectedRunDetail.UnresolvedTokenSummary.Count == 0)
@@ -532,6 +610,82 @@
 
                 <div id="pane-race-participants" role="tabpanel" aria-labelledby="tab-race-participants" class="@GetTabPaneClass("race-participants")">
                     <h3>Participant Comparisons</h3>
+                    <h4 class="h6">Component Totals (Race + Preseason)</h4>
+                    @if (filteredParticipantComponentDeltas.Count == 0)
+                    {
+                        <p>No component participant deltas available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Imported Race</th>
+                                        <th scope="col">Calculated Race</th>
+                                        <th scope="col">Imported Preseason</th>
+                                        <th scope="col">Calculated Preseason</th>
+                                        <th scope="col">Imported Total</th>
+                                        <th scope="col">Calculated Total</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Top Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredParticipantComponentDeltas)
+                                    {
+                                        <tr>
+                                            <td>@row.Subject</td>
+                                            <td>@row.ImportedRacePoints</td>
+                                            <td>@row.CalculatedRacePoints</td>
+                                            <td>@row.ImportedPreseasonPoints</td>
+                                            <td>@row.CalculatedPreseasonPoints</td>
+                                            <td>@row.ImportedTotalPoints</td>
+                                            <td>@row.CalculatedTotalPoints</td>
+                                            <td>@row.NetDeltaPoints</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <h4 class="h6">CDP Tie-Break Parity</h4>
+                    @if (filteredCdpParity.Count == 0)
+                    {
+                        <p>No CDP parity diagnostics available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Imported CDP</th>
+                                        <th scope="col">Calculated CDP</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Parity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredCdpParity)
+                                    {
+                                        <tr>
+                                            <td>@row.Subject</td>
+                                            <td>@(row.ImportedCdp?.ToString() ?? "-")</td>
+                                            <td>@row.CalculatedCdp</td>
+                                            <td>@row.Delta</td>
+                                            <td>@(row.IsParity ? "Yes" : "No")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
                     @if (filteredParticipantDeltas.Count == 0)
                     {
                         <p>No participant deltas available for this run.</p>
@@ -1254,6 +1408,31 @@
             .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
             .Where(row => MatchesFilter(row.TopReasonCode, detailReasonFilter))
             .Where(row => !detailNonZeroOnly || row.NetDeltaPoints != 0);
+    }
+
+    private IEnumerable<AdminMigrationParticipantComponentDelta> GetFilteredParticipantComponentDeltas()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationParticipantComponentDelta>();
+        }
+
+        return (selectedRunDetail.ParticipantComponentDeltas ?? [])
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => MatchesFilter(row.TopReasonCode, detailReasonFilter))
+            .Where(row => !detailNonZeroOnly || row.NetDeltaPoints != 0);
+    }
+
+    private IEnumerable<AdminMigrationCdpParity> GetFilteredCdpParity()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationCdpParity>();
+        }
+
+        return (selectedRunDetail.CdpParity ?? [])
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => !detailNonZeroOnly || row.Delta != 0);
     }
 
     private IEnumerable<AdminMigrationRaceDiff> GetFilteredRaceDiffs()
