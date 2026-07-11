@@ -246,6 +246,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Pick Comparisons", cut.Markup);
         Assert.Contains("Unexpected: 3", cut.Markup);
         Assert.Contains("Question Diffs", cut.Markup);
+        Assert.DoesNotContain("CDP Tie-Break Parity", cut.Markup);
+        Assert.DoesNotContain("No CDP parity diagnostics available for this run.", cut.Markup);
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Overview", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Preseason", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Participants", StringComparison.Ordinal));

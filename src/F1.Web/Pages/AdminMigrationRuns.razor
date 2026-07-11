@@ -664,38 +664,41 @@
                         </div>
                     }
 
-                    <h4 class="h6">CDP Tie-Break Parity</h4>
-                    @if (filteredCdpParity.Count == 0)
+                    @if (IsDaveSelectedRun)
                     {
-                        <p>No CDP parity diagnostics available for this run.</p>
-                    }
-                    else
-                    {
-                        <div class="table-responsive mb-4">
-                            <table class="table table-sm table-striped">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Participant</th>
-                                        <th scope="col">Imported CDP</th>
-                                        <th scope="col">Calculated CDP</th>
-                                        <th scope="col">Delta</th>
-                                        <th scope="col">Parity</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var row in filteredCdpParity)
-                                    {
+                        <h4 class="h6">CDP Tie-Break Parity</h4>
+                        @if (filteredCdpParity.Count == 0)
+                        {
+                            <p>No CDP parity diagnostics available for this run.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm table-striped">
+                                    <thead>
                                         <tr>
-                                            <td>@row.Subject</td>
-                                            <td>@(row.ImportedCdp?.ToString() ?? "-")</td>
-                                            <td>@row.CalculatedCdp</td>
-                                            <td>@row.Delta</td>
-                                            <td>@(row.IsParity ? "Yes" : "No")</td>
+                                            <th scope="col">Participant</th>
+                                            <th scope="col">Imported CDP</th>
+                                            <th scope="col">Calculated CDP</th>
+                                            <th scope="col">Delta</th>
+                                            <th scope="col">Parity</th>
                                         </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in filteredCdpParity)
+                                        {
+                                            <tr>
+                                                <td>@row.Subject</td>
+                                                <td>@(row.ImportedCdp?.ToString() ?? "-")</td>
+                                                <td>@row.CalculatedCdp</td>
+                                                <td>@row.Delta</td>
+                                                <td>@(row.IsParity ? "Yes" : "No")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
                     }
 
                     @if (filteredParticipantDeltas.Count == 0)
@@ -1108,6 +1111,10 @@
     private int QuestionTotalPages => questionDiffs is null || questionDiffs.TotalCount == 0
         ? 1
         : (int)Math.Ceiling(questionDiffs.TotalCount / (double)questionDiffs.PageSize);
+
+    private bool IsDaveSelectedRun =>
+        selectedRunDetail is not null &&
+        !selectedRunDetail.SourceFilePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
