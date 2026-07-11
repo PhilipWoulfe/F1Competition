@@ -21,6 +21,8 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     private const int PodiumExactPointsYesMode = 15;
     private const int PodiumTop3WrongSlotPointsYesModeRounded = 8;
     private const int AllModeJackpotPoints = 100;
+    private const int RaceBonusBq1ExactPoints = 5;
+    private const int RaceBonusBq2PlusExactPoints = 20;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
@@ -651,6 +653,25 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             return CreateCalculated(participant, predicted, actualForPickType, 0, "DNF_MISS");
         }
 
+        if (participant.PickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(predicted))
+            {
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_PREDICTION_NULL");
+            }
+
+            if (string.IsNullOrWhiteSpace(actualForPickType))
+            {
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_ACTUAL_MISSING");
+            }
+
+            var raceBonusPoints = ResolveRaceBonusExactPoints(participant.PickType);
+
+            return string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase)
+                ? CreateCalculated(participant, predicted, actualForPickType, raceBonusPoints, "RACE_BONUS_EXACT")
+                : CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_MISS");
+        }
+
         return CreateCalculated(participant, predicted, actualForPickType, 0, "UNSUPPORTED_PICKTYPE");
     }
 
@@ -716,6 +737,23 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         }
 
         return PreQualyMode.Post;
+    }
+
+    private static int ResolveRaceBonusExactPoints(string pickType)
+    {
+        if (!pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusBq1ExactPoints;
+        }
+
+        if (pickType.Length <= 2)
+        {
+            return RaceBonusBq1ExactPoints;
+        }
+
+        return int.TryParse(pickType.AsSpan(2), out var bqNumber) && bqNumber >= 2
+            ? RaceBonusBq2PlusExactPoints
+            : RaceBonusBq1ExactPoints;
     }
 
     private enum PreQualyMode

@@ -452,6 +452,106 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreQualyModeAll_BonusQuestionsAreScoredIndependently()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "R03", "1", "ACTUAL", "VER", isActual: true),
+            Selection(runId, 101, "R03", "2", "ACTUAL", "NOR", isActual: true),
+            Selection(runId, 102, "R03", "3", "ACTUAL", "LEC", isActual: true),
+            Selection(runId, 103, "R03", "DNF", "ACTUAL", "SAI", isActual: true),
+            Selection(runId, 104, "R03", "BQ1", "ACTUAL", "ALB", isActual: true),
+            Selection(runId, 105, "R03", "BQ2", "ACTUAL", "ALO", isActual: true),
+
+            Selection(runId, 10, "R03", "PQ", "ColmF", "ALL"),
+            Selection(runId, 11, "R03", "1", "ColmF", "VER"),
+            Selection(runId, 12, "R03", "2", "ColmF", "PIA"),
+            Selection(runId, 13, "R03", "3", "ColmF", "NOR"),
+            Selection(runId, 14, "R03", "DNF", "ColmF", "COL"),
+            Selection(runId, 15, "R03", "BQ1", "ColmF", "ALB"),
+            Selection(runId, 16, "R03", "BQ2", "ColmF", "HUL"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(7, result.ScoredPickCount);
+        Assert.Equal(5, result.TotalPoints);
+
+        var scores = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        AssertScore(scores.Single(x => x.Subject == "ColmF" && x.PickType == "1"), 0, "ALL_MODE_NO_JACKPOT");
+        AssertScore(scores.Single(x => x.Subject == "ColmF" && x.PickType == "BQ1"), 5, "RACE_BONUS_EXACT");
+        AssertScore(scores.Single(x => x.Subject == "ColmF" && x.PickType == "BQ2"), 0, "RACE_BONUS_MISS");
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreQualyModeYesAndBq2Exact_AwardsTwentyPointRaceBonus()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "americas", "1", "ACTUAL", "VER", isActual: true),
+            Selection(runId, 101, "americas", "2", "ACTUAL", "NOR", isActual: true),
+            Selection(runId, 102, "americas", "3", "ACTUAL", "PIA", isActual: true),
+            Selection(runId, 103, "americas", "DNF", "ACTUAL", "LAW", isActual: true),
+            Selection(runId, 104, "americas", "BQ1", "ACTUAL", "HAD", isActual: true),
+            Selection(runId, 105, "americas", "BQ2", "ACTUAL", "ALO", isActual: true),
+
+            Selection(runId, 10, "americas", "PQ", "DayaraY", "Yes"),
+            Selection(runId, 11, "americas", "1", "DayaraY", "VER"),
+            Selection(runId, 12, "americas", "2", "DayaraY", "NOR"),
+            Selection(runId, 13, "americas", "3", "DayaraY", "LEC"),
+            Selection(runId, 14, "americas", "DNF", "DayaraY", "SAI"),
+            Selection(runId, 15, "americas", "BQ1", "DayaraY", "ALB"),
+            Selection(runId, 16, "americas", "BQ2", "DayaraY", "ALO"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(7, result.ScoredPickCount);
+        Assert.Equal(50, result.TotalPoints);
+
+        var scores = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId && x.Subject == "DayaraY")
+            .ToListAsync();
+
+        AssertScore(scores.Single(x => x.PickType == "1"), 15, "PODIUM_EXACT_PQ_YES");
+        AssertScore(scores.Single(x => x.PickType == "2"), 15, "PODIUM_EXACT_PQ_YES");
+        AssertScore(scores.Single(x => x.PickType == "BQ2"), 20, "RACE_BONUS_EXACT");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenGenericPreseasonQuestionsPresent_PersistsQuestionScoresThroughStrategyDispatch()
     {
         var runId = Guid.NewGuid();

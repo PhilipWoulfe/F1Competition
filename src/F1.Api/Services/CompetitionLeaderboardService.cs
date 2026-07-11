@@ -61,7 +61,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
 
         var raceTotals = await dbContext.RacePickScores
             .AsNoTracking()
-            .Where(score => !string.Equals(score.PickType, CdpPickType, StringComparison.OrdinalIgnoreCase))
+            .Where(score => score.PickType != CdpPickType)
             .Join(
                 dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
                 score => score.RaceId,
@@ -163,7 +163,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             ? []
             : await dbContext.RacePickScores
                 .AsNoTracking()
-                .Where(score => !string.Equals(score.PickType, CdpPickType, StringComparison.OrdinalIgnoreCase))
+                .Where(score => score.PickType != CdpPickType)
                 .Join(
                     dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
                     score => score.RaceId,

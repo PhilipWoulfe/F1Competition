@@ -1854,26 +1854,56 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         expectedVarianceReasonCode = raceDiff.ExpectedVarianceReasonCode;
         expectedVarianceRuleId = raceDiff.ExpectedVarianceRuleId;
 
-        if (!isDaveProfile || !TryConvertWholeDecimalToInt(importedRacePoints, out var convertedImportedPoints))
+        if (!isDaveProfile || !importedRacePoints.HasValue)
         {
             return false;
         }
 
-        importedPoints = convertedImportedPoints;
-        deltaPoints = raceDiff.CalculatedPoints - importedPoints;
-        reasonCode = deltaPoints == 0
-            ? "RACE_POINTS_MATCH"
-            : string.IsNullOrWhiteSpace(raceDiff.ReasonCode)
-                ? "RACE_RULE_VARIANCE"
-                : raceDiff.ReasonCode;
-        explanation = BuildDaveRaceDiffExplanation(raceDiff, importedPoints, deltaPoints, reasonCode);
-
-        if (deltaPoints == 0)
+        var rawImportedPoints = importedRacePoints.Value;
+        if (rawImportedPoints < int.MinValue || rawImportedPoints > int.MaxValue)
         {
-            isExpectedVariance = false;
-            expectedVarianceReasonCode = null;
-            expectedVarianceRuleId = null;
+            return false;
         }
+
+        if (TryConvertWholeDecimalToInt(importedRacePoints, out var convertedImportedPoints))
+        {
+            importedPoints = convertedImportedPoints;
+            deltaPoints = raceDiff.CalculatedPoints - importedPoints;
+            reasonCode = deltaPoints == 0
+                ? "RACE_POINTS_MATCH"
+                : string.IsNullOrWhiteSpace(raceDiff.ReasonCode)
+                    ? "RACE_RULE_VARIANCE"
+                    : raceDiff.ReasonCode;
+            explanation = BuildDaveRaceDiffExplanation(raceDiff, importedPoints, deltaPoints, reasonCode);
+
+            if (deltaPoints == 0)
+            {
+                isExpectedVariance = false;
+                expectedVarianceReasonCode = null;
+                expectedVarianceRuleId = null;
+            }
+
+            return true;
+        }
+
+        if (!IsHalfPointDecimal(rawImportedPoints))
+        {
+            return false;
+        }
+
+        var roundedImportedPoints = decimal.ToInt32(decimal.Round(rawImportedPoints, 0, MidpointRounding.AwayFromZero));
+        if (Math.Abs(raceDiff.CalculatedPoints - rawImportedPoints) != 0.5m)
+        {
+            return false;
+        }
+
+        importedPoints = roundedImportedPoints;
+        deltaPoints = 0;
+        reasonCode = "RACE_POINTS_MATCH";
+        explanation = BuildDaveHalfPointRoundingExplanation(raceDiff, rawImportedPoints, roundedImportedPoints);
+        isExpectedVariance = false;
+        expectedVarianceReasonCode = null;
+        expectedVarianceRuleId = null;
 
         return true;
     }
@@ -1896,6 +1926,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return true;
     }
 
+    private static bool IsHalfPointDecimal(decimal value)
+    {
+        var fractionalPart = Math.Abs(value - decimal.Truncate(value));
+        return fractionalPart == 0.5m;
+    }
+
     private static string BuildDaveRaceDiffExplanation(
         MigrationImportRaceDiffEntity raceDiff,
         int importedPoints,
@@ -1903,6 +1939,15 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         string reasonCode)
     {
         var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedPoints}, calculated {raceDiff.CalculatedPoints}, delta {deltaPoints}. Reason: {reasonCode}.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static string BuildDaveHalfPointRoundingExplanation(
+        MigrationImportRaceDiffEntity raceDiff,
+        decimal importedRacePoints,
+        int roundedImportedPoints)
+    {
+        var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedRacePoints} rounded to {roundedImportedPoints} for integer comparison, calculated {raceDiff.CalculatedPoints}, delta 0. Reason: RACE_POINTS_MATCH.";
         return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
     }
 
