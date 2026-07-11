@@ -1451,6 +1451,64 @@ public sealed class MigrationImportRunServiceTests
         }
     }
 
+    [Fact]
+    public async Task RunOnceAsync_WhenLegacyImporterWritesLeaderboardSummaryRow_PassesIsolationGuard()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var rows = new List<string> { "Question,Philip,," };
+        for (var row = 2; row <= 21; row++)
+        {
+            rows.Add($"Pre-Q-{row},Y,,");
+        }
+        rows.Add("AUS-1,20,,");
+
+        var sourceFilePath = await CreateTempCsvAsync(string.Join(Environment.NewLine, rows), MigrationPhil2025CsvContractPolicy.SourceFileName);
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new LeaderboardSummaryLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = sourceFilePath,
+                    DryRun = true,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+            Assert.True(run.PreseasonIsolationGuardPassed);
+        }
+        finally
+        {
+            File.Delete(sourceFilePath);
+        }
+    }
+
     private static async Task<string> CreateTempCsvAsync(string content)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"f1-migration-{Guid.NewGuid():N}.csv");
@@ -1593,6 +1651,41 @@ public sealed class MigrationImportRunServiceTests
                 RowNumber = 22,
                 RaceCode = "AUS",
                 PickType = "1",
+                Subject = "Philip",
+                RawLegacyPoints = "20",
+                LegacyPoints = 20
+            });
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return new MigrationLegacyScoreImportResult(
+                LegacyPickScoreCount: 1,
+                ImportedTotalCount: 0,
+                CalculatedTotalCount: 0);
+        }
+    }
+
+    private sealed class LeaderboardSummaryLegacyScoreImporter : IMigrationLegacyScoreImporter
+    {
+        private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
+
+        public LeaderboardSummaryLegacyScoreImporter(IDbContextFactory<F1DbContext> dbContextFactory)
+        {
+            _dbContextFactory = dbContextFactory;
+        }
+
+        public async Task<MigrationLegacyScoreImportResult> ImportAndPersistAsync(Guid runId, CancellationToken cancellationToken)
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            dbContext.MigrationImportLegacyPickScores.RemoveRange(
+                dbContext.MigrationImportLegacyPickScores.Where(x => x.ImportRunId == runId));
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 22,
+                RaceCode = "LEADERBOARD",
+                PickType = "CDP",
                 Subject = "Philip",
                 RawLegacyPoints = "20",
                 LegacyPoints = 20

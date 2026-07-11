@@ -11,6 +11,7 @@ namespace F1.DataSyncWorker.Services;
 public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 {
     private const int BatchSize = 500;
+    private const string LeaderboardRaceCode = "LEADERBOARD";
     private readonly ILogger<MigrationImportOrchestrator> _logger;
     private readonly IMigrationImportRunService _runService;
     private readonly IMigrationImportRowClassifier _rowClassifier;
@@ -299,6 +300,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
         var contaminatedRacePoints = await dbContext.MigrationImportLegacyPickScores
             .Where(x => x.ImportRunId == runId && preseasonRowNumbers.Contains(x.RowNumber))
+            .Where(x => x.RaceCode.ToUpper() != LeaderboardRaceCode)
             .OrderBy(x => x.RowNumber)
             .Select(x => x.RowNumber)
             .Distinct()
