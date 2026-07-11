@@ -634,6 +634,107 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenDaveRunHasUnrelatedGenericPreseasonData_DoesNotLeakOtherParticipants()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        SeedCompetition(dbContext, 2, 2025);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025-package",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 10, "R01", "H2H", "ColmF", "VER"),
+            Selection(runId, 11, "R01", "H2H", "ACTUAL", "VER", isActual: true));
+
+        dbContext.QuestionTemplates.AddRange(
+            new QuestionTemplateEntity
+            {
+                Id = 501,
+                CompetitionId = 2,
+                Season = 2025,
+                QuestionId = "H2H-R01",
+                Category = QuestionCategory.H2H,
+                Prompt = "R01 H2H",
+                OptionsJson = "{\"LeftDriverId\":\"VER\",\"RightDriverId\":\"HAM\",\"PointsForCorrectPick\":5}",
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = 11,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new QuestionTemplateEntity
+            {
+                Id = 502,
+                CompetitionId = 1,
+                Season = 2025,
+                QuestionId = "PRE-002",
+                Category = QuestionCategory.Preseason,
+                Prompt = "Q1",
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionAnswers.AddRange(
+            new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 501,
+                ParticipantId = "ColmF",
+                ImportedAnswer = "VER",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 502,
+                ParticipantId = "Andy",
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionActuals.AddRange(
+            new QuestionActualEntity
+            {
+                QuestionTemplateId = 501,
+                ImportedAnswer = "VER",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionActualEntity
+            {
+                QuestionTemplateId = 502,
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var questionScores = await dbContext.QuestionScores
+            .OrderBy(x => x.ParticipantId)
+            .ToListAsync();
+
+        Assert.Single(questionScores);
+        Assert.Equal("ColmF", questionScores[0].ParticipantId);
+
+        var preseasonScores = await dbContext.MigrationImportPreseasonCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        Assert.Empty(preseasonScores);
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenCategoryStrategyMissing_PersistsZeroPointFallbackReason()
     {
         var runId = Guid.NewGuid();

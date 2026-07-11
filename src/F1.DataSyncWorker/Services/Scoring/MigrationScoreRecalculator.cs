@@ -48,6 +48,12 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
+        var sourceFilePath = await dbContext.MigrationImportRuns
+            .Where(x => x.Id == runId)
+            .Select(x => x.SourceFilePath)
+            .SingleOrDefaultAsync(cancellationToken);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath ?? string.Empty);
+
         var selections = await dbContext.MigrationImportRaceSelections
             .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.RowNumber)
@@ -77,16 +83,67 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         dbContext.MigrationImportPreseasonCalculatedTotals.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
-        var genericQuestionAnswers = await dbContext.QuestionAnswers
-            .OrderBy(x => x.QuestionTemplateId)
-            .ThenBy(x => x.ParticipantId)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        List<QuestionAnswerEntity> genericQuestionAnswers;
+        List<QuestionActualEntity> genericQuestionActuals;
 
-        var genericQuestionActuals = await dbContext.QuestionActuals
-            .OrderBy(x => x.QuestionTemplateId)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        var useDaveGenericQuestionScoping = sourceProfile == MigrationSourceProfile.Dave2025Package ||
+                            (sourceProfile != MigrationSourceProfile.Phil2025Csv &&
+                             selections.Any(x => IsDaveRaceQuestionPickType(x.PickType)));
+
+        if (useDaveGenericQuestionScoping)
+        {
+            var daveQuestionIds = selections
+                .Where(x => IsDaveRaceQuestionPickType(x.PickType))
+                .Select(x => BuildDaveRaceQuestionId(x.RaceCode, x.PickType))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var runParticipants = selections
+                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Subject)
+                .Concat(preseasonAnswers
+                    .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.Subject))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var daveTemplateIds = daveQuestionIds.Length == 0
+                ? []
+                : await dbContext.QuestionTemplates
+                    .Where(x => daveQuestionIds.Contains(x.QuestionId))
+                    .Select(x => x.Id)
+                    .ToArrayAsync(cancellationToken);
+
+            genericQuestionAnswers = daveTemplateIds.Length == 0 || runParticipants.Length == 0
+                ? []
+                : await dbContext.QuestionAnswers
+                    .Where(x => daveTemplateIds.Contains(x.QuestionTemplateId) && runParticipants.Contains(x.ParticipantId))
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .ThenBy(x => x.ParticipantId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+
+            genericQuestionActuals = daveTemplateIds.Length == 0
+                ? []
+                : await dbContext.QuestionActuals
+                    .Where(x => daveTemplateIds.Contains(x.QuestionTemplateId))
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+        }
+        else
+        {
+            genericQuestionAnswers = await dbContext.QuestionAnswers
+                .OrderBy(x => x.QuestionTemplateId)
+                .ThenBy(x => x.ParticipantId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+            genericQuestionActuals = await dbContext.QuestionActuals
+                .OrderBy(x => x.QuestionTemplateId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+        }
 
         var genericQuestionTemplateIds = genericQuestionAnswers.Select(x => x.QuestionTemplateId)
             .Concat(genericQuestionActuals.Select(x => x.QuestionTemplateId))
@@ -455,6 +512,19 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .ThenBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static bool IsDaveRaceQuestionPickType(string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase) ||
+               pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildDaveRaceQuestionId(string raceCode, string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase)
+            ? $"H2H-{raceCode.ToUpperInvariant()}"
+            : $"RB-{raceCode.ToUpperInvariant()}-{pickType.ToUpperInvariant()}";
     }
 
     private static (int Points, string ReasonCode) ScorePreseasonAnswer(
