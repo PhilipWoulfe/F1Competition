@@ -1919,8 +1919,15 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var requiredFiles = new[] { "races.csv", "bonus.csv", "bonusAnswers.csv", "Leaderboard.csv" };
+        var fileSet = Directory
+            .EnumerateFiles(sourcePath, "*", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var missingFiles = requiredFiles
-            .Where(file => !File.Exists(Path.Combine(sourcePath, file)))
+            .Where(file => !fileSet.Contains(file))
             .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 

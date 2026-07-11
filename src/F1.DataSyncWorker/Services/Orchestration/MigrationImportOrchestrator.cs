@@ -622,9 +622,15 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var mappings = await dbContext.MigrationImportRaceRoundMappings
-            .Where(x => x.ImportRunId == runId && !string.IsNullOrWhiteSpace(x.MappedCircuitId))
-            .OrderBy(x => x.SourceRowNumber)
-            .Select(x => new { x.SourceRowNumber, x.MappedCircuitId })
+            .Where(x =>
+                x.ImportRunId == runId &&
+                !string.IsNullOrWhiteSpace(x.SourceRaceCode) &&
+                !string.IsNullOrWhiteSpace(x.MappedCircuitId))
+            .GroupBy(x => x.SourceRaceCode)
+            .Select(group => group
+                .OrderBy(x => x.RaceSequence)
+                .Select(x => new { x.SourceRaceCode, x.MappedCircuitId })
+                .First())
             .ToListAsync(cancellationToken);
 
         if (mappings.Count == 0)
@@ -633,19 +639,15 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
 
         var rewritten = 0;
-        for (var index = 0; index < mappings.Count; index++)
+        foreach (var mapping in mappings)
         {
-            var startRow = mappings[index].SourceRowNumber;
-            var endRow = index + 1 < mappings.Count
-                ? mappings[index + 1].SourceRowNumber - 1
-                : int.MaxValue;
-            var mappedCircuitId = mappings[index].MappedCircuitId!;
+            var sourceRaceCode = mapping.SourceRaceCode!;
+            var mappedCircuitId = mapping.MappedCircuitId!;
 
             var updated = await dbContext.MigrationImportRaceSelections
                 .Where(x =>
                     x.ImportRunId == runId &&
-                    x.RowNumber >= startRow &&
-                    x.RowNumber <= endRow &&
+                    x.RaceCode == sourceRaceCode &&
                     x.RaceCode != mappedCircuitId)
                 .ExecuteUpdateAsync(
                     setters => setters.SetProperty(selection => selection.RaceCode, mappedCircuitId),

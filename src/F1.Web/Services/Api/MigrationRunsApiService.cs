@@ -179,7 +179,7 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
     {
         using var content = new MultipartFormDataContent();
         using var fileContent = new StreamContent(request.Content);
-        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(ResolveUploadContentType(request.FileName));
         content.Add(fileContent, "SourceFile", request.FileName);
         if (!string.IsNullOrWhiteSpace(request.SourceProfile))
         {
@@ -194,6 +194,14 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
             response,
             "Starting migration run from upload",
             cancellationToken);
+    }
+
+    private static string ResolveUploadContentType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName);
+        return string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase)
+            ? "application/zip"
+            : "text/csv";
     }
 
     public string GetRunDiffExportUrl(
