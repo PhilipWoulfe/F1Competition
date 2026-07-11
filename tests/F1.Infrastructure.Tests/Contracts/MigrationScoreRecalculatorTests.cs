@@ -343,6 +343,115 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreQualyModeYes_AppliesDavePodiumMultipliers()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "R01", "1", "ACTUAL", "VER", isActual: true),
+            Selection(runId, 101, "R01", "2", "ACTUAL", "NOR", isActual: true),
+            Selection(runId, 102, "R01", "3", "ACTUAL", "LEC", isActual: true),
+            Selection(runId, 103, "R01", "DNF", "ACTUAL", "DOO", isActual: true),
+
+            Selection(runId, 10, "R01", "PQ", "Philip", "YES"),
+            Selection(runId, 11, "R01", "1", "Philip", "VER"),
+            Selection(runId, 12, "R01", "2", "Philip", "LEC"),
+            Selection(runId, 13, "R01", "3", "Philip", "HAM"),
+            Selection(runId, 14, "R01", "DNF", "Philip", "DOO"),
+
+            Selection(runId, 20, "R01", "PQ", "Andy", "POST"),
+            Selection(runId, 21, "R01", "1", "Andy", "VER"),
+            Selection(runId, 22, "R01", "2", "Andy", "LEC"),
+            Selection(runId, 23, "R01", "3", "Andy", "HAM"),
+            Selection(runId, 24, "R01", "DNF", "Andy", "DOO"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(10, result.ScoredPickCount);
+        Assert.Equal(48, result.TotalPoints);
+
+        var scores = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "1"), 15, "PODIUM_EXACT_PQ_YES");
+        AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "2"), 8, "PODIUM_TOP3_WRONG_SLOT_PQ_YES");
+        AssertScore(scores.Single(x => x.Subject == "Philip" && x.PickType == "DNF"), 5, "DNF_MATCH");
+
+        AssertScore(scores.Single(x => x.Subject == "Andy" && x.PickType == "1"), 10, "PODIUM_EXACT");
+        AssertScore(scores.Single(x => x.Subject == "Andy" && x.PickType == "2"), 5, "PODIUM_TOP3_WRONG_SLOT");
+        AssertScore(scores.Single(x => x.Subject == "Andy" && x.PickType == "DNF"), 5, "DNF_MATCH");
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenPreQualyModeAll_AwardsSingleJackpotWhenAllPredictionsMatch()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "R02", "1", "ACTUAL", "VER", isActual: true),
+            Selection(runId, 101, "R02", "2", "ACTUAL", "NOR", isActual: true),
+            Selection(runId, 102, "R02", "3", "ACTUAL", "LEC", isActual: true),
+            Selection(runId, 103, "R02", "DNF", "ACTUAL", "DOO", isActual: true),
+
+            Selection(runId, 10, "R02", "PQ", "Kevin", "ALL"),
+            Selection(runId, 11, "R02", "1", "Kevin", "VER"),
+            Selection(runId, 12, "R02", "2", "Kevin", "NOR"),
+            Selection(runId, 13, "R02", "3", "Kevin", "LEC"),
+            Selection(runId, 14, "R02", "DNF", "Kevin", "DOO"),
+
+            Selection(runId, 20, "R02", "PQ", "Shane", "ALL"),
+            Selection(runId, 21, "R02", "1", "Shane", "VER"),
+            Selection(runId, 22, "R02", "2", "Shane", "HAM"),
+            Selection(runId, 23, "R02", "3", "Shane", "LEC"),
+            Selection(runId, 24, "R02", "DNF", "Shane", "DOO"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(10, result.ScoredPickCount);
+        Assert.Equal(100, result.TotalPoints);
+
+        var scores = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        AssertScore(scores.Single(x => x.Subject == "Kevin" && x.PickType == "1"), 100, "ALL_MODE_JACKPOT");
+        AssertScore(scores.Single(x => x.Subject == "Kevin" && x.PickType == "2"), 0, "ALL_MODE_JACKPOT_CREDITED_ON_P1");
+        AssertScore(scores.Single(x => x.Subject == "Shane" && x.PickType == "1"), 0, "ALL_MODE_NO_JACKPOT");
+        AssertScore(scores.Single(x => x.Subject == "Shane" && x.PickType == "DNF"), 0, "ALL_MODE_NO_JACKPOT");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenGenericPreseasonQuestionsPresent_PersistsQuestionScoresThroughStrategyDispatch()
     {
         var runId = Guid.NewGuid();

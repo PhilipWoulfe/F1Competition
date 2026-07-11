@@ -16,6 +16,11 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         "2",
         "3"
     };
+    private const int PodiumExactPointsPostMode = 10;
+    private const int PodiumTop3WrongSlotPointsPostMode = 5;
+    private const int PodiumExactPointsYesMode = 15;
+    private const int PodiumTop3WrongSlotPointsYesModeRounded = 8;
+    private const int AllModeJackpotPoints = 100;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
@@ -143,10 +148,27 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 .ThenBy(x => x.Subject)
                 .ToList();
 
-            foreach (var participant in participants)
+            foreach (var subjectGroup in participants.GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase))
             {
-                var score = CalculateScore(participant, actualByPickType, actualTop3, actualDnfTokens);
-                calculatedScores.Add(score);
+                var picksByType = subjectGroup
+                    .GroupBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.OrderBy(x => x.RowNumber).First(),
+                        StringComparer.OrdinalIgnoreCase);
+
+                var preQualyMode = ResolvePreQualyMode(
+                    picksByType.TryGetValue("PQ", out var preQualySelection)
+                        ? preQualySelection.NormalizedValue
+                        : null);
+
+                var allModeJackpotHit = preQualyMode == PreQualyMode.All && IsAllModeJackpotHit(picksByType, actualByPickType, actualTop3, actualDnfTokens);
+
+                foreach (var participant in subjectGroup)
+                {
+                    var score = CalculateScore(participant, actualByPickType, actualTop3, actualDnfTokens, preQualyMode, allModeJackpotHit);
+                    calculatedScores.Add(score);
+                }
             }
         }
 
@@ -489,26 +511,54 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         MigrationImportRaceSelectionEntity participant,
         IReadOnlyDictionary<string, string?> actualByPickType,
         ISet<string> actualTop3,
-        ISet<string> actualDnfTokens)
+        ISet<string> actualDnfTokens,
+        PreQualyMode preQualyMode,
+        bool allModeJackpotHit)
     {
         var predicted = NormalizeToken(participant.NormalizedValue);
         var actualForPickType = actualByPickType.TryGetValue(participant.PickType, out var actualValue)
             ? NormalizeToken(actualValue)
             : null;
 
+        if (string.Equals(participant.PickType, "PQ", StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateCalculated(participant, predicted, actualForPickType, 0, $"PQ_MODE_{preQualyMode.ToString().ToUpperInvariant()}");
+        }
+
+        if (preQualyMode == PreQualyMode.All && (PodiumPickTypes.Contains(participant.PickType) || string.Equals(participant.PickType, "DNF", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (allModeJackpotHit)
+            {
+                if (string.Equals(participant.PickType, "1", StringComparison.OrdinalIgnoreCase))
+                {
+                    return CreateCalculated(participant, predicted, actualForPickType, AllModeJackpotPoints, "ALL_MODE_JACKPOT");
+                }
+
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "ALL_MODE_JACKPOT_CREDITED_ON_P1");
+            }
+
+            return CreateCalculated(participant, predicted, actualForPickType, 0, "ALL_MODE_NO_JACKPOT");
+        }
+
         if (PodiumPickTypes.Contains(participant.PickType))
         {
+            var exactPoints = preQualyMode == PreQualyMode.Yes ? PodiumExactPointsYesMode : PodiumExactPointsPostMode;
+            var top3WrongSlotPoints = preQualyMode == PreQualyMode.Yes ? PodiumTop3WrongSlotPointsYesModeRounded : PodiumTop3WrongSlotPointsPostMode;
+            var exactReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_EXACT_PQ_YES" : "PODIUM_EXACT";
+            var wrongSlotReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_TOP3_WRONG_SLOT_PQ_YES" : "PODIUM_TOP3_WRONG_SLOT";
+            var missReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_MISS_PQ_YES" : "PODIUM_MISS";
+
             if (!string.IsNullOrWhiteSpace(predicted) && string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase))
             {
-                return CreateCalculated(participant, predicted, actualForPickType, 10, "PODIUM_EXACT");
+                return CreateCalculated(participant, predicted, actualForPickType, exactPoints, exactReason);
             }
 
             if (!string.IsNullOrWhiteSpace(predicted) && actualTop3.Contains(predicted))
             {
-                return CreateCalculated(participant, predicted, actualForPickType, 5, "PODIUM_TOP3_WRONG_SLOT");
+                return CreateCalculated(participant, predicted, actualForPickType, top3WrongSlotPoints, wrongSlotReason);
             }
 
-            return CreateCalculated(participant, predicted, actualForPickType, 0, "PODIUM_MISS");
+            return CreateCalculated(participant, predicted, actualForPickType, 0, missReason);
         }
 
         if (string.Equals(participant.PickType, "DNF", StringComparison.OrdinalIgnoreCase))
@@ -532,6 +582,77 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         }
 
         return CreateCalculated(participant, predicted, actualForPickType, 0, "UNSUPPORTED_PICKTYPE");
+    }
+
+    private static bool IsAllModeJackpotHit(
+        IReadOnlyDictionary<string, MigrationImportRaceSelectionEntity> picksByType,
+        IReadOnlyDictionary<string, string?> actualByPickType,
+        ISet<string> actualTop3,
+        ISet<string> actualDnfTokens)
+    {
+        if (!picksByType.TryGetValue("1", out var p1) ||
+            !picksByType.TryGetValue("2", out var p2) ||
+            !picksByType.TryGetValue("3", out var p3) ||
+            !picksByType.TryGetValue("DNF", out var dnf))
+        {
+            return false;
+        }
+
+        var p1Predicted = NormalizeToken(p1.NormalizedValue);
+        var p2Predicted = NormalizeToken(p2.NormalizedValue);
+        var p3Predicted = NormalizeToken(p3.NormalizedValue);
+
+        var p1Actual = actualByPickType.TryGetValue("1", out var p1ActualRaw) ? NormalizeToken(p1ActualRaw) : null;
+        var p2Actual = actualByPickType.TryGetValue("2", out var p2ActualRaw) ? NormalizeToken(p2ActualRaw) : null;
+        var p3Actual = actualByPickType.TryGetValue("3", out var p3ActualRaw) ? NormalizeToken(p3ActualRaw) : null;
+
+        if (!string.Equals(p1Predicted, p1Actual, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(p2Predicted, p2Actual, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(p3Predicted, p3Actual, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var dnfPredicted = NormalizeToken(dnf.NormalizedValue);
+        if (string.IsNullOrWhiteSpace(dnfPredicted))
+        {
+            return actualDnfTokens.Count == 0;
+        }
+
+        return actualDnfTokens.Contains(dnfPredicted);
+    }
+
+    private static PreQualyMode ResolvePreQualyMode(string? rawMode)
+    {
+        var normalized = NormalizeToken(rawMode);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return PreQualyMode.Post;
+        }
+
+        if (normalized is "YES" or "Y" or "PRE")
+        {
+            return PreQualyMode.Yes;
+        }
+
+        if (normalized == "ALL")
+        {
+            return PreQualyMode.All;
+        }
+
+        if (normalized is "POST" or "P")
+        {
+            return PreQualyMode.Post;
+        }
+
+        return PreQualyMode.Post;
+    }
+
+    private enum PreQualyMode
+    {
+        Post,
+        Yes,
+        All
     }
 
     private static MigrationImportCalculatedScoreEntity CreateCalculated(

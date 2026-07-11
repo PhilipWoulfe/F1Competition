@@ -380,6 +380,115 @@ public sealed class MigrationLegacyScoreImporterTests
     }
 
     [Fact]
+    public async Task ImportAndPersistAsync_WhenDaveLeaderboardRowsPresent_PersistsComponentTotalsAndFinalTotal()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"dave-leaderboard-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name,Race1-PQ");
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question,Philip");
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = tempDirectory,
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRawRows.AddRange(
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                SourceFileName = Dave2025SourcePackageContract.RacesFile,
+                RawPayload = "Name,Race1-PQ"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                SourceFileName = Dave2025SourcePackageContract.BonusFile,
+                RawPayload = "Question,Philip"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Header",
+                SourceFileName = Dave2025SourcePackageContract.BonusAnswersFile,
+                RawPayload = "Question,Answer"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 1,
+                SectionType = "Unclassified",
+                SourceFileName = Dave2025SourcePackageContract.LeaderboardFile,
+                RawPayload = "Name,Race Points,Bonus Points,CDP,Total,Final"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                SectionType = "Unclassified",
+                SourceFileName = Dave2025SourcePackageContract.LeaderboardFile,
+                RawPayload = "Philip,512.5,60,14,572.5,590.5"
+            },
+            new MigrationImportRawRowEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 3,
+                SectionType = "Unclassified",
+                SourceFileName = Dave2025SourcePackageContract.LeaderboardFile,
+                RawPayload = "Andy,480,30,12,510,"
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var importer = new MigrationLegacyScoreImporter(new TestDbContextFactory(options));
+        var result = await importer.ImportAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(6, result.LegacyPickScoreCount);
+        Assert.Equal(2, result.ImportedTotalCount);
+        Assert.Equal(0, result.CalculatedTotalCount);
+
+        var legacy = await dbContext.MigrationImportLegacyPickScores
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.PickType)
+            .ToListAsync();
+
+        Assert.Equal(6, legacy.Count);
+        Assert.Contains(legacy, x => x.Subject == "Philip" && x.PickType == "RACE_TOTAL" && x.LegacyPoints == 513);
+        Assert.Contains(legacy, x => x.Subject == "Philip" && x.PickType == "BONUS_TOTAL" && x.LegacyPoints == 60);
+        Assert.Contains(legacy, x => x.Subject == "Philip" && x.PickType == "CDP" && x.LegacyPoints == 14);
+        Assert.Contains(legacy, x => x.Subject == "Andy" && x.PickType == "RACE_TOTAL" && x.LegacyPoints == 480);
+
+        var importedTotals = await dbContext.MigrationImportImportedTotals
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Subject)
+            .ToListAsync();
+
+        Assert.Equal(2, importedTotals.Count);
+        Assert.Equal(591, importedTotals.Single(x => x.Subject == "Philip").ImportedTotalPoints);
+        Assert.Equal("590.5", importedTotals.Single(x => x.Subject == "Philip").RawTotal);
+        Assert.Equal(510, importedTotals.Single(x => x.Subject == "Andy").ImportedTotalPoints);
+
+        Directory.Delete(tempDirectory, recursive: true);
+    }
+
+    [Fact]
     public async Task ImportAndPersistAsync_WhenLongRaceLabelsProvided_MapsMonzaAndAustriaToJolpicaCircuitIds()
     {
         var runId = Guid.NewGuid();
