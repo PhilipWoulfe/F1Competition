@@ -586,6 +586,8 @@
                                                 <th scope="col">Question Key</th>
                                                 <th scope="col">Question</th>
                                                 <th scope="col">Participant</th>
+                                                <th scope="col">Chosen</th>
+                                                <th scope="col">Actual</th>
                                                 <th scope="col">Imported</th>
                                                 <th scope="col">Calculated</th>
                                                 <th scope="col">Delta</th>
@@ -601,6 +603,8 @@
                                                     <td>@row.QuestionKey</td>
                                                     <td>@row.QuestionText</td>
                                                     <td>@row.Subject</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                                     <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                                     <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                                                     <td>@row.DeltaPoints</td>
@@ -802,6 +806,8 @@
                                         <th scope="col">Race</th>
                                         <th scope="col">Participant</th>
                                         <th scope="col">Pick</th>
+                                                <th scope="col">Chosen</th>
+                                                <th scope="col">Actual</th>
                                         <th scope="col">Imported</th>
                                         <th scope="col">Calculated</th>
                                         <th scope="col">Delta</th>
@@ -818,6 +824,8 @@
                                             <td>@row.RaceCode</td>
                                             <td>@row.Subject</td>
                                             <td>@row.PickType</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                             <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                             <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                                             <td>@row.DeltaPoints</td>
@@ -955,6 +963,8 @@
                                             <th scope="col">Question Id</th>
                                             <th scope="col">Question</th>
                                             <th scope="col">Participant</th>
+                                            <th scope="col">Chosen</th>
+                                            <th scope="col">Actual</th>
                                             <th scope="col">Imported</th>
                                             <th scope="col">Calculated</th>
                                             <th scope="col">Delta</th>
@@ -969,6 +979,8 @@
                                                 <td>@row.QuestionId</td>
                                                 <td>@row.QuestionText</td>
                                                 <td>@row.Participant</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                                 <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                                 <td>@row.CalculatedPoints</td>
                                                 <td>@row.DeltaPoints</td>

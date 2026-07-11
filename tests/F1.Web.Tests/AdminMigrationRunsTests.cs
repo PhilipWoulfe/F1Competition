@@ -145,8 +145,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PreseasonQuestionDiffs:
             [
-                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch"),
-                new AdminMigrationPreseasonQuestionDiff(23, "PRE-023", "Who wins Bahrain?", "Taylor", 20, 20, 0, "PRESEASON_POINTS_MATCH", "Match")
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", "Ferrari", "McLaren", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch"),
+                new AdminMigrationPreseasonQuestionDiff(23, "PRE-023", "Who wins Bahrain?", "Taylor", "VER", "VER", 20, 20, 0, "PRESEASON_POINTS_MATCH", "Match")
             ],
             PreseasonReasonCategorySummaries:
             [
@@ -160,8 +160,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PickDiffs:
             [
-                new AdminMigrationPickDiff("albert_park", "1", "Philip", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot"),
-                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationPickDiff("albert_park", "1", "Philip", "VER", "NOR", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot"),
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", "DOO", "DOO", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
         var unexpectedDetailResponse = new AdminMigrationRunDetailResponse(
@@ -194,7 +194,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PreseasonQuestionDiffs:
             [
-                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch")
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", "Ferrari", "McLaren", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch")
             ],
             PreseasonReasonCategorySummaries:
             [
@@ -207,7 +207,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PickDiffs:
             [
-                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", "DOO", "DOO", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
         var apiMock = new Mock<IMigrationRunsApiService>();

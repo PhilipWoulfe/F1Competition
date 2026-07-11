@@ -132,6 +132,8 @@ public sealed record AdminMigrationPreseasonQuestionDiffDto(
     string QuestionKey,
     string QuestionText,
     string Subject,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
     int? CalculatedPoints,
     int DeltaPoints,
@@ -194,6 +196,8 @@ public sealed record AdminMigrationPickDiffDto(
     string RaceCode,
     string PickType,
     string Subject,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
     int? CalculatedPoints,
     int DeltaPoints,
@@ -244,9 +248,12 @@ public sealed record AdminMigrationQuestionDiffDto(
     string QuestionId,
     string QuestionText,
     string Participant,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
     int CalculatedPoints,
-    int DeltaPoints);
+    int DeltaPoints,
+    string ReasonCode);
 
 public sealed record AdminMigrationQuestionDiffSummaryResponseDto(
     int TotalCount,

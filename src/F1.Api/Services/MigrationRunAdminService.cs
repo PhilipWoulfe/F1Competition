@@ -15,6 +15,7 @@ namespace F1.Api.Services;
 
 public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
+    private const string ActualSubject = "ACTUAL";
     private const string NonEmptyDbStrategy = "merge_upsert_active_records";
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
@@ -640,23 +641,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.FirstCreatedAtUtc))
             .ToArray();
 
-        var allPickDiffs = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
-            .ToArrayAsync(cancellationToken);
+        var allPickDiffs = await BuildPickDiffRowsAsync(runId, cancellationToken);
 
         var allRaceDiffs = await _dbContext.MigrationImportRaceDiffs
             .AsNoTracking()
@@ -703,23 +688,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             })
             .ToArray();
 
-        var preseasonQuestionDiffs = await _dbContext.MigrationImportPreseasonQuestionDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RowNumber)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.QuestionKey)
-            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
-                x.RowNumber,
-                x.QuestionKey,
-                x.QuestionText,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation))
-            .ToArrayAsync(cancellationToken);
+        var preseasonQuestionDiffs = await BuildPreseasonQuestionDiffRowsAsync(runId, cancellationToken);
 
         var preseasonParticipantDeltas = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
             .AsNoTracking()
@@ -1435,16 +1404,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints");
+        csv.AppendLine("category,questionId,questionText,participant,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.Category)).Append(',')
                 .Append(EscapeCsv(row.QuestionId)).Append(',')
                 .Append(EscapeCsv(row.QuestionText)).Append(',')
                 .Append(EscapeCsv(row.Participant)).Append(',')
+                .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+                .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-            .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture))
+                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.ReasonCode))
                 .AppendLine();
         }
 
@@ -1478,10 +1450,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 template => template.Id,
                 (score, template) => new
                 {
+                    score.QuestionTemplateId,
                     template.Category,
                     template.QuestionId,
                     template.Prompt,
                     score.ParticipantId,
+                    score.OverrideReasonCode,
                     score.ImportedPoints,
                     score.CalculatedPoints,
                     score.DeltaPoints
@@ -1491,16 +1465,176 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .ThenBy(x => x.ParticipantId)
             .ToArrayAsync(cancellationToken);
 
+        var templateIds = rows.Select(x => x.QuestionTemplateId).Distinct().ToArray();
+        var answers = templateIds.Length == 0
+            ? []
+            : await _dbContext.QuestionAnswers
+                .AsNoTracking()
+                .Where(x => templateIds.Contains(x.QuestionTemplateId))
+                .ToArrayAsync(cancellationToken);
+        var actuals = templateIds.Length == 0
+            ? []
+            : await _dbContext.QuestionActuals
+                .AsNoTracking()
+                .Where(x => templateIds.Contains(x.QuestionTemplateId))
+                .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = answers.ToDictionary(
+            x => BuildQuestionAnswerKey(x.QuestionTemplateId, x.ParticipantId),
+            x => ResolveDisplayAnswer(x.OverrideAnswer, x.ImportedAnswer),
+            StringComparer.OrdinalIgnoreCase);
+        var actualAnswerByTemplateId = actuals
+            .GroupBy(x => x.QuestionTemplateId)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().OverrideAnswer, group.First().ImportedAnswer));
+
         return rows
             .Select(x => new AdminMigrationQuestionDiffDto(
                 x.Category.ToString(),
                 x.QuestionId,
                 x.Prompt,
                 x.ParticipantId,
+                chosenAnswerByKey.GetValueOrDefault(BuildQuestionAnswerKey(x.QuestionTemplateId, x.ParticipantId)),
+                actualAnswerByTemplateId.GetValueOrDefault(x.QuestionTemplateId),
                 x.ImportedPoints,
                 x.CalculatedPoints,
-                x.DeltaPoints))
+                x.DeltaPoints,
+                ResolveQuestionReasonCode(x.OverrideReasonCode, x.DeltaPoints)))
             .ToArray();
+    }
+
+    private async Task<AdminMigrationPreseasonQuestionDiffDto[]> BuildPreseasonQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var diffRows = await _dbContext.MigrationImportPreseasonQuestionDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.QuestionKey)
+            .ToArrayAsync(cancellationToken);
+
+        var answerRows = await _dbContext.MigrationImportPreseasonAnswers
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = answerRows
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPreseasonAnswerKey(x.QuestionKey, x.Subject), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawAnswer, group.First().NormalizedAnswer),
+                StringComparer.OrdinalIgnoreCase);
+
+        var actualAnswerByQuestionKey = answerRows
+            .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawAnswer, group.First().NormalizedAnswer),
+                StringComparer.OrdinalIgnoreCase);
+
+        return diffRows
+            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
+                x.RowNumber,
+                x.QuestionKey,
+                x.QuestionText,
+                x.Subject,
+                chosenAnswerByKey.GetValueOrDefault(BuildPreseasonAnswerKey(x.QuestionKey, x.Subject)),
+                actualAnswerByQuestionKey.GetValueOrDefault(x.QuestionKey),
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation))
+            .ToArray();
+    }
+
+    private async Task<AdminMigrationPickDiffDto[]> BuildPickDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var diffRows = await _dbContext.MigrationImportPickDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+
+        var selectionRows = await _dbContext.MigrationImportRaceSelections
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = selectionRows
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPickAnswerKey(x.RaceCode, x.PickType, x.Subject), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawValue, group.First().NormalizedValue),
+                StringComparer.OrdinalIgnoreCase);
+
+        var actualAnswerByKey = selectionRows
+            .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPickActualAnswerKey(x.RaceCode, x.PickType), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawValue, group.First().NormalizedValue),
+                StringComparer.OrdinalIgnoreCase);
+
+        return diffRows
+            .Select(x => new AdminMigrationPickDiffDto(
+                x.RaceCode,
+                x.PickType,
+                x.Subject,
+                chosenAnswerByKey.GetValueOrDefault(BuildPickAnswerKey(x.RaceCode, x.PickType, x.Subject)),
+                actualAnswerByKey.GetValueOrDefault(BuildPickActualAnswerKey(x.RaceCode, x.PickType)),
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
+            .ToArray();
+    }
+
+    private static string BuildPreseasonAnswerKey(string questionKey, string subject)
+    {
+        return $"{questionKey.Trim().ToUpperInvariant()}|{subject.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildPickAnswerKey(string raceCode, string pickType, string subject)
+    {
+        return $"{raceCode.Trim().ToUpperInvariant()}|{pickType.Trim().ToUpperInvariant()}|{subject.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildPickActualAnswerKey(string raceCode, string pickType)
+    {
+        return $"{raceCode.Trim().ToUpperInvariant()}|{pickType.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildQuestionAnswerKey(long questionTemplateId, string participantId)
+    {
+        return $"{questionTemplateId}|{participantId.Trim().ToUpperInvariant()}";
+    }
+
+    private static string? ResolveDisplayAnswer(string? preferredValue, string? fallbackValue)
+    {
+        return !string.IsNullOrWhiteSpace(preferredValue)
+            ? preferredValue.Trim()
+            : string.IsNullOrWhiteSpace(fallbackValue)
+                ? null
+                : fallbackValue.Trim();
+    }
+
+    private static string ResolveQuestionReasonCode(string? overrideReasonCode, int deltaPoints)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideReasonCode))
+        {
+            return overrideReasonCode;
+        }
+
+        return deltaPoints == 0 ? "QUESTION_POINTS_MATCH" : "QUESTION_RULE_VARIANCE";
     }
 
     private static IEnumerable<AdminMigrationQuestionDiffDto> ApplyQuestionFilters(
@@ -1544,23 +1678,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         string requestedBy,
         CancellationToken cancellationToken)
     {
-        var rows = await _dbContext.MigrationImportPreseasonQuestionDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RowNumber)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.QuestionKey)
-            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
-                x.RowNumber,
-                x.QuestionKey,
-                x.QuestionText,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation))
-            .ToArrayAsync(cancellationToken);
+        var rows = await BuildPreseasonQuestionDiffRowsAsync(runId, cancellationToken);
 
         var extension = format == "json" ? "json" : "csv";
         var fileName = $"migration-run-{runId}-preseason-question-diffs.{extension}";
@@ -1586,13 +1704,15 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("rowNumber,questionKey,questionText,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
+        csv.AppendLine("rowNumber,questionKey,questionText,subject,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
         foreach (var row in rows)
         {
             csv.Append(row.RowNumber.ToString(CultureInfo.InvariantCulture)).Append(',')
                 .Append(EscapeCsv(row.QuestionKey)).Append(',')
                 .Append(EscapeCsv(row.QuestionText)).Append(',')
                 .Append(EscapeCsv(row.Subject)).Append(',')
+            .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+            .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -1732,23 +1852,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         CancellationToken cancellationToken,
         string? expectedStatus)
     {
-        var rows = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
-            .ToArrayAsync(cancellationToken);
+        var rows = await BuildPickDiffRowsAsync(runId, cancellationToken);
 
         rows = FilterExpectedVariance(rows, expectedStatus).ToArray();
 
@@ -1776,12 +1880,14 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
+        csv.AppendLine("raceCode,pickType,subject,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.RaceCode)).Append(',')
                 .Append(EscapeCsv(row.PickType)).Append(',')
                 .Append(EscapeCsv(row.Subject)).Append(',')
+            .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+            .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -1851,23 +1957,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationParticipantDeltaDto[]> BuildParticipantDiffRowsAsync(Guid runId, string? expectedStatus, CancellationToken cancellationToken)
     {
-        var pickDiffs = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
-            .ToArrayAsync(cancellationToken);
+        var pickDiffs = await BuildPickDiffRowsAsync(runId, cancellationToken);
 
         var filteredPickDiffs = FilterExpectedVariance(pickDiffs, expectedStatus);
 

@@ -241,9 +241,12 @@ public sealed class MigrationRunsControllerTests
                         QuestionId: "PRE-001",
                         QuestionText: "Question",
                         Participant: "Philip",
+                        ChosenAnswer: "YES",
+                        ActualAnswer: "NO",
                         ImportedPoints: 20,
                         CalculatedPoints: 0,
-                        DeltaPoints: -20)
+                        DeltaPoints: -20,
+                        ReasonCode: "QUESTION_RULE_VARIANCE")
                 ]));
 
         var controller = new MigrationRunsController(service.Object)

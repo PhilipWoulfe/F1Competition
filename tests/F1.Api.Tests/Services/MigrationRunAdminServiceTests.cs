@@ -668,6 +668,52 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "aaa-race"
                 });
 
+            dbContext.MigrationImportRaceSelections.AddRange(
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "zzz_race",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "VER",
+                    NormalizedValue = "max_verstappen",
+                    IsActualOutcome = false
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "zzz_race",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "NOR",
+                    NormalizedValue = "norris",
+                    IsActualOutcome = true
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 20,
+                    RaceCode = "aaa_race",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "LEC",
+                    NormalizedValue = "leclerc",
+                    IsActualOutcome = false
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 20,
+                    RaceCode = "aaa_race",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "PIA",
+                    NormalizedValue = "piastri",
+                    IsActualOutcome = true
+                });
+
             await dbContext.SaveChangesAsync();
         }
 
@@ -689,6 +735,8 @@ public sealed class MigrationRunAdminServiceTests
 
         Assert.NotNull(exportedRows);
         Assert.Equal(new[] { "zzz_race", "aaa_race" }, exportedRows!.Select(x => x.RaceCode).ToArray());
+        Assert.Equal("VER", exportedRows[0].ChosenAnswer);
+        Assert.Equal("NOR", exportedRows[0].ActualAnswer);
     }
 
     [Fact]
@@ -741,6 +789,52 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "a"
                 });
 
+            dbContext.MigrationImportPreseasonAnswers.AddRange(
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Amy",
+                    RawAnswer = "YES",
+                    NormalizedAnswer = "YES",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "ACTUAL",
+                    RawAnswer = "YES",
+                    NormalizedAnswer = "YES",
+                    IsActualOutcome = true
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "Zed",
+                    RawAnswer = "NOR",
+                    NormalizedAnswer = "norris",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "ACTUAL",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = true
+                });
+
             dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
                 new MigrationImportPreseasonParticipantDeltaSummaryEntity
                 {
@@ -779,6 +873,8 @@ public sealed class MigrationRunAdminServiceTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.NotNull(questionRows);
         Assert.Equal(new[] { 22, 23 }, questionRows!.Select(x => x.RowNumber).ToArray());
+        Assert.Equal("YES", questionRows[0].ChosenAnswer);
+        Assert.Equal("YES", questionRows[0].ActualAnswer);
 
         var participantExport = await service.ExportRunDiffsAsync(runId, "preseason-participant-diffs", "json", "admin@example.com", CancellationToken.None, null);
         Assert.NotNull(participantExport);
@@ -1023,6 +1119,63 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "q1-philip"
                 });
 
+            dbContext.MigrationImportPreseasonAnswers.AddRange(
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Andy",
+                    RawAnswer = "NOR",
+                    NormalizedAnswer = "norris",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Philip",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "ACTUAL",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = true
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "Philip",
+                    RawAnswer = "HAM",
+                    NormalizedAnswer = "hamilton",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "ACTUAL",
+                    RawAnswer = "LEC",
+                    NormalizedAnswer = "leclerc",
+                    IsActualOutcome = true
+                });
+
             dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
                 new MigrationImportPreseasonParticipantDeltaSummaryEntity
                 {
@@ -1082,6 +1235,8 @@ public sealed class MigrationRunAdminServiceTests
 
         Assert.Equal(new[] { "Andy", "Philip", "Philip" }, detail.PreseasonQuestionDiffs.Select(x => x.Subject).ToArray());
         Assert.Equal(new[] { 22, 22, 23 }, detail.PreseasonQuestionDiffs.Select(x => x.RowNumber).ToArray());
+        Assert.Equal("NOR", detail.PreseasonQuestionDiffs[0].ChosenAnswer);
+        Assert.Equal("VER", detail.PreseasonQuestionDiffs[0].ActualAnswer);
         Assert.Equal(new[] { "Andy", "Philip" }, detail.PreseasonParticipantDeltas.Select(x => x.Subject).ToArray());
         Assert.Equal(new[] { "PRESEASON_RULE_VARIANCE", "PRESEASON_IMPORTED_MISSING" }, detail.PreseasonReasonCategorySummaries.Select(x => x.ReasonCode).ToArray());
     }
@@ -1595,6 +1750,21 @@ public sealed class MigrationRunAdminServiceTests
                 RecordedAtUtc = DateTime.UtcNow
             });
 
+            dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 11,
+                ParticipantId = "Philip",
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionActuals.Add(new QuestionActualEntity
+            {
+                QuestionTemplateId = 11,
+                ImportedAnswer = "NO",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
             await dbContext.SaveChangesAsync();
         }
 
@@ -1616,8 +1786,8 @@ public sealed class MigrationRunAdminServiceTests
         Assert.True(export!.Success);
 
         var csv = System.Text.Encoding.UTF8.GetString(export.Payload);
-        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints", csv, StringComparison.Ordinal);
-        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5", csv, StringComparison.Ordinal);
+        Assert.Contains("category,questionId,questionText,participant,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode", csv, StringComparison.Ordinal);
+        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,YES,NO,5,0,-5,QUESTION_RULE_VARIANCE", csv, StringComparison.Ordinal);
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()
