@@ -10,6 +10,184 @@ namespace F1.Infrastructure.Tests.Contracts;
 public sealed class MigrationRaceSelectionParserTests
 {
     [Fact]
+    public async Task ParseAndPersistAsync_WhenDaveRacesCsvPresent_ParsesRacePicksAndActualsIncludingPQAndBonusFields()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"dave-races-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
+
+            await using var dbContext = new F1DbContext(options);
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = tempDirectory,
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Started",
+                StartedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Name,Race1-PQ,Race1-1,Race1-2,Race1-3,Race1-DNF,Race1-BQ1,Race1-BQ2"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "_Result,,NOR,VER,PIA,None,TSU,HUL"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 3,
+                    SectionType = "RacePick",
+                    RawPayload = "Alice,Yes,NOR,PIA,VER,None,TSU,HUL"
+                });
+
+            await dbContext.SaveChangesAsync();
+
+            var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+            var result = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+            Assert.True(result.SelectionCount >= 14);
+
+            var selections = await dbContext.MigrationImportRaceSelections
+                .Where(x => x.ImportRunId == runId)
+                .ToListAsync();
+
+            Assert.Contains(selections, x => x.Subject == "Alice" && x.PickType == "PQ" && x.NormalizedValue == "YES");
+            Assert.Contains(selections, x => x.Subject == "Alice" && x.PickType == "1" && x.NormalizedValue == "norris");
+            Assert.Contains(selections, x => x.Subject == "ACTUAL" && x.PickType == "BQ1" && x.RawValue == "TSU");
+            Assert.Contains(selections, x => x.Subject == "ACTUAL" && x.PickType == "DNF");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ParseAndPersistAsync_WhenDaveBonusFilesPresent_ParsesPreseasonAnswersAndMapsActualsByNormalizedQuestionKey()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"dave-bonus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.SideBetsFile), "Race,Bet");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
+
+            await using var dbContext = new F1DbContext(options);
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = tempDirectory,
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Started",
+                StartedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Alice,Bob"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 2,
+                    SectionType = "SeasonQuestionPrediction",
+                    RawPayload = "Will rain happen?,Yes,No"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 3,
+                    SectionType = "SeasonQuestionPrediction",
+                    RawPayload = "WDC - 1st?,NOR,VER"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "bonusAnswers.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Answer,Notes"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "bonusAnswers.csv",
+                    RowNumber = 2,
+                    SectionType = "SeasonQuestionPrediction",
+                    RawPayload = "Will rain happen,Yes,matched"
+                });
+
+            await dbContext.SaveChangesAsync();
+
+            var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+            var result = await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+            Assert.Equal(6, result.PreseasonAnswerCount);
+
+            var preseasonAnswers = await dbContext.MigrationImportPreseasonAnswers
+                .Where(x => x.ImportRunId == runId)
+                .OrderBy(x => x.RowNumber)
+                .ThenBy(x => x.Subject)
+                .ToListAsync();
+
+            Assert.Equal(6, preseasonAnswers.Count);
+            Assert.Contains(preseasonAnswers, x => x.QuestionKey == "PRE-001" && x.Subject == "ACTUAL" && x.NormalizedAnswer == "YES");
+            Assert.Contains(preseasonAnswers, x => x.QuestionKey == "PRE-002" && x.Subject == "ACTUAL" && x.NormalizedAnswer == null);
+
+            var unresolved = await dbContext.MigrationImportUnresolvedTokens
+                .Where(x => x.ImportRunId == runId)
+                .ToListAsync();
+            Assert.Contains(unresolved, x => x.PickType == "QUESTION_KEY" && x.RawToken.Contains("No matching actual answer", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenSeasonQuestionIsH2h_PersistsGenericH2hTemplateAnswersAndActual()
     {
         var runId = Guid.NewGuid();
