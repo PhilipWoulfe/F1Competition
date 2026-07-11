@@ -19,6 +19,7 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
     private const string DaveLeaderboardRaceTotalPickType = "RACE_TOTAL";
     private const string DaveLeaderboardBonusTotalPickType = "BONUS_TOTAL";
     private const string DaveLeaderboardCdpPickType = "CDP";
+    private const int DaveDefaultPreseasonPointsPerQuestion = 30;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly MigrationImportOptions _importOptions;
@@ -75,6 +76,17 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
         if (sourceProfile == MigrationSourceProfile.Dave2025Package)
         {
             var daveImport = ParseDaveLeaderboardImport(runId, stagedRows);
+            var davePreseasonPolicy = new MigrationImportPreseasonPolicyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 0,
+                ColumnIndex = 0,
+                CellReference = "DaveDefault",
+                RawPointsPerQuestion = DaveDefaultPreseasonPointsPerQuestion.ToString(CultureInfo.InvariantCulture),
+                PointsPerQuestion = DaveDefaultPreseasonPointsPerQuestion
+            };
+
+            await dbContext.MigrationImportPreseasonPolicies.AddAsync(davePreseasonPolicy, cancellationToken);
 
             if (daveImport.LegacyPickScores.Count > 0)
             {

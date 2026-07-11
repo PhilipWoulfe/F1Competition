@@ -330,7 +330,7 @@ public sealed class MigrationRaceSelectionParserTests
         Assert.NotNull(optionsModel);
         Assert.Equal("hamilton", optionsModel!.LeftDriverId);
         Assert.Equal("max_verstappen", optionsModel.RightDriverId);
-        Assert.Equal(1, optionsModel.PointsForCorrectPick);
+        Assert.Equal(5, optionsModel.PointsForCorrectPick);
 
         var answers = await dbContext.QuestionAnswers
             .OrderBy(x => x.ParticipantId)

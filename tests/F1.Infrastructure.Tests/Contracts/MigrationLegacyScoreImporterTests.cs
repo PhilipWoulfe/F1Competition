@@ -485,6 +485,11 @@ public sealed class MigrationLegacyScoreImporterTests
         Assert.Equal("590.5", importedTotals.Single(x => x.Subject == "Philip").RawTotal);
         Assert.Equal(510, importedTotals.Single(x => x.Subject == "Andy").ImportedTotalPoints);
 
+        var davePolicy = await dbContext.MigrationImportPreseasonPolicies
+            .SingleAsync(x => x.ImportRunId == runId);
+        Assert.Equal(30, davePolicy.PointsPerQuestion);
+        Assert.Equal("DaveDefault", davePolicy.CellReference);
+
         Directory.Delete(tempDirectory, recursive: true);
     }
 

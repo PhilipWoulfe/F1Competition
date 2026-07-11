@@ -17,7 +17,9 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private const string SectionTypeSeasonQuestionPrediction = "SeasonQuestionPrediction";
     private const string SectionTypeHeader = "Header";
     private const string ActualSubject = "ACTUAL";
-    private const int DefaultH2hPointsForCorrectPick = 1;
+    private const int DefaultPhilH2hPointsForCorrectPick = 1;
+    private const int DefaultDaveH2hPointsForCorrectPick = 5;
+    private const int DefaultRaceBonusPointsForCorrectPick = 20;
     private const string DaveRacesFile = "races.csv";
     private const string DaveBonusFile = "bonus.csv";
     private const string DaveBonusAnswersFile = "bonusAnswers.csv";
@@ -808,8 +810,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
             var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload, usePhil2025Contract);
             var category = ResolveQuestionCategory(row.RowNumber, row.RawPayload, usePhil2025Contract);
+            var defaultH2hPoints = usePhil2025Contract
+                ? DefaultPhilH2hPointsForCorrectPick
+                : DefaultDaveH2hPointsForCorrectPick;
             var optionsJson = category == QuestionCategory.H2H
-                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode)
+                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode, defaultH2hPoints)
+                : category == QuestionCategory.RaceBonus
+                    ? BuildRaceBonusOptionsJson(questionText, DefaultRaceBonusPointsForCorrectPick)
                 : null;
 
             templates.Add(new QuestionTemplateEntity
@@ -1366,7 +1373,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         IReadOnlyList<string> columns,
         IReadOnlyList<string> participants,
         bool usePhil2025Contract,
-        IReadOnlyDictionary<string, string> driverIdByCode)
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        int pointsForCorrectPick)
     {
         var driverCandidates = ExtractH2hCandidatesFromPrompt(questionText, driverIdByCode);
         if (driverCandidates.Count < 2)
@@ -1422,10 +1430,49 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         {
             LeftDriverId = driverCandidates[0],
             RightDriverId = driverCandidates[1],
-            PointsForCorrectPick = DefaultH2hPointsForCorrectPick
+            PointsForCorrectPick = pointsForCorrectPick
         };
 
         return JsonSerializer.Serialize(options);
+    }
+
+    private static string BuildRaceBonusOptionsJson(string questionText, int pointsForCorrectPick)
+    {
+        if (questionText.Contains("SAU", StringComparison.OrdinalIgnoreCase) &&
+            questionText.Contains("GAP", StringComparison.OrdinalIgnoreCase))
+        {
+            var formulaOptions = new RaceBonusQuestionTemplateOptions
+            {
+                Mode = "FormulaMaxMinusGap",
+                PointsForCorrectPick = pointsForCorrectPick,
+                FormulaMaxPoints = pointsForCorrectPick,
+                FormulaPenaltyPerUnit = 1m
+            };
+
+            return JsonSerializer.Serialize(formulaOptions);
+        }
+
+        if (questionText.Contains("MON", StringComparison.OrdinalIgnoreCase) ||
+            questionText.Contains("GBR", StringComparison.OrdinalIgnoreCase) ||
+            questionText.Contains("+/-", StringComparison.OrdinalIgnoreCase))
+        {
+            var toleranceOptions = new RaceBonusQuestionTemplateOptions
+            {
+                Mode = "Tolerance",
+                PointsForCorrectPick = pointsForCorrectPick,
+                Tolerance = 1m
+            };
+
+            return JsonSerializer.Serialize(toleranceOptions);
+        }
+
+        var exactOptions = new RaceBonusQuestionTemplateOptions
+        {
+            Mode = "Exact",
+            PointsForCorrectPick = pointsForCorrectPick
+        };
+
+        return JsonSerializer.Serialize(exactOptions);
     }
 
     private static List<string> ExtractH2hCandidatesFromPrompt(string questionText, IReadOnlyDictionary<string, string> driverIdByCode)

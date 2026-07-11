@@ -1,4 +1,5 @@
 using F1.Api.Dtos;
+using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -717,6 +718,10 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             ReasonCategoryCount: preseasonReasonCategorySummaries.Length,
             TotalDeltaPoints: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
 
+            var isDaveProfile = IsDaveSourcePath(run.SourceFilePath);
+            var (h2hPointsPolicy, preseasonPointsPolicy) = await ResolvePolicySummaryAsync(run.Id, isDaveProfile, cancellationToken);
+            var raceBonusModes = await ResolveRaceBonusModesAsync(run.Id, isDaveProfile, cancellationToken);
+
             var raceTotalDeltaPoints = allPickDiffs.Sum(x => x.DeltaPoints);
             var preseasonTotalDeltaPoints = preseasonSummary.TotalDeltaPoints;
 
@@ -741,6 +746,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 PreseasonParticipantDeltas: preseasonParticipantDeltas,
                 PreseasonQuestionDiffs: preseasonQuestionDiffs,
                 PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
+                H2hPointsPolicy: h2hPointsPolicy,
+                PreseasonPointsPolicy: preseasonPointsPolicy,
+                RaceBonusModes: raceBonusModes,
                 ConflictDiagnostics: conflictDiagnostics,
                 RaceDiffs: raceDiffs,
                 PickDiffs: pickDiffs,
@@ -753,6 +761,142 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 runId);
             return null;
         }
+    }
+
+    private async Task<(int? H2hPointsPolicy, int? PreseasonPointsPolicy)> ResolvePolicySummaryAsync(
+        Guid runId,
+        bool isDaveProfile,
+        CancellationToken cancellationToken)
+    {
+        var preseasonPoints = await _dbContext.MigrationImportPreseasonPolicies
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.PointsPerQuestion.HasValue)
+            .OrderByDescending(x => x.RowNumber)
+            .Select(x => x.PointsPerQuestion)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!preseasonPoints.HasValue)
+        {
+            preseasonPoints = isDaveProfile ? 30 : 20;
+        }
+
+        var h2hPoints = isDaveProfile ? 5 : 1;
+        return (h2hPoints, preseasonPoints);
+    }
+
+    private async Task<IReadOnlyList<AdminMigrationRaceBonusModeDto>> ResolveRaceBonusModesAsync(
+        Guid runId,
+        bool isDaveProfile,
+        CancellationToken cancellationToken)
+    {
+        var seasonQuestionRows = await _dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.SectionType == "SeasonQuestionPrediction")
+            .OrderBy(x => x.RowNumber)
+            .ToListAsync(cancellationToken);
+
+        if (seasonQuestionRows.Count == 0)
+        {
+            return [];
+        }
+
+        var raceBonusQuestionIds = seasonQuestionRows
+            .Where(row => IsRaceBonusPrompt(row.RawPayload))
+            .Select(row => $"PRE-{row.RowNumber:D3}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (raceBonusQuestionIds.Length == 0)
+        {
+            return [];
+        }
+
+        var templates = await _dbContext.QuestionTemplates
+            .AsNoTracking()
+            .Where(x =>
+                x.Category == QuestionCategory.RaceBonus &&
+                raceBonusQuestionIds.Contains(x.QuestionId) &&
+                x.Season == 2025)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.QuestionId)
+            .ToListAsync(cancellationToken);
+
+        var result = new List<AdminMigrationRaceBonusModeDto>(templates.Count);
+        foreach (var template in templates)
+        {
+            var options = ParseRaceBonusOptions(template.OptionsJson, isDaveProfile);
+            result.Add(new AdminMigrationRaceBonusModeDto(
+                QuestionId: template.QuestionId,
+                Prompt: template.Prompt,
+                Mode: options.Mode,
+                PointsForCorrectPick: options.PointsForCorrectPick,
+                Tolerance: options.Tolerance,
+                LowerTolerance: options.LowerTolerance,
+                UpperTolerance: options.UpperTolerance,
+                FormulaMaxPoints: options.FormulaMaxPoints,
+                FormulaPenaltyPerUnit: options.FormulaPenaltyPerUnit));
+        }
+
+        return result;
+    }
+
+    private static bool IsRaceBonusPrompt(string rawPayload)
+    {
+        var commaIndex = rawPayload.IndexOf(',');
+        var prompt = commaIndex >= 0
+            ? rawPayload[..commaIndex].Trim()
+            : rawPayload.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return false;
+        }
+
+        return prompt.Contains("bonus", StringComparison.OrdinalIgnoreCase) ||
+               prompt.Contains("gap", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static RaceBonusQuestionTemplateOptions ParseRaceBonusOptions(string? optionsJson, bool isDaveProfile)
+    {
+        if (!string.IsNullOrWhiteSpace(optionsJson))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<RaceBonusQuestionTemplateOptions>(optionsJson);
+                if (parsed is not null)
+                {
+                    if (string.IsNullOrWhiteSpace(parsed.Mode))
+                    {
+                        parsed.Mode = "Exact";
+                    }
+
+                    if (parsed.PointsForCorrectPick <= 0)
+                    {
+                        parsed.PointsForCorrectPick = isDaveProfile ? 20 : 20;
+                    }
+
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return new RaceBonusQuestionTemplateOptions
+        {
+            Mode = "Exact",
+            PointsForCorrectPick = isDaveProfile ? 20 : 20
+        };
+    }
+
+    private static bool IsDaveSourcePath(string sourceFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+        {
+            return false;
+        }
+
+        return !sourceFilePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<MigrationRunDiffExportResponse?> ExportRunDiffsAsync(

@@ -47,8 +47,22 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
     IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
+    int? H2hPointsPolicy = null,
+    int? PreseasonPointsPolicy = null,
+    IReadOnlyList<AdminMigrationRaceBonusModeDto>? RaceBonusModes = null,
     IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null,
     IReadOnlyList<AdminMigrationRollbackAuditDto>? RollbackAudits = null);
+
+public sealed record AdminMigrationRaceBonusModeDto(
+    string QuestionId,
+    string Prompt,
+    string Mode,
+    int PointsForCorrectPick,
+    decimal? Tolerance,
+    decimal? LowerTolerance,
+    decimal? UpperTolerance,
+    decimal? FormulaMaxPoints,
+    decimal? FormulaPenaltyPerUnit);
 
 public sealed record AdminMigrationRollbackRequestDto(
     string Reason);

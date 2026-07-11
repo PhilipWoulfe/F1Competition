@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using F1.Core.Models;
 using F1.Infrastructure.Data.Entities;
 
@@ -46,9 +48,11 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
             foreach (var participant in participants)
             {
                 var predictedValue = NormalizeValue(ResolveEffectiveAnswer(participant));
+                var options = DeserializeOptions(template.OptionsJson);
                 var (points, reasonCode) = ScoreBonusAnswer(
                     predictedValue,
                     actualValue,
+                    options,
                     context.PreseasonPolicy?.PointsPerQuestion);
 
                 computed.Add(new QuestionScoreComputation(
@@ -73,9 +77,15 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
     private static (int Points, string ReasonCode) ScoreBonusAnswer(
         string? predictedValue,
         string? actualValue,
-        int? pointsPerQuestion)
+        RaceBonusQuestionTemplateOptions? options,
+        int? fallbackPointsPerQuestion)
     {
-        if (!pointsPerQuestion.HasValue)
+        var mode = ResolveMode(options);
+        var configuredPoints = options?.PointsForCorrectPick > 0
+            ? options.PointsForCorrectPick
+            : fallbackPointsPerQuestion;
+
+        if (!configuredPoints.HasValue)
         {
             return (0, "RACE_BONUS_POLICY_MISSING");
         }
@@ -90,9 +100,160 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
             return (0, "RACE_BONUS_ACTUAL_MISSING");
         }
 
+        return mode switch
+        {
+            RaceBonusMode.Exact => ScoreExact(predictedValue, actualValue, configuredPoints.Value),
+            RaceBonusMode.Tolerance => ScoreTolerance(predictedValue, actualValue, configuredPoints.Value, options),
+            RaceBonusMode.Range => ScoreRange(predictedValue, actualValue, configuredPoints.Value, options),
+            RaceBonusMode.FormulaMaxMinusGap => ScoreFormula(predictedValue, actualValue, options),
+            _ => ScoreExact(predictedValue, actualValue, configuredPoints.Value)
+        };
+    }
+
+    private static (int Points, string ReasonCode) ScoreExact(string predictedValue, string actualValue, int pointsForCorrect)
+    {
         return string.Equals(predictedValue, actualValue, StringComparison.OrdinalIgnoreCase)
-            ? (Math.Max(0, pointsPerQuestion.Value), "RACE_BONUS_EXACT")
+            ? (Math.Max(0, pointsForCorrect), "RACE_BONUS_EXACT")
             : (0, "RACE_BONUS_MISMATCH");
+    }
+
+    private static (int Points, string ReasonCode) ScoreTolerance(
+        string predictedValue,
+        string actualValue,
+        int pointsForCorrect,
+        RaceBonusQuestionTemplateOptions? options)
+    {
+        if (!TryParseDecimal(predictedValue, out var predicted) || !TryParseDecimal(actualValue, out var actual))
+        {
+            return (0, "RACE_BONUS_NUMERIC_PARSE_FAILED");
+        }
+
+        var tolerance = options?.Tolerance ?? 0m;
+        if (tolerance < 0m)
+        {
+            tolerance = 0m;
+        }
+
+        var gap = Math.Abs(predicted - actual);
+        return gap <= tolerance
+            ? (Math.Max(0, pointsForCorrect), "RACE_BONUS_WITHIN_TOLERANCE")
+            : (0, "RACE_BONUS_OUTSIDE_TOLERANCE");
+    }
+
+    private static (int Points, string ReasonCode) ScoreRange(
+        string predictedValue,
+        string actualValue,
+        int pointsForCorrect,
+        RaceBonusQuestionTemplateOptions? options)
+    {
+        if (!TryParseDecimal(predictedValue, out var predicted) || !TryParseDecimal(actualValue, out var actual))
+        {
+            return (0, "RACE_BONUS_NUMERIC_PARSE_FAILED");
+        }
+
+        var lowerTolerance = options?.LowerTolerance ?? options?.Tolerance ?? 0m;
+        var upperTolerance = options?.UpperTolerance ?? options?.Tolerance ?? 0m;
+        if (lowerTolerance < 0m)
+        {
+            lowerTolerance = 0m;
+        }
+
+        if (upperTolerance < 0m)
+        {
+            upperTolerance = 0m;
+        }
+
+        var lowerBound = actual - lowerTolerance;
+        var upperBound = actual + upperTolerance;
+        return predicted >= lowerBound && predicted <= upperBound
+            ? (Math.Max(0, pointsForCorrect), "RACE_BONUS_WITHIN_RANGE")
+            : (0, "RACE_BONUS_OUTSIDE_RANGE");
+    }
+
+    private static (int Points, string ReasonCode) ScoreFormula(
+        string predictedValue,
+        string actualValue,
+        RaceBonusQuestionTemplateOptions? options)
+    {
+        if (!TryParseDecimal(predictedValue, out var predicted) || !TryParseDecimal(actualValue, out var actual))
+        {
+            return (0, "RACE_BONUS_NUMERIC_PARSE_FAILED");
+        }
+
+        var maxPoints = options?.FormulaMaxPoints ?? options?.PointsForCorrectPick ?? 0;
+        var penaltyPerUnit = options?.FormulaPenaltyPerUnit ?? 1m;
+        if (maxPoints <= 0)
+        {
+            return (0, "RACE_BONUS_FORMULA_CONFIG_INVALID");
+        }
+
+        if (penaltyPerUnit <= 0m)
+        {
+            penaltyPerUnit = 1m;
+        }
+
+        var gap = Math.Abs(predicted - actual);
+        var rawScore = maxPoints - (gap * penaltyPerUnit);
+        var points = Math.Max(0, (int)Math.Round(rawScore, MidpointRounding.AwayFromZero));
+
+        return points > 0
+            ? (points, "RACE_BONUS_FORMULA_SCORED")
+            : (0, "RACE_BONUS_FORMULA_ZERO");
+    }
+
+    private static RaceBonusQuestionTemplateOptions? DeserializeOptions(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<RaceBonusQuestionTemplateOptions>(optionsJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool TryParseDecimal(string value, out decimal parsed)
+    {
+        return decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out parsed) ||
+               decimal.TryParse(value, NumberStyles.Number, CultureInfo.CurrentCulture, out parsed);
+    }
+
+    private static RaceBonusMode ResolveMode(RaceBonusQuestionTemplateOptions? options)
+    {
+        var raw = options?.Mode?.Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return RaceBonusMode.Exact;
+        }
+
+        if (raw.Equals("Exact", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusMode.Exact;
+        }
+
+        if (raw.Equals("Tolerance", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusMode.Tolerance;
+        }
+
+        if (raw.Equals("Range", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusMode.Range;
+        }
+
+        if (raw.Equals("FormulaMaxMinusGap", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Formula", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusMode.FormulaMaxMinusGap;
+        }
+
+        return RaceBonusMode.Exact;
     }
 
     private static string? NormalizeValue(string? value)
@@ -110,5 +271,13 @@ public sealed class RaceBonusQuestionScoringStrategy : IQuestionScoringStrategy
     private static string? ResolveEffectiveAnswer(QuestionActualEntity? actual)
     {
         return string.IsNullOrWhiteSpace(actual?.OverrideAnswer) ? actual?.ImportedAnswer : actual.OverrideAnswer;
+    }
+
+    private enum RaceBonusMode
+    {
+        Exact,
+        Tolerance,
+        Range,
+        FormulaMaxMinusGap
     }
 }
