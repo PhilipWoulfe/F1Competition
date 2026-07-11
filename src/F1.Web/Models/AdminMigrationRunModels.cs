@@ -191,12 +191,14 @@ public sealed record AdminMigrationPickDiff(
 public sealed record AdminMigrationRunKickoffRequest(
     string? SourceFilePath,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequest(
     string FileName,
     Stream Content,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponse(

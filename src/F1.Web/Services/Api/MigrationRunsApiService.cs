@@ -181,6 +181,11 @@ public sealed class MigrationRunsApiService(HttpClient httpClient) : IMigrationR
         using var fileContent = new StreamContent(request.Content);
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
         content.Add(fileContent, "SourceFile", request.FileName);
+        if (!string.IsNullOrWhiteSpace(request.SourceProfile))
+        {
+            content.Add(new StringContent(request.SourceProfile), "SourceProfile");
+        }
+
         content.Add(new StringContent(request.Mode), "Mode");
         content.Add(new StringContent(request.ConfirmNonEmptyStrategy ? "true" : "false"), "ConfirmNonEmptyStrategy");
 

@@ -35,6 +35,13 @@
                     <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
                     <div class="row g-3 align-items-end">
                         <div class="col-md-3">
+                            <label class="form-label" for="kickoff-source-profile">Source Profile</label>
+                            <select id="kickoff-source-profile" class="form-select" aria-label="Kickoff source profile" @bind="kickoffSourceProfile">
+                                <option value="phil-2025-csv">Phil 2025 CSV</option>
+                                <option value="dave-2025-package">Dave 2025 Package</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label" for="kickoff-source-kind">Source Type</label>
                             <select id="kickoff-source-kind" class="form-select" aria-label="Kickoff source type" @bind="kickoffSourceKind">
                                 <option value="path">Server path</option>
@@ -67,7 +74,7 @@
                     else
                     {
                         <div class="mt-3">
-                            <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                            <label class="form-label" for="kickoff-source-path">@(IsDaveProfileKickoff ? "Source Package Root Path" : "Source File Path")</label>
                             <input id="kickoff-source-path" class="form-control" aria-label="Kickoff source file path" @bind="kickoffSourceFilePath" />
                         </div>
                     }
@@ -80,6 +87,7 @@
                                 You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
                                 <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
                             </p>
+                            <p class="mb-2">Source profile: <strong>@kickoffSourceProfile</strong></p>
                             <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
                             @if (IsWriteKickoff)
                             {
@@ -1053,6 +1061,7 @@
     private string? kickoffSuccessMessage;
 
     private string kickoffSourceKind = "path";
+    private string kickoffSourceProfile = "phil-2025-csv";
     private string kickoffSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private IBrowserFile? kickoffUploadFile;
     private string? kickoffUploadFileName;
@@ -1150,6 +1159,13 @@
             return;
         }
 
+        if (IsUploadKickoff && IsDaveProfileKickoff)
+        {
+            errorMessage = "Dave package runs require server path source type.";
+            showKickoffConfirmation = false;
+            return;
+        }
+
         showKickoffConfirmation = true;
     }
 
@@ -1195,6 +1211,7 @@
                 response = await MigrationRunsApi.StartRunFromUploadAsync(new AdminMigrationRunKickoffUploadRequest(
                     FileName: kickoffUploadFile.Name,
                     Content: uploadStream,
+                    SourceProfile: kickoffSourceProfile,
                     Mode: kickoffMode,
                     ConfirmNonEmptyStrategy: kickoffConfirmNonEmptyStrategy));
             }
@@ -1202,6 +1219,7 @@
             {
                 response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
                     SourceFilePath: kickoffSourceFilePath,
+                    SourceProfile: kickoffSourceProfile,
                     Mode: kickoffMode,
                     ConfirmNonEmptyStrategy: kickoffConfirmNonEmptyStrategy));
             }
@@ -1229,6 +1247,8 @@
     }
 
     private bool IsUploadKickoff => string.Equals(kickoffSourceKind, "upload", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsDaveProfileKickoff => string.Equals(kickoffSourceProfile, "dave-2025-package", StringComparison.OrdinalIgnoreCase);
 
     private bool IsWriteKickoff => string.Equals(kickoffMode, "write", StringComparison.OrdinalIgnoreCase);
 

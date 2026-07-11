@@ -109,6 +109,78 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task KickoffRunAsync_WhenDaveProfileUsesCsvPath_FailsValidation()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip\n" +
+            "AUS-1,VER\n");
+
+        try
+        {
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: sourcePath,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("does not match", result.Error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public async Task KickoffRunAsync_WhenDavePackageChecksumMatchesActiveRun_ReturnsConflict()
+    {
+        var options = CreateOptions();
+        var packageRoot = CreateTempDavePackage();
+
+        try
+        {
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var first = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: packageRoot,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.True(first.Success);
+
+            var second = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: packageRoot,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.False(second.Success);
+            Assert.True(second.Conflict);
+            Assert.NotNull(second.ExistingRunId);
+        }
+        finally
+        {
+            if (Directory.Exists(packageRoot))
+            {
+                Directory.Delete(packageRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RollbackRunAsync_DeletesCanonicalScopeAndPersistsAudit()
     {
         var runId = Guid.NewGuid();
@@ -1390,5 +1462,16 @@ public sealed class MigrationRunAdminServiceTests
         var path = Path.Combine(allowedTempRoot, $"f1-admin-migration-{Guid.NewGuid():N}.csv");
         File.WriteAllText(path, content);
         return path;
+    }
+
+    private static string CreateTempDavePackage()
+    {
+        var allowedTempRoot = Path.Combine(Path.GetTempPath(), "f1-imports", "tests", $"dave-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(allowedTempRoot);
+        File.WriteAllText(Path.Combine(allowedTempRoot, "races.csv"), "Question,Philip\nAUS-1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "bonus.csv"), "Question,Philip\nQ1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "bonusAnswers.csv"), "Question,Answer\nQ1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "Leaderboard.csv"), "Name,Total\nPhilip,100\n");
+        return allowedTempRoot;
     }
 }

@@ -19,6 +19,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
     private const string AllowedTempImportRootPath = "f1-imports";
+    private const string SourceProfilePhil2025Csv = "phil-2025-csv";
+    private const string SourceProfileDave2025Package = "dave-2025-package";
     private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
@@ -194,17 +196,54 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 Run: null);
         }
 
-        if (!File.Exists(sourceFilePath))
+        var selectedSourceProfile = NormalizeSourceProfile(command.SourceProfile);
+        if (selectedSourceProfile is null)
         {
             return new MigrationRunKickoffResult(
                 Success: false,
                 Conflict: false,
-                Error: "Migration source file was not found.",
+                Error: "Source profile must be one of: phil-2025-csv, dave-2025-package.",
                 ExistingRunId: null,
                 Run: null);
         }
 
-        var checksum = await ComputeSha256Async(sourceFilePath, cancellationToken);
+        var sourceExists = File.Exists(sourceFilePath) || Directory.Exists(sourceFilePath);
+        if (!sourceExists)
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Migration source path was not found.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        var resolvedSourceProfile = ResolveSourceProfileForPath(sourceFilePath);
+        if (!string.Equals(selectedSourceProfile, resolvedSourceProfile, StringComparison.Ordinal))
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: $"Selected source profile '{selectedSourceProfile}' does not match source path '{sourceFilePath}'.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        if (string.Equals(resolvedSourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var daveContract = ValidateDavePackageContract(sourceFilePath);
+            if (!daveContract.IsValid)
+            {
+                return new MigrationRunKickoffResult(
+                    Success: false,
+                    Conflict: false,
+                    Error: daveContract.Error,
+                    ExistingRunId: null,
+                    Run: null);
+            }
+        }
+
+        var checksum = await ComputeSourceChecksumAsync(sourceFilePath, cancellationToken);
         var now = DateTime.UtcNow;
         var isDryRun = normalizedMode == "dry-run";
         var runId = Guid.NewGuid();
@@ -214,8 +253,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var existingSelectionCount = await _dbContext.Selections.CountAsync(cancellationToken);
         var canonicalDataPresent = existingDriverCount > 0 || existingRaceCount > 0 || existingSelectionCount > 0;
 
-        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, cancellationToken);
-        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, resolvedSourceProfile, cancellationToken);
+        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, resolvedSourceProfile, cancellationToken);
         var estimatedAffectedSelectionCount = estimatedAffectedRaceCount * estimatedAffectedParticipantCount;
 
         if (!isDryRun && canonicalDataPresent && !command.ConfirmNonEmptyStrategy)
@@ -446,8 +485,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
     }
 
-    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, string sourceProfile, CancellationToken cancellationToken)
     {
+        if (string.Equals(sourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var racesPath = Path.Combine(sourceFilePath, "races.csv");
+            if (!File.Exists(racesPath))
+            {
+                return 0;
+            }
+
+            sourceFilePath = racesPath;
+        }
+
         var raceCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
@@ -491,8 +541,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return raceCodes.Count;
     }
 
-    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, string sourceProfile, CancellationToken cancellationToken)
     {
+        if (string.Equals(sourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var racesPath = Path.Combine(sourceFilePath, "races.csv");
+            if (!File.Exists(racesPath))
+            {
+                return 0;
+            }
+
+            sourceFilePath = racesPath;
+        }
+
         using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
         while (!reader.EndOfStream)
@@ -1827,7 +1888,85 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return candidatePath.StartsWith(rootWithSeparator, comparison);
     }
 
-    private static async Task<string> ComputeSha256Async(string sourceFilePath, CancellationToken cancellationToken)
+    private static string? NormalizeSourceProfile(string? sourceProfile)
+    {
+        if (string.IsNullOrWhiteSpace(sourceProfile))
+        {
+            return SourceProfilePhil2025Csv;
+        }
+
+        var normalized = sourceProfile.Trim().ToLowerInvariant();
+        return normalized is SourceProfilePhil2025Csv or SourceProfileDave2025Package
+            ? normalized
+            : null;
+    }
+
+    private static string ResolveSourceProfileForPath(string sourceFilePath)
+    {
+        if (Directory.Exists(sourceFilePath))
+        {
+            return SourceProfileDave2025Package;
+        }
+
+        return SourceProfilePhil2025Csv;
+    }
+
+    private static (bool IsValid, string? Error) ValidateDavePackageContract(string sourcePath)
+    {
+        if (!Directory.Exists(sourcePath))
+        {
+            return (false, "Dave 2025 package profile requires a directory path.");
+        }
+
+        var requiredFiles = new[] { "races.csv", "bonus.csv", "bonusAnswers.csv", "Leaderboard.csv" };
+        var missingFiles = requiredFiles
+            .Where(file => !File.Exists(Path.Combine(sourcePath, file)))
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (missingFiles.Length > 0)
+        {
+            return (false, $"Dave package is missing required file(s): {string.Join(", ", missingFiles)}.");
+        }
+
+        return (true, null);
+    }
+
+    private static async Task<string> ComputeSourceChecksumAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        if (File.Exists(sourceFilePath))
+        {
+            return await ComputeFileSha256Async(sourceFilePath, cancellationToken);
+        }
+
+        if (!Directory.Exists(sourceFilePath))
+        {
+            return string.Empty;
+        }
+
+        var files = Directory
+            .EnumerateFiles(sourceFilePath, "*", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var manifestBuilder = new StringBuilder();
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fileHash = await ComputeFileSha256Async(file, cancellationToken);
+            manifestBuilder.Append(Path.GetFileName(file));
+            manifestBuilder.Append(':');
+            manifestBuilder.Append(fileHash);
+            manifestBuilder.Append('\n');
+        }
+
+        var manifestBytes = Encoding.UTF8.GetBytes(manifestBuilder.ToString());
+        using var sha256 = SHA256.Create();
+        var manifestHash = sha256.ComputeHash(manifestBytes);
+        return Convert.ToHexString(manifestHash).ToLowerInvariant();
+    }
+
+    private static async Task<string> ComputeFileSha256Async(string sourceFilePath, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(sourceFilePath);
         using var sha256 = SHA256.Create();

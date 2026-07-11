@@ -206,11 +206,13 @@ public sealed record AdminMigrationPickDiffDto(
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequestDto(
     IFormFile? SourceFile,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponseDto(

@@ -492,6 +492,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
         apiMock.Verify(x => x.StartRunAsync(
             It.Is<AdminMigrationRunKickoffRequest>(request =>
                 request.SourceFilePath == "/tmp/import.csv" &&
+                request.SourceProfile == "phil-2025-csv" &&
                 request.Mode == "dry-run" &&
                 !request.ConfirmNonEmptyStrategy),
             It.IsAny<CancellationToken>()), Times.Once);

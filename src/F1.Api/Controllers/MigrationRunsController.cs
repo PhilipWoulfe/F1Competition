@@ -204,10 +204,11 @@ public sealed class MigrationRunsController : ControllerBase
     {
         var result = await _migrationRunAdminService.KickoffRunAsync(
             new MigrationRunKickoffCommand(
-                request.SourceFilePath,
-                request.Mode,
-                ResolveActor(),
-                request.ConfirmNonEmptyStrategy),
+                SourceFilePath: request.SourceFilePath,
+                RequestedMode: request.Mode,
+                RequestedBy: ResolveActor(),
+                SourceProfile: request.SourceProfile,
+                ConfirmNonEmptyStrategy: request.ConfirmNonEmptyStrategy),
             cancellationToken);
 
         if (!result.Success)
@@ -282,10 +283,11 @@ public sealed class MigrationRunsController : ControllerBase
 
         var result = await _migrationRunAdminService.KickoffRunAsync(
             new MigrationRunKickoffCommand(
-                persistedPath,
-                request.Mode,
-                ResolveActor(),
-                request.ConfirmNonEmptyStrategy),
+                SourceFilePath: persistedPath,
+                RequestedMode: request.Mode,
+                RequestedBy: ResolveActor(),
+                SourceProfile: request.SourceProfile,
+                ConfirmNonEmptyStrategy: request.ConfirmNonEmptyStrategy),
             cancellationToken);
 
         if (!result.Success)
