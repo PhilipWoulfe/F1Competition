@@ -87,6 +87,116 @@ public sealed class MigrationRaceSelectionParserTests
     }
 
     [Fact]
+    public async Task ParseAndPersistAsync_WhenDaveRaceQuestionColumnsPresent_PersistsGenericRaceH2hAndRaceBonusData()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"dave-race-questions-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
+
+            await using var dbContext = new F1DbContext(options);
+            SeedCompetition(dbContext, 1, 2025);
+
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = tempDirectory,
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Started",
+                StartedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Name,Race1-H2H,Race1-BQ1,Race1-BQ2"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "_Result,VER,TSU,HUL"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 3,
+                    SectionType = "RacePick",
+                    RawPayload = "Alice,NOR,TSU,HUL"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 4,
+                    SectionType = "RacePick",
+                    RawPayload = "Bob,VER,HUL,TSU"
+                });
+
+            await dbContext.SaveChangesAsync();
+
+            var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+            await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+            var templates = await dbContext.QuestionTemplates
+                .OrderBy(x => x.QuestionId)
+                .ToListAsync();
+
+            Assert.Equal(3, templates.Count);
+            Assert.Equal(new[] { "H2H-R01", "RB-R01-BQ1", "RB-R01-BQ2" }, templates.Select(x => x.QuestionId).ToArray());
+
+            var h2hTemplate = templates.Single(x => x.QuestionId == "H2H-R01");
+            Assert.Equal(QuestionCategory.H2H, h2hTemplate.Category);
+            var h2hOptions = JsonSerializer.Deserialize<H2hQuestionTemplateOptions>(h2hTemplate.OptionsJson!);
+            Assert.NotNull(h2hOptions);
+            Assert.Equal(5, h2hOptions!.PointsForCorrectPick);
+            Assert.Equal("norris", h2hOptions.LeftDriverId);
+            Assert.Equal("max_verstappen", h2hOptions.RightDriverId);
+
+            Assert.Equal(QuestionCategory.RaceBonus, templates.Single(x => x.QuestionId == "RB-R01-BQ1").Category);
+            Assert.Equal(QuestionCategory.RaceBonus, templates.Single(x => x.QuestionId == "RB-R01-BQ2").Category);
+
+            var answers = await dbContext.QuestionAnswers
+                .OrderBy(x => x.ParticipantId)
+                .ThenBy(x => x.QuestionTemplateId)
+                .ToListAsync();
+
+            Assert.Equal(6, answers.Count);
+            Assert.Contains(answers, x => x.ParticipantId == "Alice" && x.ImportedAnswer == "norris");
+            Assert.Contains(answers, x => x.ParticipantId == "Bob" && x.ImportedAnswer == "max_verstappen");
+
+            var actuals = await dbContext.QuestionActuals
+                .OrderBy(x => x.QuestionTemplateId)
+                .ToListAsync();
+
+            Assert.Equal(3, actuals.Count);
+            Assert.Contains(actuals, x => x.ImportedAnswer == "max_verstappen");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenDaveBonusFilesPresent_ParsesPreseasonAnswersAndMapsActualsByNormalizedQuestionKey()
     {
         var runId = Guid.NewGuid();
