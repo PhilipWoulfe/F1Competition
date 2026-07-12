@@ -689,8 +689,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var preseasonQuestionDiffs = await BuildPreseasonQuestionDiffRowsAsync(runId, cancellationToken);
+        var participantTotalsPickDiffs = isDaveProfile
+            ? allPickDiffs.Where(x => !IsSuppressedDaveLeaderboardPickDiff(x)).ToArray()
+            : allPickDiffs;
+        var participantTotalsPreseasonDiffs = preseasonQuestionDiffs;
         var daveCalculatedOverallTotalsBySubject = isDaveProfile
-            ? BuildDaveCalculatedOverallTotalsBySubject(allPickDiffs, preseasonQuestionDiffs)
+            ? BuildDaveCalculatedOverallTotalsBySubject(participantTotalsPickDiffs, preseasonQuestionDiffs)
             : new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         var chosenRacePicksByKey = raceSelections
@@ -742,9 +746,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     deltaPoints = calculatedPoints - importedRacePoints.Value;
                     reasonCode = deltaPoints == 0m
                         ? "RACE_POINTS_MATCH"
-                        : string.IsNullOrWhiteSpace(reasonCode)
-                            ? "RACE_RULE_VARIANCE"
-                            : reasonCode;
+                        : "RACE_RULE_VARIANCE";
                     explanation = BuildDaveDecimalRaceDiffExplanation(x, importedRacePoints.Value, deltaPoints, reasonCode);
                 }
 
@@ -791,6 +793,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         {
             allPickDiffs = allPickDiffs
                 .Where(x => !IsSuppressedDaveMissingReason(x.ReasonCode))
+                .Where(x => !IsSuppressedDaveLeaderboardPickDiff(x))
                 .ToArray();
 
             preseasonQuestionDiffs = preseasonQuestionDiffs
@@ -899,8 +902,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             : null;
 
         var participantComponentDeltas = BuildParticipantComponentDeltas(
-            pickDiffs,
-            preseasonQuestionDiffs,
+            participantTotalsPickDiffs,
+            participantTotalsPreseasonDiffs,
             daveImportedRaceTotalOverrides,
             daveImportedOverallTotalOverrides);
         var cdpParity = await BuildCdpParityAsync(run.Id, cancellationToken);
@@ -2080,7 +2083,9 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             deltaPoints = calculatedPoints - importedPoints;
             reasonCode = deltaPoints == 0
                 ? "RACE_POINTS_MATCH"
-                : string.IsNullOrWhiteSpace(raceDiff.ReasonCode)
+                : string.Equals(raceDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase)
+                    ? "RACE_RULE_VARIANCE"
+                    : string.IsNullOrWhiteSpace(raceDiff.ReasonCode)
                     ? "RACE_RULE_VARIANCE"
                     : raceDiff.ReasonCode;
             explanation = BuildDaveRaceDiffExplanation(raceDiff, importedPoints, deltaPoints, reasonCode, calculatedPoints);
@@ -2180,6 +2185,16 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     {
         return string.Equals(reasonCode, LegacyPointsMissingReasonCode, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(reasonCode, PreseasonImportedMissingReasonCode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSuppressedDaveLeaderboardPickDiff(AdminMigrationPickDiffDto pickDiff)
+    {
+        if (!string.Equals(pickDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return pickDiff.PickType.EndsWith("_TOTAL", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, decimal> BuildDaveCalculatedOverallTotalsBySubject(
