@@ -160,6 +160,237 @@ public sealed class MigrationImportRunServiceTests
     }
 
     [Fact]
+    public async Task RunOnceAsync_WhenDaveWriteModeRunsOnNonEmptyMultiCompetitionDb_WritesOnlyToDaveCompetitionScope()
+    {
+        await using var setupContext = CreateContext();
+        await setupContext.Database.EnsureDeletedAsync();
+        await setupContext.Database.EnsureCreatedAsync();
+
+        var philCompetition = new F1.Core.Models.Competition
+        {
+            Name = "Philip 2025",
+            Year = 2025,
+            Description = "Phil scope"
+        };
+
+        var daveCompetition = new F1.Core.Models.Competition
+        {
+            Name = "Dave 2025",
+            Year = 2025,
+            Description = "Dave scope"
+        };
+
+        setupContext.Competitions.AddRange(philCompetition, daveCompetition);
+        await setupContext.SaveChangesAsync();
+
+        var philRaceId = "philip-2025-1-australian-grand-prix";
+        var daveRaceId = "dave-2025-1-australian-grand-prix";
+
+        setupContext.Races.AddRange(
+            new F1.Core.Models.Race
+            {
+                Id = philRaceId,
+                CompetitionId = philCompetition.Id,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            },
+            new F1.Core.Models.Race
+            {
+                Id = daveRaceId,
+                CompetitionId = daveCompetition.Id,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+        setupContext.Drivers.Add(new F1.Core.Models.Driver
+        {
+            DriverId = "OLD",
+            FullName = "Legacy Driver",
+            Code = "OLD"
+        });
+
+        var philSelectionId = Guid.NewGuid();
+        setupContext.Selections.Add(new F1.Core.Models.Selection
+        {
+            Id = philSelectionId,
+            UserId = "Alice",
+            RaceId = philRaceId,
+            BetType = F1.Core.Models.BetType.Regular,
+            SubmittedAtUtc = DateTime.UtcNow
+        });
+        setupContext.SelectionPositions.Add(new SelectionPositionEntity
+        {
+            SelectionId = philSelectionId,
+            Position = 1,
+            DriverId = "OLD"
+        });
+
+        setupContext.QuestionTemplates.AddRange(
+            new QuestionTemplateEntity
+            {
+                CompetitionId = philCompetition.Id,
+                Season = 2025,
+                QuestionId = "H2H-R01",
+                Category = F1.Core.Models.QuestionCategory.H2H,
+                Prompt = "R01 H2H",
+                OptionsJson = "{\"pointsForCorrectPick\":5}",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 100,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new QuestionTemplateEntity
+            {
+                CompetitionId = daveCompetition.Id,
+                Season = 2025,
+                QuestionId = "H2H-R01",
+                Category = F1.Core.Models.QuestionCategory.H2H,
+                Prompt = "R01 H2H",
+                OptionsJson = "{\"pointsForCorrectPick\":5}",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 100,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+        await setupContext.SaveChangesAsync();
+
+        var philTemplateId = await setupContext.QuestionTemplates
+            .Where(x => x.CompetitionId == philCompetition.Id && x.QuestionId == "H2H-R01")
+            .Select(x => x.Id)
+            .SingleAsync();
+
+        setupContext.QuestionAnswers.Add(new QuestionAnswerEntity
+        {
+            QuestionTemplateId = philTemplateId,
+            ParticipantId = "Alice",
+            ImportedAnswer = "norris",
+            OverrideAnswer = null,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+        setupContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            QuestionTemplateId = philTemplateId,
+            ImportedAnswer = "max_verstappen",
+            OverrideAnswer = null,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+        setupContext.QuestionScores.Add(new QuestionScoreEntity
+        {
+            QuestionTemplateId = philTemplateId,
+            ParticipantId = "Alice",
+            ImportedPoints = 7,
+            CalculatedPoints = 7,
+            DeltaPoints = 0,
+            RecordedAtUtc = DateTime.UtcNow
+        });
+        await setupContext.SaveChangesAsync();
+
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"f1-dave-scope-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        File.WriteAllText(
+            Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile),
+            string.Join(
+                Environment.NewLine,
+                [
+                    "Name,Race1-PQ,Race1-1,Race1-2,Race1-3,Race1-DNF,Race1-H2H",
+                    "_Result,,NOR,VER,PIA,None,VER",
+                    "Alice,Yes,NOR,PIA,VER,None,NOR"
+                ]));
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question,Alice");
+        File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+        File.WriteAllText(
+            Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile),
+            string.Join(Environment.NewLine, ["Name,Race Points,Bonus Points,Total", "Alice,25,0,25"]));
+
+        try
+        {
+            var dbFactory = new TestDbContextFactory(_fixture.ConnectionString);
+            var runService = new MigrationImportRunService(dbFactory);
+
+            var orchestrator = new MigrationImportOrchestrator(
+                NullLogger<MigrationImportOrchestrator>.Instance,
+                runService,
+                new MigrationImportRowClassifier(),
+                new MigrationRaceSelectionParser(dbFactory),
+                new MigrationRaceRoundMapper(
+                    dbFactory,
+                    new TrackingJolpicaClient(),
+                    Options.Create(new DataSyncOptions { HttpRetryCount = 0, HttpRetryDelayMs = 1 }),
+                    Options.Create(new MigrationImportOptions { Season = 2025 })),
+                new MigrationScoreRecalculator(dbFactory),
+                new MigrationLegacyScoreImporter(dbFactory),
+                new MigrationReconciliationService(dbFactory),
+                dbFactory,
+                Options.Create(new DataSyncOptions { AutoMigrate = false }),
+                Options.Create(new MigrationImportOptions
+                {
+                    Enabled = true,
+                    SourceFilePath = tempDirectory,
+                    DryRun = false,
+                    Season = 2025
+                }),
+                MigrationExpectedVarianceRuleCatalog.Empty);
+
+            await orchestrator.RunOnceAsync(CancellationToken.None);
+
+            await using var verificationContext = CreateContext();
+            var run = await verificationContext.MigrationImportRuns.AsNoTracking().SingleAsync();
+            Assert.Equal("Completed", run.Status);
+
+            var philSelection = await verificationContext.Selections
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == philSelectionId);
+            Assert.Equal(philRaceId, philSelection.RaceId);
+
+            var daveSelection = await verificationContext.Selections
+                .AsNoTracking()
+                .SingleAsync(x => x.RaceId == daveRaceId && x.UserId == "Alice");
+            Assert.NotEqual(philSelectionId, daveSelection.Id);
+
+            var philPosition = await verificationContext.SelectionPositions
+                .AsNoTracking()
+                .SingleAsync(x => x.SelectionId == philSelectionId && x.Position == 1);
+            Assert.Equal("OLD", philPosition.DriverId);
+
+            var daveTemplateCount = await verificationContext.QuestionTemplates
+                .Where(x =>
+                    x.CompetitionId == daveCompetition.Id &&
+                    x.Season == 2025 &&
+                    x.Category == F1.Core.Models.QuestionCategory.H2H &&
+                    x.QuestionId.StartsWith("H2H-"))
+                .CountAsync();
+            Assert.True(daveTemplateCount > 0);
+
+            var philScore = await verificationContext.QuestionScores
+                .AsNoTracking()
+                .SingleAsync(x => x.QuestionTemplateId == philTemplateId && x.ParticipantId == "Alice");
+            Assert.Equal(7, philScore.CalculatedPoints);
+
+            var philScoreCount = await verificationContext.QuestionScores
+                .AsNoTracking()
+                .CountAsync(x => x.QuestionTemplateId == philTemplateId && x.ParticipantId == "Alice");
+            Assert.Equal(1, philScoreCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RunOnceAsync_WhenMigrationStagingRowsAreDeleted_LeaderboardStillReadsCanonicalScores()
     {
         await using var setupContext = CreateContext();
@@ -686,6 +917,8 @@ public sealed class MigrationImportRunServiceTests
                 .ToListAsync();
             Assert.NotEmpty(diagnostics);
             Assert.Contains(diagnostics, x => x.EntityType == "Selection" && x.PolicyOutcome == "Failed");
+            Assert.All(diagnostics, x => Assert.Contains("competitionId:", x.KeyFields, StringComparison.OrdinalIgnoreCase));
+            Assert.All(diagnostics, x => Assert.Contains("competitionId:", x.SourceReference, StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -789,6 +1022,8 @@ public sealed class MigrationImportRunServiceTests
                 .ToListAsync();
             Assert.NotEmpty(diagnostics);
             Assert.Contains(diagnostics, x => x.PolicyOutcome == "Skipped");
+            Assert.All(diagnostics, x => Assert.Contains("competitionId:", x.KeyFields, StringComparison.OrdinalIgnoreCase));
+            Assert.All(diagnostics, x => Assert.Contains("competitionId:", x.SourceReference, StringComparison.OrdinalIgnoreCase));
 
             var preservedPosition = await verificationContext.SelectionPositions
                 .AsNoTracking()

@@ -639,6 +639,85 @@ public sealed class MigrationRaceSelectionParserTests
     }
 
     [Fact]
+    public async Task ParseAndPersistAsync_WhenDavePackageAndMultipleSeasonCompetitions_UsesDaveCompetitionForGenericQuestions()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"dave-competition-scope-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.RacesFile), "Name");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusFile), "Question");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.BonusAnswersFile), "Question,Answer");
+            File.WriteAllText(Path.Combine(tempDirectory, Dave2025SourcePackageContract.LeaderboardFile), "Name,Total");
+
+            await using var dbContext = new F1DbContext(options);
+
+            dbContext.Competitions.AddRange(
+                new Competition { Id = 1, Name = "Main Competition", Year = 2025, Description = "Default seeded competition" },
+                new Competition { Id = 2, Name = "Philip 2025", Year = 2025, Description = "Philip 2025 season competition" },
+                new Competition { Id = 3, Name = "Dave 2025", Year = 2025, Description = "Dave 2025 season competition" });
+
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = tempDirectory,
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Started",
+                StartedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Name,Race1-H2H,Race1-BQ1"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "_Result,VER,TSU"
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 3,
+                    SectionType = "RacePick",
+                    RawPayload = "Alice,NOR,TSU"
+                });
+
+            await dbContext.SaveChangesAsync();
+
+            var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
+            await parser.ParseAndPersistAsync(runId, CancellationToken.None);
+
+            var questionTemplates = await dbContext.QuestionTemplates
+                .OrderBy(x => x.QuestionId)
+                .ToListAsync();
+
+            Assert.Equal(2, questionTemplates.Count);
+            Assert.All(questionTemplates, template => Assert.Equal(3, template.CompetitionId));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ParseAndPersistAsync_WhenPreseasonAnswersContainMalformedTokens_PreservesNormalizedTrimmedValue()
     {
         var runId = Guid.NewGuid();

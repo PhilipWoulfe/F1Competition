@@ -1,9 +1,11 @@
 using System.Text.RegularExpressions;
 using F1.Core.Models;
 using F1.DataSyncWorker.Models;
+using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace F1.DataSyncWorker.Services;
 
@@ -27,13 +29,26 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
+    private readonly MigrationImportOptions _importOptions;
+
+    public MigrationScoreRecalculator(
+        IDbContextFactory<F1DbContext> dbContextFactory,
+        IQuestionScoringStrategyRegistry questionScoringStrategyRegistry,
+        IOptions<MigrationImportOptions> importOptions)
+    {
+        _dbContextFactory = dbContextFactory;
+        _questionScoringStrategyRegistry = questionScoringStrategyRegistry;
+        _importOptions = importOptions.Value;
+    }
 
     public MigrationScoreRecalculator(
         IDbContextFactory<F1DbContext> dbContextFactory,
         IQuestionScoringStrategyRegistry questionScoringStrategyRegistry)
+        : this(
+            dbContextFactory,
+            questionScoringStrategyRegistry,
+            Microsoft.Extensions.Options.Options.Create(new MigrationImportOptions()))
     {
-        _dbContextFactory = dbContextFactory;
-        _questionScoringStrategyRegistry = questionScoringStrategyRegistry;
     }
 
     public MigrationScoreRecalculator(IDbContextFactory<F1DbContext> dbContextFactory)
@@ -43,7 +58,8 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 new PreseasonQuestionScoringStrategy(),
                 new H2hQuestionScoringStrategy(),
                 new RaceBonusQuestionScoringStrategy()
-            ]))
+            ]),
+            Microsoft.Extensions.Options.Options.Create(new MigrationImportOptions()))
     {
     }
 
@@ -79,6 +95,21 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
+        var runParticipants = selections
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Subject)
+            .Concat(preseasonAnswers
+                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Subject))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var targetCompetitionId = await ResolveTargetCompetitionIdAsync(
+            dbContext,
+            sourceProfile,
+            runParticipants,
+            cancellationToken);
+
         dbContext.MigrationImportCalculatedScores.RemoveRange(
             dbContext.MigrationImportCalculatedScores.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportPreseasonCalculatedScores.RemoveRange(
@@ -101,19 +132,13 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            var runParticipants = selections
-                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.Subject)
-                .Concat(preseasonAnswers
-                    .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
-                    .Select(x => x.Subject))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
             var daveTemplateIds = daveQuestionIds.Length == 0
                 ? []
                 : await dbContext.QuestionTemplates
-                    .Where(x => daveQuestionIds.Contains(x.QuestionId))
+                    .Where(x =>
+                        daveQuestionIds.Contains(x.QuestionId) &&
+                        (!targetCompetitionId.HasValue ||
+                         (x.CompetitionId == targetCompetitionId.Value && x.Season == _importOptions.Season)))
                     .Select(x => x.Id)
                     .ToArrayAsync(cancellationToken);
 
@@ -136,16 +161,43 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         }
         else
         {
-            genericQuestionAnswers = await dbContext.QuestionAnswers
-                .OrderBy(x => x.QuestionTemplateId)
-                .ThenBy(x => x.ParticipantId)
-                .AsNoTracking()
-                .ToListAsync(cancellationToken);
+            if (!targetCompetitionId.HasValue)
+            {
+                genericQuestionAnswers = await dbContext.QuestionAnswers
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .ThenBy(x => x.ParticipantId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
 
-            genericQuestionActuals = await dbContext.QuestionActuals
-                .OrderBy(x => x.QuestionTemplateId)
-                .AsNoTracking()
-                .ToListAsync(cancellationToken);
+                genericQuestionActuals = await dbContext.QuestionActuals
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+            }
+            else
+            {
+                var scopedTemplateIds = await dbContext.QuestionTemplates
+                    .Where(x => x.CompetitionId == targetCompetitionId.Value && x.Season == _importOptions.Season)
+                    .Select(x => x.Id)
+                    .ToArrayAsync(cancellationToken);
+
+                genericQuestionAnswers = scopedTemplateIds.Length == 0
+                    ? []
+                    : await dbContext.QuestionAnswers
+                        .Where(x => scopedTemplateIds.Contains(x.QuestionTemplateId))
+                        .OrderBy(x => x.QuestionTemplateId)
+                        .ThenBy(x => x.ParticipantId)
+                        .AsNoTracking()
+                        .ToListAsync(cancellationToken);
+
+                genericQuestionActuals = scopedTemplateIds.Length == 0
+                    ? []
+                    : await dbContext.QuestionActuals
+                        .Where(x => scopedTemplateIds.Contains(x.QuestionTemplateId))
+                        .OrderBy(x => x.QuestionTemplateId)
+                        .AsNoTracking()
+                        .ToListAsync(cancellationToken);
+            }
         }
 
         var genericQuestionTemplateIds = genericQuestionAnswers.Select(x => x.QuestionTemplateId)
@@ -521,6 +573,22 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     {
         return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase) ||
                pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<int?> ResolveTargetCompetitionIdAsync(
+        F1DbContext dbContext,
+        MigrationSourceProfile sourceProfile,
+        IReadOnlyCollection<string> participants,
+        CancellationToken cancellationToken)
+    {
+        var competition = await MigrationCompetitionScopeResolver.ResolveCompetitionAsync(
+            dbContext,
+            _importOptions.Season,
+            sourceProfile,
+            participants,
+            cancellationToken);
+
+        return competition?.Id;
     }
 
     private static string BuildDaveRaceQuestionId(string raceCode, string pickType)
