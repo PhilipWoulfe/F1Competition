@@ -1584,7 +1584,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
                 Mode = "FormulaMaxMinusGap",
                 PointsForCorrectPick = pointsForCorrectPick,
                 FormulaMaxPoints = pointsForCorrectPick,
-                FormulaPenaltyPerUnit = 1m
+                FormulaPenaltyPerUnit = 2m
             };
 
             return JsonSerializer.Serialize(formulaOptions);

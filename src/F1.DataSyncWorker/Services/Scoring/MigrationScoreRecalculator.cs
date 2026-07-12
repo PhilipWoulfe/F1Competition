@@ -23,6 +23,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     private const int AllModeJackpotPoints = 100;
     private const int RaceBonusBq1ExactPoints = 5;
     private const int RaceBonusBq2PlusExactPoints = 20;
+    private const decimal SaudiGapPenaltyPerSecond = 2m;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
@@ -665,6 +666,23 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_ACTUAL_MISSING");
             }
 
+            if (IsSaudiGapBonusPick(participant.RaceCode, participant.PickType))
+            {
+                if (!TryParseDecimal(predicted, out var predictedGapSeconds) || !TryParseDecimal(actualForPickType, out var actualGapSeconds))
+                {
+                    return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_NUMERIC_PARSE_FAILED");
+                }
+
+                var roundedPredicted = decimal.Round(predictedGapSeconds, 0, MidpointRounding.AwayFromZero);
+                var roundedActual = decimal.Round(actualGapSeconds, 0, MidpointRounding.AwayFromZero);
+                var gap = decimal.Abs(roundedPredicted - roundedActual);
+                var formulaPoints = decimal.Max(0m, RaceBonusBq2PlusExactPoints - (gap * SaudiGapPenaltyPerSecond));
+
+                return formulaPoints > 0m
+                    ? CreateCalculated(participant, predicted, actualForPickType, formulaPoints, "RACE_BONUS_FORMULA_SCORED")
+                    : CreateCalculated(participant, predicted, actualForPickType, 0m, "RACE_BONUS_FORMULA_ZERO");
+            }
+
             decimal raceBonusPoints = ResolveRaceBonusExactPoints(participant.PickType);
 
             return string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase)
@@ -754,6 +772,17 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         return int.TryParse(pickType.AsSpan(2), out var bqNumber) && bqNumber >= 2
             ? RaceBonusBq2PlusExactPoints
             : RaceBonusBq1ExactPoints;
+    }
+
+    private static bool IsSaudiGapBonusPick(string raceCode, string pickType)
+    {
+        return string.Equals(raceCode, "jeddah", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(pickType, "BQ2", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseDecimal(string value, out decimal parsed)
+    {
+        return decimal.TryParse(value, out parsed);
     }
 
     private enum PreQualyMode

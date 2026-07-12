@@ -552,6 +552,56 @@ public sealed class MigrationScoreRecalculatorTests
     }
 
     [Fact]
+    public async Task RecalculateAndPersistAsync_WhenJeddahBq2GapBonusConfigured_AppliesRoundedMinusTwoPerSecondFormula()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "test.csv",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 100, "jeddah", "1", "ACTUAL", "PIA", isActual: true),
+            Selection(runId, 101, "jeddah", "2", "ACTUAL", "VER", isActual: true),
+            Selection(runId, 102, "jeddah", "3", "ACTUAL", "LEC", isActual: true),
+            Selection(runId, 103, "jeddah", "DNF", "ACTUAL", "TSU GAS", isActual: true),
+            Selection(runId, 104, "jeddah", "BQ1", "ACTUAL", "HUL", isActual: true),
+            Selection(runId, 105, "jeddah", "BQ2", "ACTUAL", "27", isActual: true),
+
+            Selection(runId, 10, "jeddah", "PQ", "DayaraY", "Yes"),
+            Selection(runId, 11, "jeddah", "1", "DayaraY", "NOR"),
+            Selection(runId, 12, "jeddah", "2", "DayaraY", "PIA"),
+            Selection(runId, 13, "jeddah", "3", "DayaraY", "VER"),
+            Selection(runId, 14, "jeddah", "DNF", "DayaraY", "ALO"),
+            Selection(runId, 15, "jeddah", "BQ1", "DayaraY", "DOO"),
+            Selection(runId, 16, "jeddah", "BQ2", "DayaraY", "35"));
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var result = await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        Assert.Equal(7, result.ScoredPickCount);
+        Assert.Equal(19.0m, result.TotalPoints);
+
+        var scores = await dbContext.MigrationImportCalculatedScores
+            .Where(x => x.ImportRunId == runId && x.Subject == "DayaraY")
+            .ToListAsync();
+
+        AssertScore(scores.Single(x => x.PickType == "2"), 7.5m, "PODIUM_TOP3_WRONG_SLOT_PQ_YES");
+        AssertScore(scores.Single(x => x.PickType == "3"), 7.5m, "PODIUM_TOP3_WRONG_SLOT_PQ_YES");
+        AssertScore(scores.Single(x => x.PickType == "BQ2"), 4.0m, "RACE_BONUS_FORMULA_SCORED");
+    }
+
+    [Fact]
     public async Task RecalculateAndPersistAsync_WhenGenericPreseasonQuestionsPresent_PersistsQuestionScoresThroughStrategyDispatch()
     {
         var runId = Guid.NewGuid();
