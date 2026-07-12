@@ -1304,8 +1304,141 @@ public sealed class MigrationRunAdminServiceTests
         Assert.NotNull(detail);
         var component = Assert.Single(detail!.ParticipantComponentDeltas!);
         Assert.Equal("ColmF", component.Subject);
-        Assert.Equal(315, component.ImportedRacePoints);
-        Assert.Equal(555, component.ImportedTotalPoints);
+        Assert.Equal(315m, component.ImportedRacePoints);
+        Assert.Equal(555m, component.ImportedTotalPoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunParticipantRaceTotalHasDecimal_UsesLeaderboardDecimalRaceTotalInParticipantComparison()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 12, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 12, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.AddRange(
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 1,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R01",
+                    MappedCircuitId = "albert_park"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 2,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R02",
+                    MappedCircuitId = "shanghai"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 3,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R03",
+                    MappedCircuitId = "suzuka"
+                });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,JPN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DavidJ,100,100,177.5,0,377.5,0,677.5,300,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "LEADERBOARD",
+                PickType = "RACE_TOTAL",
+                Subject = "DavidJ",
+                RawLegacyPoints = "24",
+                LegacyPoints = 24
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    RaceCode = "suzuka",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 91,
+                    CalculatedPoints = 91,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var component = Assert.Single(detail!.ParticipantComponentDeltas!);
+        Assert.Equal("DavidJ", component.Subject);
+        Assert.Equal(377.5m, component.ImportedRacePoints);
+        Assert.Equal(677.5m, component.ImportedTotalPoints);
     }
 
     [Fact]
@@ -1665,10 +1798,10 @@ public sealed class MigrationRunAdminServiceTests
 
         Assert.NotNull(detail);
         var leaderboard = Assert.Single(detail!.RaceDiffs, x => x.RaceCode == "LEADERBOARD" && x.Subject == "DavidJ");
-        Assert.Equal(324m, leaderboard.ImportedRacePoints);
+        Assert.Equal(677.5m, leaderboard.ImportedRacePoints);
         Assert.Equal(677m, leaderboard.CalculatedPoints);
-        Assert.Equal(353m, leaderboard.DeltaPoints);
-        Assert.Equal("RACE_RULE_VARIANCE", leaderboard.ReasonCode);
+        Assert.Equal(0m, leaderboard.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", leaderboard.ReasonCode);
         Assert.DoesNotContain("CALCULATED_POINTS_MISSING", leaderboard.Explanation, StringComparison.OrdinalIgnoreCase);
     }
 

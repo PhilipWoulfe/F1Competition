@@ -132,11 +132,11 @@ public sealed record AdminMigrationPreseasonReasonCategorySummary(
 
 public sealed record AdminMigrationParticipantComponentDelta(
     string Subject,
-    int ImportedRacePoints,
+    decimal ImportedRacePoints,
     decimal CalculatedRacePoints,
     int ImportedPreseasonPoints,
     int CalculatedPreseasonPoints,
-    int ImportedTotalPoints,
+    decimal ImportedTotalPoints,
     decimal CalculatedTotalPoints,
     decimal NetDeltaPoints,
     string? TopReasonCode,

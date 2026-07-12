@@ -662,7 +662,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var isDaveProfile = IsDaveSourcePath(run.SourceFilePath);
         var daveImportedRacePointsBySubject = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
         var daveImportedRacePointsByRaceAndSubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
-        var daveImportedOverallTotalOverridesBySubject = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        var daveImportedOverallTotalOverridesBySubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
         if (isDaveProfile)
         {
             var daveRaceTotalRows = await _dbContext.MigrationImportLegacyPickScores
@@ -683,7 +683,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                     StringComparer.OrdinalIgnoreCase);
 
             daveImportedRacePointsByRaceAndSubject = await BuildDaveImportedRacePointsByRaceAndSubjectAsync(runId, cancellationToken);
-            daveImportedOverallTotalOverridesBySubject = new Dictionary<string, int?>(
+            daveImportedOverallTotalOverridesBySubject = new Dictionary<string, decimal?>(
                 await BuildDaveImportedOverallTotalOverridesAsync(runId, cancellationToken),
                 StringComparer.OrdinalIgnoreCase);
         }
@@ -1097,8 +1097,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     private static IReadOnlyList<AdminMigrationParticipantComponentDeltaDto> BuildParticipantComponentDeltas(
         IReadOnlyList<AdminMigrationPickDiffDto> pickDiffs,
         IReadOnlyList<AdminMigrationPreseasonQuestionDiffDto> preseasonQuestionDiffs,
-        IReadOnlyDictionary<string, int?>? importedRaceTotalOverridesBySubject = null,
-        IReadOnlyDictionary<string, int?>? importedOverallTotalOverridesBySubject = null)
+        IReadOnlyDictionary<string, decimal?>? importedRaceTotalOverridesBySubject = null,
+        IReadOnlyDictionary<string, decimal?>? importedOverallTotalOverridesBySubject = null)
     {
         var raceBySubject = pickDiffs
             .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
@@ -1149,7 +1149,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         {
             var race = raceBySubject.GetValueOrDefault(subject);
             var preseason = preseasonBySubject.GetValueOrDefault(subject);
-            var importedRace = race?.Imported ?? 0;
+            var importedRace = (decimal)(race?.Imported ?? 0);
             if (importedRaceTotalOverridesBySubject is not null &&
                 importedRaceTotalOverridesBySubject.TryGetValue(subject, out var overrideImportedRace) &&
                 overrideImportedRace.HasValue)
@@ -1185,7 +1185,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }).ToArray();
     }
 
-    private static IReadOnlyDictionary<string, int?> BuildDaveImportedRaceTotalOverrides(
+    private static IReadOnlyDictionary<string, decimal?> BuildDaveImportedRaceTotalOverrides(
         IReadOnlyDictionary<string, decimal?> importedRacePointsByRaceAndSubject,
         IReadOnlyDictionary<string, int?> fallbackImportedRacePointsBySubject)
     {
@@ -1213,14 +1213,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             totalsBySubject[subject] = totalsBySubject.GetValueOrDefault(subject, 0m) + pair.Value.Value;
         }
 
-        var result = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var pair in totalsBySubject)
         {
-            if (pair.Value == decimal.Truncate(pair.Value) && pair.Value >= int.MinValue && pair.Value <= int.MaxValue)
-            {
-                result[pair.Key] = decimal.ToInt32(pair.Value);
-            }
+            result[pair.Key] = pair.Value;
         }
 
         foreach (var pair in fallbackImportedRacePointsBySubject)
@@ -1234,7 +1231,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return result;
     }
 
-    private async Task<IReadOnlyDictionary<string, int?>> BuildDaveImportedOverallTotalOverridesAsync(
+    private async Task<IReadOnlyDictionary<string, decimal?>> BuildDaveImportedOverallTotalOverridesAsync(
         Guid runId,
         CancellationToken cancellationToken)
     {
@@ -1249,23 +1246,23 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
         if (leaderboardRows.Length < 2)
         {
-            return new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
         }
 
         var headerColumns = ParseCsvRow(leaderboardRows[0].RawPayload);
         if (headerColumns.Count == 0)
         {
-            return new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
         }
 
         var nameColumnIndex = FindDaveLeaderboardNameColumnIndex(headerColumns);
         var totalColumnIndex = FindDaveLeaderboardOverallTotalColumnIndex(headerColumns, nameColumnIndex);
         if (totalColumnIndex < 0)
         {
-            return new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var totalsBySubject = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        var totalsBySubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in leaderboardRows.Skip(1))
         {
@@ -1284,13 +1281,12 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             }
 
             var rawTotal = columns[totalColumnIndex].Trim();
-            if (!TryParseDaveLeaderboardPoints(rawTotal, out var parsedTotal) ||
-                !TryConvertWholeDecimalToInt(parsedTotal, out var convertedTotal))
+            if (!TryParseDaveLeaderboardPoints(rawTotal, out var parsedTotal))
             {
                 continue;
             }
 
-            totalsBySubject[subject] = convertedTotal;
+            totalsBySubject[subject] = parsedTotal;
         }
 
         return totalsBySubject;
@@ -2001,7 +1997,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         bool isDaveProfile,
         IReadOnlyDictionary<string, int?> daveImportedRacePointsBySubject,
         IReadOnlyDictionary<string, decimal?> daveImportedRacePointsByRaceAndSubject,
-        IReadOnlyDictionary<string, int?> daveImportedOverallTotalOverridesBySubject)
+        IReadOnlyDictionary<string, decimal?> daveImportedOverallTotalOverridesBySubject)
     {
         if (!isDaveProfile)
         {
