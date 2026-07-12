@@ -244,6 +244,7 @@ public class F1DbContext : DbContext
         {
             entity.ToTable("MigrationImportRawRows");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceFileName).HasMaxLength(256);
             entity.Property(x => x.SectionType).HasMaxLength(64).IsRequired();
             entity.Property(x => x.RawPayload).HasColumnType("text").IsRequired();
             entity.Property(x => x.ClassificationReason).HasMaxLength(512);
@@ -253,7 +254,7 @@ public class F1DbContext : DbContext
                 .HasForeignKey(x => x.ImportRunId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(x => new { x.ImportRunId, x.RowNumber }).IsUnique();
+            entity.HasIndex(x => new { x.ImportRunId, x.SourceFileName, x.RowNumber }).IsUnique();
         });
 
         modelBuilder.Entity<MigrationImportRaceSelectionEntity>(entity =>
@@ -367,6 +368,7 @@ public class F1DbContext : DbContext
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
             entity.Property(x => x.PredictedValue).HasMaxLength(512);
             entity.Property(x => x.ActualValue).HasMaxLength(512);
+            entity.Property(x => x.Points).HasPrecision(10, 1);
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
 
             entity.HasOne<MigrationImportRunEntity>()
@@ -414,6 +416,7 @@ public class F1DbContext : DbContext
             entity.ToTable("MigrationImportCalculatedTotals");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CalculatedTotalPoints).HasPrecision(10, 1);
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()
@@ -477,6 +480,8 @@ public class F1DbContext : DbContext
             entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
             entity.Property(x => x.PickType).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CalculatedPoints).HasPrecision(10, 1);
+            entity.Property(x => x.DeltaPoints).HasPrecision(10, 1);
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ExpectedVarianceReasonCode).HasMaxLength(64);
             entity.Property(x => x.ExpectedVarianceRuleId).HasMaxLength(128);
@@ -496,6 +501,8 @@ public class F1DbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.RaceCode).HasMaxLength(16).IsRequired();
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CalculatedPoints).HasPrecision(10, 1);
+            entity.Property(x => x.DeltaPoints).HasPrecision(10, 1);
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ExpectedVarianceReasonCode).HasMaxLength(64);
             entity.Property(x => x.ExpectedVarianceRuleId).HasMaxLength(128);
@@ -514,6 +521,8 @@ public class F1DbContext : DbContext
             entity.ToTable("MigrationImportParticipantDeltaSummaries");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Subject).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.CalculatedTotalPoints).HasPrecision(10, 1);
+            entity.Property(x => x.NetDeltaPoints).HasPrecision(10, 1);
             entity.Property(x => x.TopReasonCode).HasMaxLength(64);
 
             entity.HasOne<MigrationImportRunEntity>()
@@ -529,6 +538,7 @@ public class F1DbContext : DbContext
             entity.ToTable("MigrationImportReasonCategorySummaries");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TotalDeltaPoints).HasPrecision(10, 1);
 
             entity.HasOne<MigrationImportRunEntity>()
                 .WithMany()

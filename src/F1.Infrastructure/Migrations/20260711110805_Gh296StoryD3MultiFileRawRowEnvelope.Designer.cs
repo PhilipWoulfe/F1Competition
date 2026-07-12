@@ -3,6 +3,7 @@ using System;
 using F1.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace F1.Infrastructure.Migrations
 {
     [DbContext(typeof(F1DbContext))]
-    partial class F1DbContextModelSnapshot : ModelSnapshot
+    [Migration("20260711110805_Gh296StoryD3MultiFileRawRowEnvelope")]
+    partial class Gh296StoryD3MultiFileRawRowEnvelope
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -168,9 +171,8 @@ namespace F1.Infrastructure.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
-                    b.Property<decimal>("Points")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("Points")
+                        .HasColumnType("integer");
 
                     b.Property<string>("PredictedValue")
                         .HasMaxLength(512)
@@ -210,9 +212,8 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal>("CalculatedTotalPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("CalculatedTotalPoints")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("ImportRunId")
                         .HasColumnType("uuid");
@@ -401,9 +402,8 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal>("CalculatedTotalPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("CalculatedTotalPoints")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("ImportRunId")
                         .HasColumnType("uuid");
@@ -411,9 +411,8 @@ namespace F1.Infrastructure.Migrations
                     b.Property<int>("ImportedTotalPoints")
                         .HasColumnType("integer");
 
-                    b.Property<decimal>("NetDeltaPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("NetDeltaPoints")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Subject")
                         .IsRequired()
@@ -443,13 +442,11 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal?>("CalculatedPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int?>("CalculatedPoints")
+                        .HasColumnType("integer");
 
-                    b.Property<decimal>("DeltaPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("DeltaPoints")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ExpectedVarianceReasonCode")
                         .HasMaxLength(64)
@@ -847,13 +844,11 @@ namespace F1.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal>("CalculatedPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("CalculatedPoints")
+                        .HasColumnType("integer");
 
-                    b.Property<decimal>("DeltaPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("DeltaPoints")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ExpectedVarianceReasonCode")
                         .HasMaxLength(64)
@@ -1057,9 +1052,8 @@ namespace F1.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<decimal>("TotalDeltaPoints")
-                        .HasPrecision(10, 1)
-                        .HasColumnType("numeric(10,1)");
+                    b.Property<int>("TotalDeltaPoints")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 

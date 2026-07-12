@@ -16,6 +16,14 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         "2",
         "3"
     };
+    private const int PodiumExactPointsPostMode = 10;
+    private const int PodiumTop3WrongSlotPointsPostMode = 5;
+    private const int PodiumExactPointsYesMode = 15;
+    private const decimal PodiumTop3WrongSlotPointsYesMode = 7.5m;
+    private const int AllModeJackpotPoints = 100;
+    private const int RaceBonusBq1ExactPoints = 5;
+    private const int RaceBonusBq2PlusExactPoints = 20;
+    private const decimal SaudiGapPenaltyPerSecond = 2m;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly IQuestionScoringStrategyRegistry _questionScoringStrategyRegistry;
@@ -42,6 +50,12 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
     public async Task<MigrationScoreRecalculationResult> RecalculateAndPersistAsync(Guid runId, CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var sourceFilePath = await dbContext.MigrationImportRuns
+            .Where(x => x.Id == runId)
+            .Select(x => x.SourceFilePath)
+            .SingleOrDefaultAsync(cancellationToken);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath ?? string.Empty);
 
         var selections = await dbContext.MigrationImportRaceSelections
             .Where(x => x.ImportRunId == runId)
@@ -72,16 +86,67 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         dbContext.MigrationImportPreseasonCalculatedTotals.RemoveRange(
             dbContext.MigrationImportPreseasonCalculatedTotals.Where(x => x.ImportRunId == runId));
 
-        var genericQuestionAnswers = await dbContext.QuestionAnswers
-            .OrderBy(x => x.QuestionTemplateId)
-            .ThenBy(x => x.ParticipantId)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        List<QuestionAnswerEntity> genericQuestionAnswers;
+        List<QuestionActualEntity> genericQuestionActuals;
 
-        var genericQuestionActuals = await dbContext.QuestionActuals
-            .OrderBy(x => x.QuestionTemplateId)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        var useDaveGenericQuestionScoping = sourceProfile == MigrationSourceProfile.Dave2025Package ||
+                            (sourceProfile != MigrationSourceProfile.Phil2025Csv &&
+                             selections.Any(x => IsDaveRaceQuestionPickType(x.PickType)));
+
+        if (useDaveGenericQuestionScoping)
+        {
+            var daveQuestionIds = selections
+                .Where(x => IsDaveRaceQuestionPickType(x.PickType))
+                .Select(x => BuildDaveRaceQuestionId(x.RaceCode, x.PickType))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var runParticipants = selections
+                .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Subject)
+                .Concat(preseasonAnswers
+                    .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.Subject))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var daveTemplateIds = daveQuestionIds.Length == 0
+                ? []
+                : await dbContext.QuestionTemplates
+                    .Where(x => daveQuestionIds.Contains(x.QuestionId))
+                    .Select(x => x.Id)
+                    .ToArrayAsync(cancellationToken);
+
+            genericQuestionAnswers = daveTemplateIds.Length == 0 || runParticipants.Length == 0
+                ? []
+                : await dbContext.QuestionAnswers
+                    .Where(x => daveTemplateIds.Contains(x.QuestionTemplateId) && runParticipants.Contains(x.ParticipantId))
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .ThenBy(x => x.ParticipantId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+
+            genericQuestionActuals = daveTemplateIds.Length == 0
+                ? []
+                : await dbContext.QuestionActuals
+                    .Where(x => daveTemplateIds.Contains(x.QuestionTemplateId))
+                    .OrderBy(x => x.QuestionTemplateId)
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+        }
+        else
+        {
+            genericQuestionAnswers = await dbContext.QuestionAnswers
+                .OrderBy(x => x.QuestionTemplateId)
+                .ThenBy(x => x.ParticipantId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+
+            genericQuestionActuals = await dbContext.QuestionActuals
+                .OrderBy(x => x.QuestionTemplateId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken);
+        }
 
         var genericQuestionTemplateIds = genericQuestionAnswers.Select(x => x.QuestionTemplateId)
             .Concat(genericQuestionActuals.Select(x => x.QuestionTemplateId))
@@ -143,10 +208,27 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 .ThenBy(x => x.Subject)
                 .ToList();
 
-            foreach (var participant in participants)
+            foreach (var subjectGroup in participants.GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase))
             {
-                var score = CalculateScore(participant, actualByPickType, actualTop3, actualDnfTokens);
-                calculatedScores.Add(score);
+                var picksByType = subjectGroup
+                    .GroupBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.OrderBy(x => x.RowNumber).First(),
+                        StringComparer.OrdinalIgnoreCase);
+
+                var preQualyMode = ResolvePreQualyMode(
+                    picksByType.TryGetValue("PQ", out var preQualySelection)
+                        ? preQualySelection.NormalizedValue
+                        : null);
+
+                var allModeJackpotHit = preQualyMode == PreQualyMode.All && IsAllModeJackpotHit(picksByType, actualByPickType, actualTop3, actualDnfTokens);
+
+                foreach (var participant in subjectGroup)
+                {
+                    var score = CalculateScore(participant, actualByPickType, actualTop3, actualDnfTokens, preQualyMode, allModeJackpotHit);
+                    calculatedScores.Add(score);
+                }
             }
         }
 
@@ -435,6 +517,19 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .ToList();
     }
 
+    private static bool IsDaveRaceQuestionPickType(string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase) ||
+               pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildDaveRaceQuestionId(string raceCode, string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase)
+            ? $"H2H-{raceCode.ToUpperInvariant()}"
+            : $"RB-{raceCode.ToUpperInvariant()}-{pickType.ToUpperInvariant()}";
+    }
+
     private static (int Points, string ReasonCode) ScorePreseasonAnswer(
         string? predictedValue,
         string? actualValue,
@@ -489,26 +584,54 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         MigrationImportRaceSelectionEntity participant,
         IReadOnlyDictionary<string, string?> actualByPickType,
         ISet<string> actualTop3,
-        ISet<string> actualDnfTokens)
+        ISet<string> actualDnfTokens,
+        PreQualyMode preQualyMode,
+        bool allModeJackpotHit)
     {
         var predicted = NormalizeToken(participant.NormalizedValue);
         var actualForPickType = actualByPickType.TryGetValue(participant.PickType, out var actualValue)
             ? NormalizeToken(actualValue)
             : null;
 
+        if (string.Equals(participant.PickType, "PQ", StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateCalculated(participant, predicted, actualForPickType, 0, $"PQ_MODE_{preQualyMode.ToString().ToUpperInvariant()}");
+        }
+
+        if (preQualyMode == PreQualyMode.All && (PodiumPickTypes.Contains(participant.PickType) || string.Equals(participant.PickType, "DNF", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (allModeJackpotHit)
+            {
+                if (string.Equals(participant.PickType, "1", StringComparison.OrdinalIgnoreCase))
+                {
+                    return CreateCalculated(participant, predicted, actualForPickType, AllModeJackpotPoints, "ALL_MODE_JACKPOT");
+                }
+
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "ALL_MODE_JACKPOT_CREDITED_ON_P1");
+            }
+
+            return CreateCalculated(participant, predicted, actualForPickType, 0, "ALL_MODE_NO_JACKPOT");
+        }
+
         if (PodiumPickTypes.Contains(participant.PickType))
         {
+            decimal exactPoints = preQualyMode == PreQualyMode.Yes ? PodiumExactPointsYesMode : PodiumExactPointsPostMode;
+            decimal top3WrongSlotPoints = preQualyMode == PreQualyMode.Yes ? PodiumTop3WrongSlotPointsYesMode : PodiumTop3WrongSlotPointsPostMode;
+            var exactReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_EXACT_PQ_YES" : "PODIUM_EXACT";
+            var wrongSlotReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_TOP3_WRONG_SLOT_PQ_YES" : "PODIUM_TOP3_WRONG_SLOT";
+            var missReason = preQualyMode == PreQualyMode.Yes ? "PODIUM_MISS_PQ_YES" : "PODIUM_MISS";
+
             if (!string.IsNullOrWhiteSpace(predicted) && string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase))
             {
-                return CreateCalculated(participant, predicted, actualForPickType, 10, "PODIUM_EXACT");
+                return CreateCalculated(participant, predicted, actualForPickType, exactPoints, exactReason);
             }
 
             if (!string.IsNullOrWhiteSpace(predicted) && actualTop3.Contains(predicted))
             {
-                return CreateCalculated(participant, predicted, actualForPickType, 5, "PODIUM_TOP3_WRONG_SLOT");
+                return CreateCalculated(participant, predicted, actualForPickType, top3WrongSlotPoints, wrongSlotReason);
             }
 
-            return CreateCalculated(participant, predicted, actualForPickType, 0, "PODIUM_MISS");
+            return CreateCalculated(participant, predicted, actualForPickType, 0, missReason);
         }
 
         if (string.Equals(participant.PickType, "DNF", StringComparison.OrdinalIgnoreCase))
@@ -531,14 +654,149 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             return CreateCalculated(participant, predicted, actualForPickType, 0, "DNF_MISS");
         }
 
+        if (participant.PickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(predicted))
+            {
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_PREDICTION_NULL");
+            }
+
+            if (string.IsNullOrWhiteSpace(actualForPickType))
+            {
+                return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_ACTUAL_MISSING");
+            }
+
+            if (IsSaudiGapBonusPick(participant.RaceCode, participant.PickType))
+            {
+                if (!TryParseDecimal(predicted, out var predictedGapSeconds) || !TryParseDecimal(actualForPickType, out var actualGapSeconds))
+                {
+                    return CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_NUMERIC_PARSE_FAILED");
+                }
+
+                var roundedPredicted = decimal.Round(predictedGapSeconds, 0, MidpointRounding.AwayFromZero);
+                var roundedActual = decimal.Round(actualGapSeconds, 0, MidpointRounding.AwayFromZero);
+                var gap = decimal.Abs(roundedPredicted - roundedActual);
+                var formulaPoints = decimal.Max(0m, RaceBonusBq2PlusExactPoints - (gap * SaudiGapPenaltyPerSecond));
+
+                return formulaPoints > 0m
+                    ? CreateCalculated(participant, predicted, actualForPickType, formulaPoints, "RACE_BONUS_FORMULA_SCORED")
+                    : CreateCalculated(participant, predicted, actualForPickType, 0m, "RACE_BONUS_FORMULA_ZERO");
+            }
+
+            decimal raceBonusPoints = ResolveRaceBonusExactPoints(participant.PickType);
+
+            return string.Equals(predicted, actualForPickType, StringComparison.OrdinalIgnoreCase)
+                ? CreateCalculated(participant, predicted, actualForPickType, raceBonusPoints, "RACE_BONUS_EXACT")
+                : CreateCalculated(participant, predicted, actualForPickType, 0, "RACE_BONUS_MISS");
+        }
+
         return CreateCalculated(participant, predicted, actualForPickType, 0, "UNSUPPORTED_PICKTYPE");
+    }
+
+    private static bool IsAllModeJackpotHit(
+        IReadOnlyDictionary<string, MigrationImportRaceSelectionEntity> picksByType,
+        IReadOnlyDictionary<string, string?> actualByPickType,
+        ISet<string> actualTop3,
+        ISet<string> actualDnfTokens)
+    {
+        if (!picksByType.TryGetValue("1", out var p1) ||
+            !picksByType.TryGetValue("2", out var p2) ||
+            !picksByType.TryGetValue("3", out var p3) ||
+            !picksByType.TryGetValue("DNF", out var dnf))
+        {
+            return false;
+        }
+
+        var p1Predicted = NormalizeToken(p1.NormalizedValue);
+        var p2Predicted = NormalizeToken(p2.NormalizedValue);
+        var p3Predicted = NormalizeToken(p3.NormalizedValue);
+
+        var p1Actual = actualByPickType.TryGetValue("1", out var p1ActualRaw) ? NormalizeToken(p1ActualRaw) : null;
+        var p2Actual = actualByPickType.TryGetValue("2", out var p2ActualRaw) ? NormalizeToken(p2ActualRaw) : null;
+        var p3Actual = actualByPickType.TryGetValue("3", out var p3ActualRaw) ? NormalizeToken(p3ActualRaw) : null;
+
+        if (!string.Equals(p1Predicted, p1Actual, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(p2Predicted, p2Actual, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(p3Predicted, p3Actual, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var dnfPredicted = NormalizeToken(dnf.NormalizedValue);
+        if (string.IsNullOrWhiteSpace(dnfPredicted))
+        {
+            return actualDnfTokens.Count == 0;
+        }
+
+        return actualDnfTokens.Contains(dnfPredicted);
+    }
+
+    private static PreQualyMode ResolvePreQualyMode(string? rawMode)
+    {
+        var normalized = NormalizeToken(rawMode);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return PreQualyMode.Post;
+        }
+
+        if (normalized is "YES" or "Y" or "PRE")
+        {
+            return PreQualyMode.Yes;
+        }
+
+        if (normalized == "ALL")
+        {
+            return PreQualyMode.All;
+        }
+
+        if (normalized is "POST" or "P")
+        {
+            return PreQualyMode.Post;
+        }
+
+        return PreQualyMode.Post;
+    }
+
+    private static decimal ResolveRaceBonusExactPoints(string pickType)
+    {
+        if (!pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceBonusBq1ExactPoints;
+        }
+
+        if (pickType.Length <= 2)
+        {
+            return RaceBonusBq1ExactPoints;
+        }
+
+        return int.TryParse(pickType.AsSpan(2), out var bqNumber) && bqNumber >= 2
+            ? RaceBonusBq2PlusExactPoints
+            : RaceBonusBq1ExactPoints;
+    }
+
+    private static bool IsSaudiGapBonusPick(string raceCode, string pickType)
+    {
+        return string.Equals(raceCode, "jeddah", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(pickType, "BQ2", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseDecimal(string value, out decimal parsed)
+    {
+        return decimal.TryParse(value, out parsed);
+    }
+
+    private enum PreQualyMode
+    {
+        Post,
+        Yes,
+        All
     }
 
     private static MigrationImportCalculatedScoreEntity CreateCalculated(
         MigrationImportRaceSelectionEntity participant,
         string? predicted,
         string? actual,
-        int points,
+        decimal points,
         string reasonCode)
     {
         return new MigrationImportCalculatedScoreEntity
@@ -550,7 +808,7 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             Subject = participant.Subject,
             PredictedValue = predicted,
             ActualValue = actual,
-            Points = Math.Max(0, points),
+            Points = decimal.Max(0m, points),
             ReasonCode = reasonCode
         };
     }

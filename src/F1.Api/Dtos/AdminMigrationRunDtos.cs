@@ -20,8 +20,8 @@ public sealed record AdminMigrationRunListItemDto(
     int UnresolvedTokenCount,
     int PickDiffCount,
     int RaceDiffCount,
-    int TotalDeltaPoints,
-    int UnexpectedTotalDeltaPoints,
+    decimal TotalDeltaPoints,
+    decimal UnexpectedTotalDeltaPoints,
     string? ErrorMessage);
 
 public sealed record AdminMigrationRunDetailResponseDto(
@@ -37,8 +37,8 @@ public sealed record AdminMigrationRunDetailResponseDto(
     int UnresolvedTokenCount,
     int PickDiffCount,
     int RaceDiffCount,
-    int TotalDeltaPoints,
-    int UnexpectedTotalDeltaPoints,
+    decimal TotalDeltaPoints,
+    decimal UnexpectedTotalDeltaPoints,
     IReadOnlyList<AdminMigrationUnresolvedTokenSummaryDto> UnresolvedTokenSummary,
     IReadOnlyList<AdminMigrationParticipantDeltaDto> ParticipantDeltas,
     AdminMigrationPreseasonSummaryDto PreseasonSummary,
@@ -47,8 +47,26 @@ public sealed record AdminMigrationRunDetailResponseDto(
     IReadOnlyList<AdminMigrationPreseasonReasonCategorySummaryDto> PreseasonReasonCategorySummaries,
     IReadOnlyList<AdminMigrationRaceDiffDto> RaceDiffs,
     IReadOnlyList<AdminMigrationPickDiffDto> PickDiffs,
+    IReadOnlyList<AdminMigrationParticipantComponentDeltaDto>? ParticipantComponentDeltas = null,
+    IReadOnlyList<AdminMigrationCdpParityDto>? CdpParity = null,
+    IReadOnlyList<AdminMigrationSourceManifestItemDto>? SourceManifest = null,
+    IReadOnlyList<AdminMigrationSourceContractDiagnosticDto>? SourceContractDiagnostics = null,
+    int? H2hPointsPolicy = null,
+    int? PreseasonPointsPolicy = null,
+    IReadOnlyList<AdminMigrationRaceBonusModeDto>? RaceBonusModes = null,
     IReadOnlyList<AdminMigrationConflictDiagnosticDto>? ConflictDiagnostics = null,
     IReadOnlyList<AdminMigrationRollbackAuditDto>? RollbackAudits = null);
+
+public sealed record AdminMigrationRaceBonusModeDto(
+    string QuestionId,
+    string Prompt,
+    string Mode,
+    int PointsForCorrectPick,
+    decimal? Tolerance,
+    decimal? LowerTolerance,
+    decimal? UpperTolerance,
+    decimal? FormulaMaxPoints,
+    decimal? FormulaPenaltyPerUnit);
 
 public sealed record AdminMigrationRollbackRequestDto(
     string Reason);
@@ -90,8 +108,8 @@ public sealed record AdminMigrationUnresolvedTokenSummaryDto(
 public sealed record AdminMigrationParticipantDeltaDto(
     string Subject,
     int ImportedTotalPoints,
-    int CalculatedTotalPoints,
-    int NetDeltaPoints,
+    decimal CalculatedTotalPoints,
+    decimal NetDeltaPoints,
     string? TopReasonCode,
     int TopReasonCount);
 
@@ -114,6 +132,8 @@ public sealed record AdminMigrationPreseasonQuestionDiffDto(
     string QuestionKey,
     string QuestionText,
     string Subject,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
     int? CalculatedPoints,
     int DeltaPoints,
@@ -125,25 +145,65 @@ public sealed record AdminMigrationPreseasonReasonCategorySummaryDto(
     int OccurrenceCount,
     int TotalDeltaPoints);
 
+public sealed record AdminMigrationParticipantComponentDeltaDto(
+    string Subject,
+    decimal ImportedRacePoints,
+    decimal CalculatedRacePoints,
+    int ImportedPreseasonPoints,
+    int CalculatedPreseasonPoints,
+    decimal ImportedTotalPoints,
+    decimal CalculatedTotalPoints,
+    decimal NetDeltaPoints,
+    string? TopReasonCode,
+    int TopReasonCount);
+
+public sealed record AdminMigrationCdpParityDto(
+    string Subject,
+    int? ImportedCdp,
+    int CalculatedCdp,
+    int Delta,
+    bool IsParity);
+
+public sealed record AdminMigrationSourceManifestItemDto(
+    string SourceFileName,
+    int RowCount,
+    int HeaderCount,
+    int RacePickCount,
+    int SeasonQuestionPredictionCount,
+    int RacePointsCount,
+    int TotalsMetaCount,
+    int UnclassifiedCount,
+    int SourceArtifactCount);
+
+public sealed record AdminMigrationSourceContractDiagnosticDto(
+    string Code,
+    string Severity,
+    string Message);
+
 public sealed record AdminMigrationRaceDiffDto(
     string RaceCode,
     string Subject,
+    string? ChosenPicks,
+    string? ActualPicks,
     int ImportedPoints,
-    int CalculatedPoints,
-    int DeltaPoints,
+    decimal CalculatedPoints,
+    decimal DeltaPoints,
     string ReasonCode,
     string Explanation,
     bool IsExpectedVariance = false,
     string? ExpectedVarianceReasonCode = null,
-    string? ExpectedVarianceRuleId = null);
+    string? ExpectedVarianceRuleId = null,
+    decimal? ImportedRacePoints = null);
 
 public sealed record AdminMigrationPickDiffDto(
     string RaceCode,
     string PickType,
     string Subject,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
-    int? CalculatedPoints,
-    int DeltaPoints,
+    decimal? CalculatedPoints,
+    decimal DeltaPoints,
     string ReasonCode,
     string Explanation,
     bool IsExpectedVariance = false,
@@ -153,11 +213,13 @@ public sealed record AdminMigrationPickDiffDto(
 public sealed record AdminMigrationRunKickoffRequestDto(
     string? SourceFilePath,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffUploadRequestDto(
     IFormFile? SourceFile,
     string Mode,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record AdminMigrationRunKickoffResponseDto(
@@ -189,9 +251,12 @@ public sealed record AdminMigrationQuestionDiffDto(
     string QuestionId,
     string QuestionText,
     string Participant,
+    string? ChosenAnswer,
+    string? ActualAnswer,
     int? ImportedPoints,
     int CalculatedPoints,
-    int DeltaPoints);
+    int DeltaPoints,
+    string ReasonCode);
 
 public sealed record AdminMigrationQuestionDiffSummaryResponseDto(
     int TotalCount,

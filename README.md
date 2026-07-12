@@ -182,7 +182,9 @@ Optional development toggle in `.env`:
 - `DEV_MOCK_EMAIL`: mapped to `DevSettings__MockEmail` for `f1-api`. Sets the mock user identity used when simulating Cloudflare locally.
 - `DEV_MOCK_GROUPS`: mapped to `DevSettings__MockGroups` for `f1-api`. Sets the mock group memberships used for local Admin/non-Admin testing.
 - `DEV_ENABLE_DEBUG_ENDPOINTS`: mapped to `DevSettings__EnableDebugEndpoints` for `f1-api`. When `true`, enables the test-only `/api/users/debug/me` diagnostics endpoint in allowed environments.
-- `HOST_MIGRATION_UPLOAD_PATH`: shared host path bind-mounted to `/tmp/f1-imports` in both `f1-api` and `f1-data-sync-worker` so uploaded migration files are readable by the worker container. Ensure the host directory exists and is writable by container users, for example: `mkdir -p /tmp/f1-migration-imports && chmod 1777 /tmp/f1-migration-imports`.
+- `HOST_MIGRATION_UPLOAD_PATH`: shared host path bind-mounted to `/tmp/f1-imports` in both `f1-api` and `f1-data-sync-worker` so uploaded migration files are readable by the worker container. This directory must be pre-created on every environment host, including `test` and `prod`, before `docker compose up` or container restart. Ensure it is writable by the non-root container user, for example: `mkdir -p /tmp/f1-migration-imports && chmod 1777 /tmp/f1-migration-imports`.
+- If this directory is missing or left as `root:root` with `755`, the API may fall back to a private temp path that the worker cannot see, and uploaded Dave package runs will fail during processing.
+- Recommended deployment practice: create or repair `HOST_MIGRATION_UPLOAD_PATH` in host provisioning, cloud-init, Ansible, or a pre-start script rather than relying on a one-time manual fix.
 
 Notes:
 

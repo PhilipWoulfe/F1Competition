@@ -21,6 +21,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
     private const string ViewImported = "imported";
     private const string ViewRecalculated = "recalculated";
     private const string ActiveScoreSourceImportedLegacy = "ImportedLegacy";
+    private const string CdpPickType = "CDP";
 
     public async Task<CompetitionLeaderboardResponseDto> GetLeaderboardAsync(string competitionSlug, int season, string scoreView, bool isAdmin, CancellationToken cancellationToken = default)
     {
@@ -60,6 +61,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
 
         var raceTotals = await dbContext.RacePickScores
             .AsNoTracking()
+            .Where(score => score.PickType != CdpPickType)
             .Join(
                 dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
                 score => score.RaceId,
@@ -161,6 +163,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             ? []
             : await dbContext.RacePickScores
                 .AsNoTracking()
+                .Where(score => score.PickType != CdpPickType)
                 .Join(
                     dbContext.Races.AsNoTracking().Where(race => race.CompetitionId == competition.Id && race.Season == season),
                     score => score.RaceId,

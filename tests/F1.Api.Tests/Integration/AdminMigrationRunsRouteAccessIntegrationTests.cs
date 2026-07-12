@@ -231,6 +231,7 @@ public sealed class AdminMigrationRunsRouteAccessIntegrationTests : IClassFixtur
         var content = new MultipartFormDataContent();
         var csvBytes = System.Text.Encoding.UTF8.GetBytes("Question,Philip\nAUS-1,VER");
         content.Add(new ByteArrayContent(csvBytes), "SourceFile", "import.csv");
+        content.Add(new StringContent("phil-2025-csv"), "SourceProfile");
         content.Add(new StringContent("dry-run"), "Mode");
         return content;
     }

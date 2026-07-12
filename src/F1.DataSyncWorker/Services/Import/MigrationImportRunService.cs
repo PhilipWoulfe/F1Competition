@@ -96,6 +96,7 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
         var entities = rows.Select(row => new MigrationImportRawRowEntity
         {
             ImportRunId = runId,
+            SourceFileName = Truncate(row.SourceFileName, 256),
             RowNumber = row.RowNumber,
             SectionType = row.SectionType,
             RawPayload = row.RawPayload,
@@ -172,9 +173,26 @@ public sealed class MigrationImportRunService : IMigrationImportRunService
 
     private static async Task<string> ComputeSha256Async(string sourceFilePath, CancellationToken cancellationToken)
     {
+        if (Directory.Exists(sourceFilePath))
+        {
+            var validation = Dave2025SourcePackageContract.Validate(sourceFilePath);
+            if (validation.AppliesContract && !validation.IsValid)
+            {
+                var missing = string.Join(", ", validation.MissingFiles.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+                var extras = validation.ExtraFiles.Count == 0
+                    ? "none"
+                    : string.Join(", ", validation.ExtraFiles.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+
+                throw new InvalidOperationException(
+                    $"Invalid Dave 2025 source package at '{sourceFilePath}'. Missing required files: [{missing}]. Extra files: [{extras}].");
+            }
+
+            return await Dave2025SourcePackageContract.ComputeManifestChecksumAsync(sourceFilePath, cancellationToken);
+        }
+
         if (!File.Exists(sourceFilePath))
         {
-            throw new FileNotFoundException("Migration source file was not found.", sourceFilePath);
+            throw new FileNotFoundException("Migration source file or package directory was not found.", sourceFilePath);
         }
 
         await using var stream = File.OpenRead(sourceFilePath);

@@ -20,6 +20,7 @@ public sealed record MigrationRunKickoffCommand(
     string? SourceFilePath,
     string RequestedMode,
     string RequestedBy,
+    string? SourceProfile = null,
     bool ConfirmNonEmptyStrategy = false);
 
 public sealed record MigrationRunKickoffResult(

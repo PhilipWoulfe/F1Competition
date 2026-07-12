@@ -109,6 +109,115 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task KickoffRunAsync_WhenDaveProfileUsesCsvPath_FailsValidation()
+    {
+        var options = CreateOptions();
+        var sourcePath = CreateTempCsv(
+            "Question,Philip\n" +
+            "AUS-1,VER\n");
+
+        try
+        {
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: sourcePath,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("does not match", result.Error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public async Task KickoffRunAsync_WhenDavePackageChecksumMatchesActiveRun_ReturnsConflict()
+    {
+        var options = CreateOptions();
+        var packageRoot = CreateTempDavePackage();
+
+        try
+        {
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var first = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: packageRoot,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.True(first.Success);
+
+            var second = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: packageRoot,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "dave-2025-package"),
+                CancellationToken.None);
+
+            Assert.False(second.Success);
+            Assert.True(second.Conflict);
+            Assert.NotNull(second.ExistingRunId);
+        }
+        finally
+        {
+            if (Directory.Exists(packageRoot))
+            {
+                Directory.Delete(packageRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task KickoffRunAsync_WhenSourcePathIsUnderExpandedTempUploadRoot_AcceptsPath()
+    {
+        var options = CreateOptions();
+        var uploadRoot = Path.Combine(Path.GetTempPath(), "f1-api-uploads", $"test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(uploadRoot);
+        var sourcePath = Path.Combine(uploadRoot, "import.csv");
+        File.WriteAllText(sourcePath,
+            "Question,Philip\n" +
+            "AUS-1,VER\n");
+
+        try
+        {
+            await using var serviceContext = new F1DbContext(options);
+            var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+            var result = await service.KickoffRunAsync(
+                new MigrationRunKickoffCommand(
+                    SourceFilePath: sourcePath,
+                    RequestedMode: "dry-run",
+                    RequestedBy: "admin@example.com",
+                    SourceProfile: "phil-2025-csv"),
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.Run);
+            Assert.Equal(Path.GetFullPath(sourcePath), result.Run!.SourceFilePath);
+        }
+        finally
+        {
+            if (Directory.Exists(uploadRoot))
+            {
+                Directory.Delete(uploadRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RollbackRunAsync_DeletesCanonicalScopeAndPersistsAudit()
     {
         var runId = Guid.NewGuid();
@@ -596,6 +705,52 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "aaa-race"
                 });
 
+            dbContext.MigrationImportRaceSelections.AddRange(
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "zzz_race",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "VER",
+                    NormalizedValue = "max_verstappen",
+                    IsActualOutcome = false
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "zzz_race",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "NOR",
+                    NormalizedValue = "norris",
+                    IsActualOutcome = true
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 20,
+                    RaceCode = "aaa_race",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "LEC",
+                    NormalizedValue = "leclerc",
+                    IsActualOutcome = false
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 20,
+                    RaceCode = "aaa_race",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "PIA",
+                    NormalizedValue = "piastri",
+                    IsActualOutcome = true
+                });
+
             await dbContext.SaveChangesAsync();
         }
 
@@ -606,6 +761,9 @@ public sealed class MigrationRunAdminServiceTests
         Assert.NotNull(detail);
         Assert.Equal(new[] { "zzz_race", "aaa_race" }, detail!.PickDiffs.Select(x => x.RaceCode).ToArray());
         Assert.Equal(new[] { "zzz_race", "aaa_race" }, detail.RaceDiffs.Select(x => x.RaceCode).ToArray());
+        Assert.Equal("1:VER", detail.RaceDiffs[0].ChosenPicks);
+        Assert.Equal("1:NOR", detail.RaceDiffs[0].ActualPicks);
+        Assert.Equal(10, detail.RaceDiffs[0].ImportedRacePoints);
 
         var export = await service.ExportRunDiffsAsync(runId, "pick-diffs", "json", "admin@example.com", CancellationToken.None, null);
         Assert.NotNull(export);
@@ -617,6 +775,8 @@ public sealed class MigrationRunAdminServiceTests
 
         Assert.NotNull(exportedRows);
         Assert.Equal(new[] { "zzz_race", "aaa_race" }, exportedRows!.Select(x => x.RaceCode).ToArray());
+        Assert.Equal("VER", exportedRows[0].ChosenAnswer);
+        Assert.Equal("NOR", exportedRows[0].ActualAnswer);
     }
 
     [Fact]
@@ -669,6 +829,52 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "a"
                 });
 
+            dbContext.MigrationImportPreseasonAnswers.AddRange(
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Amy",
+                    RawAnswer = "YES",
+                    NormalizedAnswer = "YES",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "ACTUAL",
+                    RawAnswer = "YES",
+                    NormalizedAnswer = "YES",
+                    IsActualOutcome = true
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "Zed",
+                    RawAnswer = "NOR",
+                    NormalizedAnswer = "norris",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "ACTUAL",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = true
+                });
+
             dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
                 new MigrationImportPreseasonParticipantDeltaSummaryEntity
                 {
@@ -707,6 +913,8 @@ public sealed class MigrationRunAdminServiceTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.NotNull(questionRows);
         Assert.Equal(new[] { 22, 23 }, questionRows!.Select(x => x.RowNumber).ToArray());
+        Assert.Equal("YES", questionRows[0].ChosenAnswer);
+        Assert.Equal("YES", questionRows[0].ActualAnswer);
 
         var participantExport = await service.ExportRunDiffsAsync(runId, "preseason-participant-diffs", "json", "admin@example.com", CancellationToken.None, null);
         Assert.NotNull(participantExport);
@@ -784,6 +992,974 @@ public sealed class MigrationRunAdminServiceTests
         Assert.Equal("KNOWN_LEGACY_POINTS_ERROR", detail.PickDiffs.Single().ExpectedVarianceReasonCode);
         Assert.Equal("phil-aus-1-expected", detail.PickDiffs.Single().ExpectedVarianceRuleId);
         Assert.True(detail.RaceDiffs.Single().IsExpectedVariance);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRun_UsesLeaderboardRaceTotalForImportedRacePointsDisplay()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 6, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 6, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 2
+            });
+
+            dbContext.MigrationImportRaceDiffs.AddRange(
+                new MigrationImportRaceDiffEntity
+                {
+                    Id = 10,
+                    ImportRunId = runId,
+                    RaceCode = "LEADERBOARD",
+                    Subject = "Philip",
+                    ImportedPoints = 60,
+                    CalculatedPoints = 58,
+                    DeltaPoints = -2,
+                    ReasonCode = "RULE_VARIANCE",
+                    Explanation = "leaderboard"
+                },
+                new MigrationImportRaceDiffEntity
+                {
+                    Id = 20,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    Subject = "Philip",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 20,
+                    DeltaPoints = 20,
+                    ReasonCode = "LEGACY_POINTS_MISSING",
+                    Explanation = "missing"
+                });
+
+            dbContext.MigrationImportLegacyPickScores.AddRange(
+                new MigrationImportLegacyPickScoreEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "LEADERBOARD",
+                    PickType = "RACE_TOTAL",
+                    Subject = "Philip",
+                    RawLegacyPoints = "48",
+                    LegacyPoints = 48
+                },
+                new MigrationImportLegacyPickScoreEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "LEADERBOARD",
+                    PickType = "BONUS_TOTAL",
+                    Subject = "Philip",
+                    RawLegacyPoints = "12",
+                    LegacyPoints = 12
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var leaderboardRow = Assert.Single(detail!.RaceDiffs, x => x.RaceCode == "LEADERBOARD");
+        Assert.Equal(48, leaderboardRow.ImportedRacePoints);
+
+        var perRaceRow = Assert.Single(detail.RaceDiffs, x => x.RaceCode == "albert_park");
+        Assert.Null(perRaceRow.ImportedRacePoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRun_HydratesPerRaceImportedPointsFromLeaderboardColumns()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 6, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 6, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.AddRange(
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 1,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R01",
+                    MappedCircuitId = "albert_park"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 2,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R02",
+                    MappedCircuitId = "shanghai"
+                });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Philip,15,22.5,18,591.5,0,921.5,330,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.AddRange(
+                new MigrationImportRaceDiffEntity
+                {
+                    Id = 10,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    Subject = "Philip",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 20,
+                    DeltaPoints = 20,
+                    ReasonCode = "LEGACY_POINTS_MISSING",
+                    Explanation = "missing"
+                },
+                new MigrationImportRaceDiffEntity
+                {
+                    Id = 20,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    Subject = "Philip",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 18,
+                    DeltaPoints = 18,
+                    ReasonCode = "LEGACY_POINTS_MISSING",
+                    Explanation = "missing"
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.Equal(15m, Assert.Single(detail!.RaceDiffs, x => x.RaceCode == "albert_park").ImportedRacePoints);
+        Assert.Equal(22.5m, Assert.Single(detail.RaceDiffs, x => x.RaceCode == "shanghai").ImportedRacePoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunParticipantRaceTotalDiffersFromLegacy_UsesLeaderboardRaceTotalInParticipantComparison()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 12, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 12, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.AddRange(
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 1,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R01",
+                    MappedCircuitId = "albert_park"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 2,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R02",
+                    MappedCircuitId = "shanghai"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 3,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R03",
+                    MappedCircuitId = "suzuka"
+                });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,JPN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "ColmF,100,100,115,0,315,0,555,240,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "LEADERBOARD",
+                PickType = "RACE_TOTAL",
+                Subject = "ColmF",
+                RawLegacyPoints = "251",
+                LegacyPoints = 251
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    RaceCode = "suzuka",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 91,
+                    CalculatedPoints = 91,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var component = Assert.Single(detail!.ParticipantComponentDeltas!);
+        Assert.Equal("ColmF", component.Subject);
+        Assert.Equal(315m, component.ImportedRacePoints);
+        Assert.Equal(555m, component.ImportedTotalPoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunParticipantRaceTotalHasDecimal_UsesLeaderboardDecimalRaceTotalInParticipantComparison()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 12, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 12, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.AddRange(
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 1,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R01",
+                    MappedCircuitId = "albert_park"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 2,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R02",
+                    MappedCircuitId = "shanghai"
+                },
+                new MigrationImportRaceRoundMappingEntity
+                {
+                    ImportRunId = runId,
+                    RaceSequence = 3,
+                    SourceRowNumber = 2,
+                    SourceRaceCode = "R03",
+                    MappedCircuitId = "suzuka"
+                });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,JPN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DavidJ,100,100,177.5,0,377.5,0,677.5,300,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "LEADERBOARD",
+                PickType = "RACE_TOTAL",
+                Subject = "DavidJ",
+                RawLegacyPoints = "24",
+                LegacyPoints = 24
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 80,
+                    CalculatedPoints = 80,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    RaceCode = "suzuka",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 91,
+                    CalculatedPoints = 91,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var component = Assert.Single(detail!.ParticipantComponentDeltas!);
+        Assert.Equal("DavidJ", component.Subject);
+        Assert.Equal(377.5m, component.ImportedRacePoints);
+        Assert.Equal(677.5m, component.ImportedTotalPoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRun_KnownMissingReasonsAreSuppressedFromDisplayedDiffs()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 20,
+                    DeltaPoints = 20,
+                    ReasonCode = "LEGACY_POINTS_MISSING",
+                    Explanation = "known missing"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "BQ1",
+                    Subject = "ColmF",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 5,
+                    DeltaPoints = 5,
+                    ReasonCode = "RACE_BONUS_EXACT",
+                    Explanation = "valid diff"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    RaceCode = "LEADERBOARD",
+                    PickType = "BONUS_TOTAL",
+                    Subject = "ColmF",
+                    ImportedPoints = 300,
+                    CalculatedPoints = null,
+                    DeltaPoints = -300,
+                    ReasonCode = "CALCULATED_POINTS_MISSING",
+                    Explanation = "summary row"
+                });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.AddRange(
+                new MigrationImportPreseasonQuestionDiffEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 1,
+                    QuestionKey = "PRE-001",
+                    QuestionText = "q1",
+                    Subject = "ColmF",
+                    ImportedPoints = 0,
+                    CalculatedPoints = 30,
+                    DeltaPoints = 30,
+                    ReasonCode = "PRESEASON_IMPORTED_MISSING",
+                    Explanation = "known missing"
+                },
+                new MigrationImportPreseasonQuestionDiffEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    QuestionKey = "PRE-002",
+                    QuestionText = "q2",
+                    Subject = "ColmF",
+                    ImportedPoints = 10,
+                    CalculatedPoints = 0,
+                    DeltaPoints = -10,
+                    ReasonCode = "PRESEASON_RULE_VARIANCE",
+                    Explanation = "valid diff"
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.DoesNotContain(detail!.PickDiffs, x => x.ReasonCode == "LEGACY_POINTS_MISSING");
+        Assert.DoesNotContain(detail.PickDiffs, x => x.RaceCode == "LEADERBOARD" && x.PickType == "BONUS_TOTAL");
+        Assert.DoesNotContain(detail.PreseasonQuestionDiffs, x => x.ReasonCode == "PRESEASON_IMPORTED_MISSING");
+
+        var participant = Assert.Single(detail.ParticipantDeltas);
+        Assert.Equal("ColmF", participant.Subject);
+        Assert.Equal(5, participant.NetDeltaPoints);
+
+        Assert.NotNull(detail.ParticipantComponentDeltas);
+        var component = Assert.Single(detail.ParticipantComponentDeltas!);
+        Assert.Equal("ColmF", component.Subject);
+        Assert.Equal(25, component.CalculatedRacePoints);
+        Assert.Equal(30, component.CalculatedPreseasonPoints);
+        Assert.Equal(55, component.CalculatedTotalPoints);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunLeaderboardRaceDiffHasLegacyTotal_UsesLeaderboardOverallTotalAndCalculatedOverallTotal()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,JPN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "ColmF,100,100,115,0,315,0,555,240,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RaceCode = "LEADERBOARD",
+                Subject = "ColmF",
+                ImportedPoints = 251,
+                CalculatedPoints = 0,
+                DeltaPoints = -251,
+                ReasonCode = "LEGACY_POINTS_MISSING",
+                Explanation = "legacy"
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 10,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 100,
+                    CalculatedPoints = 100,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 11,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 100,
+                    CalculatedPoints = 100,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 12,
+                    ImportRunId = runId,
+                    RaceCode = "suzuka",
+                    PickType = "1",
+                    Subject = "ColmF",
+                    ImportedPoints = 115,
+                    CalculatedPoints = 115,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 99,
+                QuestionKey = "PRE-099",
+                QuestionText = "bonus",
+                Subject = "ColmF",
+                ImportedPoints = 240,
+                CalculatedPoints = 240,
+                DeltaPoints = 0,
+                ReasonCode = "QUESTION_POINTS_MATCH",
+                Explanation = "match"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var leaderboard = Assert.Single(detail!.RaceDiffs, x => x.RaceCode == "LEADERBOARD" && x.Subject == "ColmF");
+        Assert.Equal(555m, leaderboard.ImportedRacePoints);
+        Assert.Equal(555, leaderboard.ImportedPoints);
+        Assert.Equal(555m, leaderboard.CalculatedPoints);
+        Assert.Equal(0m, leaderboard.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", leaderboard.ReasonCode);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunLeaderboardRaceDiffHasCalculatedTotalAndVariance_UsesRaceRuleVarianceReason()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,AUS,CHN,JPN,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DavidJ,100,100,124.5,0,324.5,0,677.5,353,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RaceCode = "LEADERBOARD",
+                Subject = "DavidJ",
+                ImportedPoints = 324,
+                CalculatedPoints = 0,
+                DeltaPoints = -324,
+                ReasonCode = "CALCULATED_POINTS_MISSING",
+                Explanation = "legacy"
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 10,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 100,
+                    CalculatedPoints = 100,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 11,
+                    ImportRunId = runId,
+                    RaceCode = "shanghai",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 100,
+                    CalculatedPoints = 100,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 12,
+                    ImportRunId = runId,
+                    RaceCode = "suzuka",
+                    PickType = "1",
+                    Subject = "DavidJ",
+                    ImportedPoints = 124,
+                    CalculatedPoints = 124,
+                    DeltaPoints = 0,
+                    ReasonCode = "RACE_POINTS_MATCH",
+                    Explanation = "match"
+                });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 99,
+                QuestionKey = "PRE-099",
+                QuestionText = "bonus",
+                Subject = "DavidJ",
+                ImportedPoints = 353,
+                CalculatedPoints = 353,
+                DeltaPoints = 0,
+                ReasonCode = "QUESTION_POINTS_MATCH",
+                Explanation = "match"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var leaderboard = Assert.Single(detail!.RaceDiffs, x => x.RaceCode == "LEADERBOARD" && x.Subject == "DavidJ");
+        Assert.Equal(677.5m, leaderboard.ImportedRacePoints);
+        Assert.Equal(677m, leaderboard.CalculatedPoints);
+        Assert.Equal(0m, leaderboard.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", leaderboard.ReasonCode);
+        Assert.DoesNotContain("CALCULATED_POINTS_MISSING", leaderboard.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunImportedRacePointsAreHalfPointAndRoundedEquivalent_TreatsRaceAsMatch()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+            {
+                ImportRunId = runId,
+                RaceSequence = 1,
+                SourceRowNumber = 2,
+                SourceRaceCode = "R01",
+                MappedCircuitId = "americas"
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,USA,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DearbhlaR,27.5,0,0,0,0,0,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 10,
+                ImportRunId = runId,
+                RaceCode = "americas",
+                Subject = "DearbhlaR",
+                ImportedPoints = 0,
+                CalculatedPoints = 28,
+                DeltaPoints = 28,
+                ReasonCode = "LEGACY_POINTS_MISSING",
+                Explanation = "missing"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        var race = Assert.Single(detail!.RaceDiffs);
+        Assert.Equal(27.5m, race.ImportedRacePoints);
+        Assert.Equal(28, race.ImportedPoints);
+        Assert.Equal(28, race.CalculatedPoints);
+        Assert.Equal(0, race.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", race.ReasonCode);
+        Assert.Contains("27.5", race.Explanation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenDaveRunImportedRacePointsExactlyMatchCalculatedDecimal_TreatsRaceAsMatch()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 11, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 11, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 3
+            });
+
+            dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+            {
+                ImportRunId = runId,
+                RaceSequence = 1,
+                SourceRowNumber = 2,
+                SourceRaceCode = "R01",
+                MappedCircuitId = "americas"
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "Name,USA,CDP,Points,Bets,Total,Bonus,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "DearbhlaR,27.5,0,0,0,0,0,",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 11,
+                ImportRunId = runId,
+                RaceCode = "americas",
+                Subject = "DearbhlaR",
+                ImportedPoints = 0,
+                CalculatedPoints = 27.5m,
+                DeltaPoints = 27.5m,
+                ReasonCode = "LEGACY_POINTS_MISSING",
+                Explanation = "missing"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        var race = Assert.Single(detail!.RaceDiffs);
+        Assert.Equal(27.5m, race.ImportedRacePoints);
+        Assert.Equal(27.5m, race.CalculatedPoints);
+        Assert.Equal(0m, race.DeltaPoints);
+        Assert.Equal("RACE_POINTS_MATCH", race.ReasonCode);
+        Assert.DoesNotContain("LEGACY_POINTS_MISSING", race.ReasonCode, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -888,6 +2064,84 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetRunDetailAsync_RaceParticipantTotals_ExcludeCdpPickType()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportPickDiffs.AddRange(
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "Philip",
+                    ImportedPoints = 10,
+                    CalculatedPoints = 6,
+                    DeltaPoints = -4,
+                    ReasonCode = "PODIUM_RULE_VARIANCE",
+                    Explanation = "P1 mismatch"
+                },
+                new MigrationImportPickDiffEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RaceCode = "meta",
+                    PickType = "CDP",
+                    Subject = "Philip",
+                    ImportedPoints = 2,
+                    CalculatedPoints = 0,
+                    DeltaPoints = -2,
+                    ReasonCode = "CDP_TIE_BREAK",
+                    Explanation = "Tie-break only"
+                });
+
+            dbContext.MigrationImportRaceDiffs.Add(new MigrationImportRaceDiffEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RaceCode = "albert_park",
+                Subject = "Philip",
+                ImportedPoints = 12,
+                CalculatedPoints = 6,
+                DeltaPoints = -6,
+                ReasonCode = "PODIUM_RULE_VARIANCE",
+                Explanation = "Aggregated"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var participant = Assert.Single(detail!.ParticipantDeltas);
+        Assert.Equal("Philip", participant.Subject);
+        Assert.Equal(10, participant.ImportedTotalPoints);
+        Assert.Equal(6, participant.CalculatedTotalPoints);
+        Assert.Equal(-4, participant.NetDeltaPoints);
+        Assert.Equal("PODIUM_RULE_VARIANCE", participant.TopReasonCode);
+    }
+
+    [Fact]
     public async Task GetRunDetailAsync_ProjectsPreseasonSections_WithDeterministicOrdering()
     {
         var runId = Guid.NewGuid();
@@ -951,6 +2205,63 @@ public sealed class MigrationRunAdminServiceTests
                     Explanation = "q1-philip"
                 });
 
+            dbContext.MigrationImportPreseasonAnswers.AddRange(
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Andy",
+                    RawAnswer = "NOR",
+                    NormalizedAnswer = "norris",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "Philip",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 22,
+                    QuestionKey = "PRE-022",
+                    QuestionText = "Q1",
+                    Subject = "ACTUAL",
+                    RawAnswer = "VER",
+                    NormalizedAnswer = "max_verstappen",
+                    IsActualOutcome = true
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "Philip",
+                    RawAnswer = "HAM",
+                    NormalizedAnswer = "hamilton",
+                    IsActualOutcome = false
+                },
+                new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 23,
+                    QuestionKey = "PRE-023",
+                    QuestionText = "Q2",
+                    Subject = "ACTUAL",
+                    RawAnswer = "LEC",
+                    NormalizedAnswer = "leclerc",
+                    IsActualOutcome = true
+                });
+
             dbContext.MigrationImportPreseasonParticipantDeltaSummaries.AddRange(
                 new MigrationImportPreseasonParticipantDeltaSummaryEntity
                 {
@@ -1010,8 +2321,354 @@ public sealed class MigrationRunAdminServiceTests
 
         Assert.Equal(new[] { "Andy", "Philip", "Philip" }, detail.PreseasonQuestionDiffs.Select(x => x.Subject).ToArray());
         Assert.Equal(new[] { 22, 22, 23 }, detail.PreseasonQuestionDiffs.Select(x => x.RowNumber).ToArray());
+        Assert.Equal("NOR", detail.PreseasonQuestionDiffs[0].ChosenAnswer);
+        Assert.Equal("VER", detail.PreseasonQuestionDiffs[0].ActualAnswer);
         Assert.Equal(new[] { "Andy", "Philip" }, detail.PreseasonParticipantDeltas.Select(x => x.Subject).ToArray());
         Assert.Equal(new[] { "PRESEASON_RULE_VARIANCE", "PRESEASON_IMPORTED_MISSING" }, detail.PreseasonReasonCategorySummaries.Select(x => x.ReasonCode).ToArray());
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_ForDaveProfile_IncludesComponentAndSourceDiagnostics()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 5
+            });
+
+            dbContext.MigrationImportPickDiffs.Add(new MigrationImportPickDiffEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                ImportedPoints = 10,
+                CalculatedPoints = 5,
+                DeltaPoints = -5,
+                ReasonCode = "PODIUM_EXACT_WRONG_SLOT",
+                Explanation = "Slot mismatch",
+                IsExpectedVariance = false
+            });
+
+            dbContext.MigrationImportPreseasonQuestionDiffs.Add(new MigrationImportPreseasonQuestionDiffEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 22,
+                QuestionKey = "PRE-022",
+                QuestionText = "Who wins?",
+                Subject = "Philip",
+                ImportedPoints = 20,
+                CalculatedPoints = 0,
+                DeltaPoints = -20,
+                ReasonCode = "PRESEASON_RULE_VARIANCE",
+                Explanation = "Mismatch"
+            });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "meta",
+                PickType = "CDP",
+                Subject = "Philip",
+                RawLegacyPoints = "2",
+                LegacyPoints = 2
+            });
+
+            dbContext.MigrationImportCalculatedScores.AddRange(
+                new MigrationImportCalculatedScoreEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "Philip",
+                    Points = 10,
+                    ReasonCode = "PODIUM_EXACT"
+                },
+                new MigrationImportCalculatedScoreEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "albert_park",
+                    PickType = "2",
+                    Subject = "Philip",
+                    Points = 10,
+                    ReasonCode = "PODIUM_EXACT_WRONG_SLOT"
+                });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "header",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 2,
+                    SectionType = "RacePick",
+                    RawPayload = "pick",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 2,
+                    SectionType = "SeasonQuestionPrediction",
+                    RawPayload = "bonus",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 4,
+                    ImportRunId = runId,
+                    SourceFileName = "bonusAnswers.csv",
+                    RowNumber = 2,
+                    SectionType = "SourceArtifact",
+                    RawPayload = "artifact",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 5,
+                    ImportRunId = runId,
+                    SourceFileName = "unknown.csv",
+                    RowNumber = 3,
+                    SectionType = "Unclassified",
+                    RawPayload = "unknown",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var component = Assert.Single(detail!.ParticipantComponentDeltas!);
+        Assert.Equal("Philip", component.Subject);
+        Assert.Equal(10, component.ImportedRacePoints);
+        Assert.Equal(5, component.CalculatedRacePoints);
+        Assert.Equal(20, component.ImportedPreseasonPoints);
+        Assert.Equal(0, component.CalculatedPreseasonPoints);
+        Assert.Equal(-25, component.NetDeltaPoints);
+
+        var cdp = Assert.Single(detail.CdpParity!);
+        Assert.Equal("Philip", cdp.Subject);
+        Assert.Equal(2, cdp.ImportedCdp);
+        Assert.Equal(2, cdp.CalculatedCdp);
+        Assert.True(cdp.IsParity);
+
+        Assert.Equal(4, detail.SourceManifest!.Count);
+        Assert.Contains(detail.SourceManifest, x => x.SourceFileName == "races.csv" && x.RacePickCount == 1);
+        Assert.Contains(detail.SourceManifest, x => x.SourceFileName == "bonus.csv" && x.SeasonQuestionPredictionCount == 1);
+        Assert.Contains(detail.SourceManifest, x => x.SourceFileName == "unknown.csv" && x.UnclassifiedCount == 1);
+
+        Assert.Contains(detail.SourceContractDiagnostics!, x => x.Code == "SOURCE_PROFILE" && x.Severity == "Info");
+        Assert.Contains(detail.SourceContractDiagnostics!, x => x.Code == "DAVE_CONTRACT_MISSING_FILES" && x.Message.Contains("Leaderboard.csv", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(detail.SourceContractDiagnostics!, x => x.Code == "UNCLASSIFIED_ROWS" && x.Severity == "Warning");
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_WhenOnlyDaveLeaderboardRowsAreUnclassified_DoesNotEmitUnclassifiedRowsWarning()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 5
+            });
+
+            dbContext.MigrationImportRawRows.AddRange(
+                new MigrationImportRawRowEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    SourceFileName = "races.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Name,Race1-1",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    SourceFileName = "bonus.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Philip",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 3,
+                    ImportRunId = runId,
+                    SourceFileName = "bonusAnswers.csv",
+                    RowNumber = 1,
+                    SectionType = "Header",
+                    RawPayload = "Question,Answer",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 4,
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 1,
+                    SectionType = "Unclassified",
+                    RawPayload = "Name,Race Points,Bonus Points,CDP,Total,Final",
+                    CreatedAtUtc = DateTime.UtcNow
+                },
+                new MigrationImportRawRowEntity
+                {
+                    Id = 5,
+                    ImportRunId = runId,
+                    SourceFileName = "Leaderboard.csv",
+                    RowNumber = 2,
+                    SectionType = "Unclassified",
+                    RawPayload = "Philip,512.5,60,14,572.5,590.5",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        Assert.Contains(detail!.SourceContractDiagnostics!, x => x.Code == "SOURCE_PROFILE" && x.Severity == "Info");
+        Assert.Contains(detail.SourceContractDiagnostics!, x => x.Code == "DAVE_CONTRACT_FILES_PRESENT" && x.Severity == "Info");
+        Assert.DoesNotContain(detail.SourceContractDiagnostics!, x => x.Code == "UNCLASSIFIED_ROWS");
+    }
+
+    [Fact]
+    public async Task GetRunDetailAsync_CdpParity_CountsExactPodiumMatchesFromSelections()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = new DateTime(2026, 7, 11, 10, 0, 0, DateTimeKind.Utc),
+                FinishedAtUtc = new DateTime(2026, 7, 11, 10, 1, 0, DateTimeKind.Utc),
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportLegacyPickScores.Add(new MigrationImportLegacyPickScoreEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "LEADERBOARD",
+                PickType = "CDP",
+                Subject = "Philip",
+                RawLegacyPoints = "1",
+                LegacyPoints = 1
+            });
+
+            dbContext.MigrationImportRaceSelections.AddRange(
+                new MigrationImportRaceSelectionEntity
+                {
+                    Id = 1,
+                    ImportRunId = runId,
+                    RowNumber = 1,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "ACTUAL",
+                    RawValue = "NORRIS",
+                    NormalizedValue = "NORRIS",
+                    IsActualOutcome = true
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    Id = 2,
+                    ImportRunId = runId,
+                    RowNumber = 2,
+                    RaceCode = "albert_park",
+                    PickType = "1",
+                    Subject = "Philip",
+                    RawValue = "NORRIS",
+                    NormalizedValue = "NORRIS",
+                    IsActualOutcome = false
+                });
+
+            // This mirrors ALL-mode scoring output where exact podium picks are not tagged as PODIUM_EXACT.
+            dbContext.MigrationImportCalculatedScores.Add(new MigrationImportCalculatedScoreEntity
+            {
+                Id = 1,
+                ImportRunId = runId,
+                RowNumber = 2,
+                RaceCode = "albert_park",
+                PickType = "1",
+                Subject = "Philip",
+                Points = 0,
+                ReasonCode = "ALL_MODE_NO_JACKPOT"
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var detail = await service.GetRunDetailAsync(runId, "admin@example.com", CancellationToken.None, null);
+
+        Assert.NotNull(detail);
+        var cdp = Assert.Single(detail!.CdpParity!);
+        Assert.Equal("Philip", cdp.Subject);
+        Assert.Equal(1, cdp.ImportedCdp);
+        Assert.Equal(1, cdp.CalculatedCdp);
+        Assert.True(cdp.IsParity);
     }
 
     [Fact]
@@ -1135,6 +2792,149 @@ public sealed class MigrationRunAdminServiceTests
     }
 
     [Fact]
+    public async Task GetQuestionDiffsAsync_ForDaveRun_DoesNotLeakPhilParticipants()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+            {
+                Id = runId,
+                SourceFilePath = "data/imports/dave-2025-package",
+                SourceFileChecksum = "abc",
+                IsDryRun = true,
+                Status = "Completed",
+                StartedAtUtc = DateTime.UtcNow,
+                FinishedAtUtc = DateTime.UtcNow,
+                RawRowCount = 4
+            });
+
+            dbContext.MigrationImportRaceSelections.AddRange(
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "R01",
+                    PickType = "H2H",
+                    Subject = "ColmF",
+                    RawValue = "VER",
+                    NormalizedValue = "VER",
+                    IsActualOutcome = false
+                },
+                new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = 10,
+                    RaceCode = "R01",
+                    PickType = "H2H",
+                    Subject = "ACTUAL",
+                    RawValue = "VER",
+                    NormalizedValue = "VER",
+                    IsActualOutcome = true
+                });
+
+            dbContext.QuestionTemplates.AddRange(
+                new QuestionTemplateEntity
+                {
+                    Id = 1,
+                    CompetitionId = 2,
+                    Season = 2025,
+                    QuestionId = "H2H-R01",
+                    Category = F1.Core.Models.QuestionCategory.H2H,
+                    Prompt = "R01 H2H",
+                    Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                    SortOrder = 1,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new QuestionTemplateEntity
+                {
+                    Id = 2,
+                    CompetitionId = 1,
+                    Season = 2025,
+                    QuestionId = "PRE-022",
+                    Category = F1.Core.Models.QuestionCategory.Preseason,
+                    Prompt = "Phil preseason",
+                    Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                    SortOrder = 2,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.QuestionScores.AddRange(
+                new QuestionScoreEntity
+                {
+                    Id = 1,
+                    QuestionTemplateId = 1,
+                    ParticipantId = "ColmF",
+                    ImportedPoints = 5,
+                    CalculatedPoints = 5,
+                    DeltaPoints = 0,
+                    RecordedAtUtc = DateTime.UtcNow
+                },
+                new QuestionScoreEntity
+                {
+                    Id = 2,
+                    QuestionTemplateId = 2,
+                    ParticipantId = "Andy",
+                    ImportedPoints = 20,
+                    CalculatedPoints = 0,
+                    DeltaPoints = -20,
+                    RecordedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.QuestionAnswers.AddRange(
+                new QuestionAnswerEntity
+                {
+                    QuestionTemplateId = 1,
+                    ParticipantId = "ColmF",
+                    ImportedAnswer = "VER",
+                    RecordedAtUtc = DateTime.UtcNow
+                },
+                new QuestionAnswerEntity
+                {
+                    QuestionTemplateId = 2,
+                    ParticipantId = "Andy",
+                    ImportedAnswer = "YES",
+                    RecordedAtUtc = DateTime.UtcNow
+                });
+
+            dbContext.QuestionActuals.AddRange(
+                new QuestionActualEntity
+                {
+                    QuestionTemplateId = 1,
+                    ImportedAnswer = "VER",
+                    RecordedAtUtc = DateTime.UtcNow
+                },
+                new QuestionActualEntity
+                {
+                    QuestionTemplateId = 2,
+                    ImportedAnswer = "NO",
+                    RecordedAtUtc = DateTime.UtcNow
+                });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = new MigrationRunAdminService(serviceContext, NullLogger<MigrationRunAdminService>.Instance);
+
+        var result = await service.GetQuestionDiffsAsync(
+            runId,
+            page: 1,
+            pageSize: 20,
+            requestedBy: "admin@example.com",
+            cancellationToken: CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Items);
+        Assert.Equal("ColmF", result.Items[0].Participant);
+        Assert.Equal("H2H-R01", result.Items[0].QuestionId);
+    }
+
+    [Fact]
     public async Task ExportRunDiffsAsync_WhenQuestionDiffExportRequested_IncludesRequiredColumns()
     {
         var runId = Guid.NewGuid();
@@ -1179,6 +2979,21 @@ public sealed class MigrationRunAdminServiceTests
                 RecordedAtUtc = DateTime.UtcNow
             });
 
+            dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 11,
+                ParticipantId = "Philip",
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionActuals.Add(new QuestionActualEntity
+            {
+                QuestionTemplateId = 11,
+                ImportedAnswer = "NO",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
             await dbContext.SaveChangesAsync();
         }
 
@@ -1200,8 +3015,8 @@ public sealed class MigrationRunAdminServiceTests
         Assert.True(export!.Success);
 
         var csv = System.Text.Encoding.UTF8.GetString(export.Payload);
-        Assert.Contains("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints", csv, StringComparison.Ordinal);
-        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,5,0,-5", csv, StringComparison.Ordinal);
+        Assert.Contains("category,questionId,questionText,participant,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode", csv, StringComparison.Ordinal);
+        Assert.Contains("Preseason,PRE-001,Will Team X win?,Philip,YES,NO,5,0,-5,QUESTION_RULE_VARIANCE", csv, StringComparison.Ordinal);
     }
 
     private static DbContextOptions<F1DbContext> CreateOptions()
@@ -1219,5 +3034,16 @@ public sealed class MigrationRunAdminServiceTests
         var path = Path.Combine(allowedTempRoot, $"f1-admin-migration-{Guid.NewGuid():N}.csv");
         File.WriteAllText(path, content);
         return path;
+    }
+
+    private static string CreateTempDavePackage()
+    {
+        var allowedTempRoot = Path.Combine(Path.GetTempPath(), "f1-imports", "tests", $"dave-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(allowedTempRoot);
+        File.WriteAllText(Path.Combine(allowedTempRoot, "races.csv"), "Question,Philip\nAUS-1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "bonus.csv"), "Question,Philip\nQ1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "bonusAnswers.csv"), "Question,Answer\nQ1,VER\n");
+        File.WriteAllText(Path.Combine(allowedTempRoot, "Leaderboard.csv"), "Name,Total\nPhilip,100\n");
+        return allowedTempRoot;
     }
 }

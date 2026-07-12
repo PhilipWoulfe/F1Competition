@@ -11,6 +11,7 @@ namespace F1.DataSyncWorker.Services;
 public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 {
     private const int BatchSize = 500;
+    private const string LeaderboardRaceCode = "LEADERBOARD";
     private readonly ILogger<MigrationImportOrchestrator> _logger;
     private readonly IMigrationImportRunService _runService;
     private readonly IMigrationImportRowClassifier _rowClassifier;
@@ -299,6 +300,7 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
         var contaminatedRacePoints = await dbContext.MigrationImportLegacyPickScores
             .Where(x => x.ImportRunId == runId && preseasonRowNumbers.Contains(x.RowNumber))
+            .Where(x => x.RaceCode.ToUpper() != LeaderboardRaceCode)
             .OrderBy(x => x.RowNumber)
             .Select(x => x.RowNumber)
             .Distinct()
@@ -479,41 +481,17 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
 
     private async Task<RawRowStageResult> StageRawRowsAsync(Guid runId, string sourceFilePath, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(sourceFilePath);
-        using var reader = new StreamReader(stream);
-        var applyPhil2025ContractPolicy = MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
-
-        var rowNumber = 0;
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath);
+        var applyPhil2025ContractPolicy = sourceProfile == MigrationSourceProfile.Phil2025Csv;
         var stagedCount = 0;
         var rejectedCount = 0;
         var batch = new List<StagedImportRow>(BatchSize);
 
-        while (!reader.EndOfStream)
+        async Task FlushBatchAsync()
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
+            if (batch.Count == 0)
             {
-                continue;
-            }
-
-            rowNumber++;
-            var stagedRow = _rowClassifier.Classify(rowNumber, line);
-            if (applyPhil2025ContractPolicy)
-            {
-                stagedRow = MigrationPhil2025CsvContractPolicy.Apply(stagedRow);
-            }
-
-            batch.Add(stagedRow);
-            if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
-            {
-                rejectedCount++;
-            }
-
-            if (batch.Count < BatchSize)
-            {
-                continue;
+                return;
             }
 
             await _runService.StageRowsAsync(runId, batch, cancellationToken);
@@ -521,11 +499,78 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
             batch.Clear();
         }
 
-        if (batch.Count > 0)
+        async Task StageSingleFileAsync(string filePath)
         {
-            await _runService.StageRowsAsync(runId, batch, cancellationToken);
-            stagedCount += batch.Count;
+            await using var stream = File.OpenRead(filePath);
+            using var reader = new StreamReader(stream);
+
+            var rowNumber = 0;
+            var sourceFileName = Path.GetFileName(filePath);
+            var isCsv = string.Equals(Path.GetExtension(filePath), ".csv", StringComparison.OrdinalIgnoreCase);
+
+            while (!reader.EndOfStream)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
+                {
+                    continue;
+                }
+
+                rowNumber++;
+
+                StagedImportRow stagedRow;
+                if (isCsv)
+                {
+                    stagedRow = _rowClassifier.Classify(rowNumber, line);
+                    if (applyPhil2025ContractPolicy)
+                    {
+                        stagedRow = MigrationPhil2025CsvContractPolicy.Apply(stagedRow);
+                    }
+                }
+                else
+                {
+                    stagedRow = new StagedImportRow(
+                        RowNumber: rowNumber,
+                        SectionType: MigrationImportSectionTypes.SourceArtifact,
+                        RawPayload: line,
+                        ClassificationReason: "Non-CSV source artifact staged for provenance.");
+                }
+
+                stagedRow = stagedRow with { SourceFileName = sourceFileName };
+                batch.Add(stagedRow);
+
+                if (string.Equals(stagedRow.SectionType, MigrationImportSectionTypes.Unclassified, StringComparison.Ordinal))
+                {
+                    rejectedCount++;
+                }
+
+                if (batch.Count >= BatchSize)
+                {
+                    await FlushBatchAsync();
+                }
+            }
         }
+
+        if (Directory.Exists(sourceFilePath))
+        {
+            var files = Directory
+                .EnumerateFiles(sourceFilePath, "*", SearchOption.TopDirectoryOnly)
+                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var file in files)
+            {
+                await StageSingleFileAsync(file);
+            }
+
+            await FlushBatchAsync();
+            return new RawRowStageResult(stagedCount, rejectedCount);
+        }
+
+        await StageSingleFileAsync(sourceFilePath);
+        await FlushBatchAsync();
 
         return new RawRowStageResult(stagedCount, rejectedCount);
     }
@@ -579,9 +624,15 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var mappings = await dbContext.MigrationImportRaceRoundMappings
-            .Where(x => x.ImportRunId == runId && !string.IsNullOrWhiteSpace(x.MappedCircuitId))
-            .OrderBy(x => x.SourceRowNumber)
-            .Select(x => new { x.SourceRowNumber, x.MappedCircuitId })
+            .Where(x =>
+                x.ImportRunId == runId &&
+                !string.IsNullOrWhiteSpace(x.SourceRaceCode) &&
+                !string.IsNullOrWhiteSpace(x.MappedCircuitId))
+            .GroupBy(x => x.SourceRaceCode)
+            .Select(group => group
+                .OrderBy(x => x.RaceSequence)
+                .Select(x => new { x.SourceRaceCode, x.MappedCircuitId })
+                .First())
             .ToListAsync(cancellationToken);
 
         if (mappings.Count == 0)
@@ -590,19 +641,15 @@ public sealed class MigrationImportOrchestrator : IMigrationImportOrchestrator
         }
 
         var rewritten = 0;
-        for (var index = 0; index < mappings.Count; index++)
+        foreach (var mapping in mappings)
         {
-            var startRow = mappings[index].SourceRowNumber;
-            var endRow = index + 1 < mappings.Count
-                ? mappings[index + 1].SourceRowNumber - 1
-                : int.MaxValue;
-            var mappedCircuitId = mappings[index].MappedCircuitId!;
+            var sourceRaceCode = mapping.SourceRaceCode!;
+            var mappedCircuitId = mapping.MappedCircuitId!;
 
             var updated = await dbContext.MigrationImportRaceSelections
                 .Where(x =>
                     x.ImportRunId == runId &&
-                    x.RowNumber >= startRow &&
-                    x.RowNumber <= endRow &&
+                    x.RaceCode == sourceRaceCode &&
                     x.RaceCode != mappedCircuitId)
                 .ExecuteUpdateAsync(
                     setters => setters.SetProperty(selection => selection.RaceCode, mappedCircuitId),

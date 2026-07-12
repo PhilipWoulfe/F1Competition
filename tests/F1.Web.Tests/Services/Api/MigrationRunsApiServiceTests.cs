@@ -38,6 +38,7 @@ public sealed class MigrationRunsApiServiceTests
         var result = await service.StartRunFromUploadAsync(new AdminMigrationRunKickoffUploadRequest(
             FileName: "import.csv",
             Content: content,
+            SourceProfile: "phil-2025-csv",
             Mode: "write",
             ConfirmNonEmptyStrategy: true));
 
@@ -47,6 +48,8 @@ public sealed class MigrationRunsApiServiceTests
         Assert.Equal("http://localhost/admin/migration-runs/kickoff/upload", handler.LastRequest.RequestUri!.ToString());
 
         var multipart = await handler.LastRequest.Content!.ReadAsStringAsync();
+        Assert.Contains("SourceProfile", multipart, StringComparison.Ordinal);
+        Assert.Contains("\r\n\r\nphil-2025-csv\r\n", multipart, StringComparison.Ordinal);
         Assert.Contains("ConfirmNonEmptyStrategy", multipart, StringComparison.Ordinal);
         Assert.Contains("\r\n\r\ntrue\r\n", multipart, StringComparison.Ordinal);
     }

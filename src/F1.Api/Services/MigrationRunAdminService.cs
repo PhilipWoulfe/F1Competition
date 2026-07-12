@@ -1,4 +1,5 @@
 using F1.Api.Dtos;
+using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -14,10 +15,19 @@ namespace F1.Api.Services;
 
 public sealed class MigrationRunAdminService : IMigrationRunAdminService
 {
+    private const string ActualSubject = "ACTUAL";
     private const string NonEmptyDbStrategy = "merge_upsert_active_records";
     private const string DefaultSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private const string AllowedImportRootPath = "data/imports";
     private const string AllowedTempImportRootPath = "f1-imports";
+    private const string SourceProfilePhil2025Csv = "phil-2025-csv";
+    private const string SourceProfileDave2025Package = "dave-2025-package";
+    private const string DaveLeaderboardFileName = "Leaderboard.csv";
+    private const string DaveLeaderboardRaceCode = "LEADERBOARD";
+    private const string DaveLeaderboardRaceTotalPickType = "RACE_TOTAL";
+    private const string CdpPickType = "CDP";
+    private const string LegacyPointsMissingReasonCode = "LEGACY_POINTS_MISSING";
+    private const string PreseasonImportedMissingReasonCode = "PRESEASON_IMPORTED_MISSING";
     private const string StatusQueued = "Queued";
     private const string StatusStarted = "Started";
     private const int DefaultPage = 1;
@@ -193,17 +203,54 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 Run: null);
         }
 
-        if (!File.Exists(sourceFilePath))
+        var selectedSourceProfile = NormalizeSourceProfile(command.SourceProfile);
+        if (selectedSourceProfile is null)
         {
             return new MigrationRunKickoffResult(
                 Success: false,
                 Conflict: false,
-                Error: "Migration source file was not found.",
+                Error: "Source profile must be one of: phil-2025-csv, dave-2025-package.",
                 ExistingRunId: null,
                 Run: null);
         }
 
-        var checksum = await ComputeSha256Async(sourceFilePath, cancellationToken);
+        var sourceExists = File.Exists(sourceFilePath) || Directory.Exists(sourceFilePath);
+        if (!sourceExists)
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: "Migration source path was not found.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        var resolvedSourceProfile = ResolveSourceProfileForPath(sourceFilePath);
+        if (!string.Equals(selectedSourceProfile, resolvedSourceProfile, StringComparison.Ordinal))
+        {
+            return new MigrationRunKickoffResult(
+                Success: false,
+                Conflict: false,
+                Error: $"Selected source profile '{selectedSourceProfile}' does not match source path '{sourceFilePath}'.",
+                ExistingRunId: null,
+                Run: null);
+        }
+
+        if (string.Equals(resolvedSourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var daveContract = ValidateDavePackageContract(sourceFilePath);
+            if (!daveContract.IsValid)
+            {
+                return new MigrationRunKickoffResult(
+                    Success: false,
+                    Conflict: false,
+                    Error: daveContract.Error,
+                    ExistingRunId: null,
+                    Run: null);
+            }
+        }
+
+        var checksum = await ComputeSourceChecksumAsync(sourceFilePath, cancellationToken);
         var now = DateTime.UtcNow;
         var isDryRun = normalizedMode == "dry-run";
         var runId = Guid.NewGuid();
@@ -213,8 +260,8 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         var existingSelectionCount = await _dbContext.Selections.CountAsync(cancellationToken);
         var canonicalDataPresent = existingDriverCount > 0 || existingRaceCount > 0 || existingSelectionCount > 0;
 
-        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, cancellationToken);
-        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, cancellationToken);
+        var estimatedAffectedRaceCount = await EstimateAffectedRaceCountAsync(sourceFilePath, resolvedSourceProfile, cancellationToken);
+        var estimatedAffectedParticipantCount = await EstimateAffectedParticipantCountAsync(sourceFilePath, resolvedSourceProfile, cancellationToken);
         var estimatedAffectedSelectionCount = estimatedAffectedRaceCount * estimatedAffectedParticipantCount;
 
         if (!isDryRun && canonicalDataPresent && !command.ConfirmNonEmptyStrategy)
@@ -445,8 +492,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
     }
 
-    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    private static async Task<int> EstimateAffectedRaceCountAsync(string sourceFilePath, string sourceProfile, CancellationToken cancellationToken)
     {
+        if (string.Equals(sourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var racesPath = Path.Combine(sourceFilePath, "races.csv");
+            if (!File.Exists(racesPath))
+            {
+                return 0;
+            }
+
+            sourceFilePath = racesPath;
+        }
+
         var raceCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
@@ -490,8 +548,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return raceCodes.Count;
     }
 
-    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, CancellationToken cancellationToken)
+    private static async Task<int> EstimateAffectedParticipantCountAsync(string sourceFilePath, string sourceProfile, CancellationToken cancellationToken)
     {
+        if (string.Equals(sourceProfile, SourceProfileDave2025Package, StringComparison.Ordinal))
+        {
+            var racesPath = Path.Combine(sourceFilePath, "races.csv");
+            if (!File.Exists(racesPath))
+            {
+                return 0;
+            }
+
+            sourceFilePath = racesPath;
+        }
+
         using var stream = File.OpenRead(sourceFilePath);
         using var reader = new StreamReader(stream);
         while (!reader.EndOfStream)
@@ -577,40 +646,160 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 x.FirstCreatedAtUtc))
             .ToArray();
 
-        var allPickDiffs = await _dbContext.MigrationImportPickDiffs
+        var allPickDiffs = await BuildPickDiffRowsAsync(runId, cancellationToken);
+
+        var raceDiffEntities = await _dbContext.MigrationImportRaceDiffs
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
             .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
 
-        var allRaceDiffs = await _dbContext.MigrationImportRaceDiffs
+        var raceSelections = await _dbContext.MigrationImportRaceSelections
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationRaceDiffDto(
-                x.RaceCode,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
             .ToArrayAsync(cancellationToken);
+
+        var isDaveProfile = IsDaveSourcePath(run.SourceFilePath);
+        var daveImportedRacePointsBySubject = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        var daveImportedRacePointsByRaceAndSubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        var daveImportedOverallTotalOverridesBySubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        if (isDaveProfile)
+        {
+            var daveRaceTotalRows = await _dbContext.MigrationImportLegacyPickScores
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    x.RaceCode == DaveLeaderboardRaceCode &&
+                    x.PickType == DaveLeaderboardRaceTotalPickType)
+                .ToArrayAsync(cancellationToken);
+
+            daveImportedRacePointsBySubject = daveRaceTotalRows
+                .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(item => item.LegacyPoints)
+                        .FirstOrDefault(points => points.HasValue),
+                    StringComparer.OrdinalIgnoreCase);
+
+            daveImportedRacePointsByRaceAndSubject = await BuildDaveImportedRacePointsByRaceAndSubjectAsync(runId, cancellationToken);
+            daveImportedOverallTotalOverridesBySubject = new Dictionary<string, decimal?>(
+                await BuildDaveImportedOverallTotalOverridesAsync(runId, cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        var preseasonQuestionDiffs = await BuildPreseasonQuestionDiffRowsAsync(runId, cancellationToken);
+        var participantTotalsPickDiffs = isDaveProfile
+            ? allPickDiffs.Where(x => !IsSuppressedDaveLeaderboardPickDiff(x)).ToArray()
+            : allPickDiffs;
+        var participantTotalsPreseasonDiffs = preseasonQuestionDiffs;
+        var daveCalculatedOverallTotalsBySubject = isDaveProfile
+            ? BuildDaveCalculatedOverallTotalsBySubject(participantTotalsPickDiffs, preseasonQuestionDiffs)
+            : new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        var chosenRacePicksByKey = raceSelections
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildRaceSummaryKey(x.RaceCode, x.Subject), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => BuildRacePickSummary(group),
+                StringComparer.OrdinalIgnoreCase);
+
+        var actualRacePicksByRaceCode = raceSelections
+            .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => BuildRacePickSummary(group),
+                StringComparer.OrdinalIgnoreCase);
+
+        var allRaceDiffs = raceDiffEntities
+            .Select(x =>
+            {
+                var importedRacePoints = ResolveImportedRacePointsForDisplay(
+                    x,
+                    isDaveProfile,
+                    daveImportedRacePointsBySubject,
+                    daveImportedRacePointsByRaceAndSubject,
+                    daveImportedOverallTotalOverridesBySubject);
+
+                var importedPoints = x.ImportedPoints;
+                var calculatedPoints = x.CalculatedPoints;
+                if (isDaveProfile &&
+                    string.Equals(x.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase) &&
+                    daveCalculatedOverallTotalsBySubject.TryGetValue(x.Subject, out var calculatedOverall))
+                {
+                    calculatedPoints = calculatedOverall;
+                }
+
+                var deltaPoints = x.DeltaPoints;
+                var reasonCode = x.ReasonCode;
+                var explanation = x.Explanation;
+                var isExpectedVariance = x.IsExpectedVariance;
+                var expectedVarianceReasonCode = x.ExpectedVarianceReasonCode;
+                var expectedVarianceRuleId = x.ExpectedVarianceRuleId;
+
+                if (isDaveProfile &&
+                    string.Equals(x.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase) &&
+                    importedRacePoints.HasValue)
+                {
+                    deltaPoints = calculatedPoints - importedRacePoints.Value;
+                    reasonCode = deltaPoints == 0m
+                        ? "RACE_POINTS_MATCH"
+                        : "RACE_RULE_VARIANCE";
+                    explanation = BuildDaveDecimalRaceDiffExplanation(x, importedRacePoints.Value, deltaPoints, reasonCode);
+                }
+
+                if (TryApplyDaveRaceDiffComparisonOverride(
+                    x,
+                    isDaveProfile,
+                    importedRacePoints,
+                    calculatedPoints,
+                    out var overrideImportedPoints,
+                    out var overrideDeltaPoints,
+                    out var overrideReasonCode,
+                    out var overrideExplanation,
+                    out var overrideIsExpectedVariance,
+                    out var overrideExpectedVarianceReasonCode,
+                    out var overrideExpectedVarianceRuleId))
+                {
+                    importedPoints = overrideImportedPoints;
+                    deltaPoints = overrideDeltaPoints;
+                    reasonCode = overrideReasonCode;
+                    explanation = overrideExplanation;
+                    isExpectedVariance = overrideIsExpectedVariance;
+                    expectedVarianceReasonCode = overrideExpectedVarianceReasonCode;
+                    expectedVarianceRuleId = overrideExpectedVarianceRuleId;
+                }
+
+                return new AdminMigrationRaceDiffDto(
+                    x.RaceCode,
+                    x.Subject,
+                    chosenRacePicksByKey.GetValueOrDefault(BuildRaceSummaryKey(x.RaceCode, x.Subject)),
+                    actualRacePicksByRaceCode.GetValueOrDefault(x.RaceCode),
+                    importedPoints,
+                    calculatedPoints,
+                    deltaPoints,
+                    reasonCode,
+                    explanation,
+                    isExpectedVariance,
+                    expectedVarianceReasonCode,
+                    expectedVarianceRuleId,
+                    importedRacePoints);
+            })
+            .ToArray();
+
+        if (isDaveProfile)
+        {
+            allPickDiffs = allPickDiffs
+                .Where(x => !IsSuppressedDaveMissingReason(x.ReasonCode))
+                .Where(x => !IsSuppressedDaveLeaderboardPickDiff(x))
+                .ToArray();
+
+            preseasonQuestionDiffs = preseasonQuestionDiffs
+                .Where(x => !IsSuppressedDaveMissingReason(x.ReasonCode))
+                .ToArray();
+        }
 
         var pickDiffs = FilterExpectedVariance(allPickDiffs, expectedStatus).ToArray();
         var raceDiffs = FilterExpectedVariance(allRaceDiffs, expectedStatus).ToArray();
@@ -618,13 +807,16 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .Where(x => !x.IsExpectedVariance && x.DeltaPoints != 0)
             .Sum(x => x.DeltaPoints);
 
-        var participantDeltas = raceDiffs
+        var scoreboardPickDiffs = pickDiffs
+            .Where(x => !string.Equals(x.PickType, CdpPickType, StringComparison.OrdinalIgnoreCase));
+
+        var participantDeltas = scoreboardPickDiffs
             .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
-                var topReasonGroup = pickDiffs
-                    .Where(x => string.Equals(x.Subject, group.Key, StringComparison.OrdinalIgnoreCase) && x.DeltaPoints != 0)
+                var topReasonGroup = group
+                    .Where(x => x.DeltaPoints != 0)
                     .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
                     .OrderByDescending(x => x.Count())
                     .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
@@ -632,31 +824,13 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
                 return new AdminMigrationParticipantDeltaDto(
                     group.Key,
-                    group.Sum(x => x.ImportedPoints),
-                    group.Sum(x => x.CalculatedPoints),
+                    group.Sum(x => x.ImportedPoints ?? 0),
+                    group.Sum(x => x.CalculatedPoints ?? 0),
                     group.Sum(x => x.DeltaPoints),
                     topReasonGroup?.Key,
                     topReasonGroup?.Count() ?? 0);
             })
             .ToArray();
-
-        var preseasonQuestionDiffs = await _dbContext.MigrationImportPreseasonQuestionDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RowNumber)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.QuestionKey)
-            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
-                x.RowNumber,
-                x.QuestionKey,
-                x.QuestionText,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation))
-            .ToArrayAsync(cancellationToken);
 
         var preseasonParticipantDeltas = await _dbContext.MigrationImportPreseasonParticipantDeltaSummaries
             .AsNoTracking()
@@ -717,34 +891,63 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             ReasonCategoryCount: preseasonReasonCategorySummaries.Length,
             TotalDeltaPoints: preseasonQuestionDiffs.Sum(x => x.DeltaPoints));
 
-            var raceTotalDeltaPoints = allPickDiffs.Sum(x => x.DeltaPoints);
-            var preseasonTotalDeltaPoints = preseasonSummary.TotalDeltaPoints;
+        var daveImportedRaceTotalOverrides = isDaveProfile
+            ? BuildDaveImportedRaceTotalOverrides(
+                daveImportedRacePointsByRaceAndSubject,
+                daveImportedRacePointsBySubject)
+            : null;
 
-            return new AdminMigrationRunDetailResponseDto(
-                RunId: run.Id,
-                Status: run.Status,
-                IsDryRun: run.IsDryRun,
-                SourceFilePath: run.SourceFilePath,
-                SourceFileChecksum: run.SourceFileChecksum,
-                StartedAtUtc: run.StartedAtUtc,
-                FinishedAtUtc: run.FinishedAtUtc,
-                RawRowCount: rawRowFallbackCount,
-                ErrorMessage: run.ErrorMessage,
-                UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
-                PickDiffCount: pickDiffs.Length,
-                RaceDiffCount: raceDiffs.Length,
-                TotalDeltaPoints: raceTotalDeltaPoints + preseasonTotalDeltaPoints,
-                UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
-                UnresolvedTokenSummary: unresolvedTokenSummary,
-                ParticipantDeltas: participantDeltas,
-                PreseasonSummary: preseasonSummary,
-                PreseasonParticipantDeltas: preseasonParticipantDeltas,
-                PreseasonQuestionDiffs: preseasonQuestionDiffs,
-                PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
-                ConflictDiagnostics: conflictDiagnostics,
-                RaceDiffs: raceDiffs,
-                PickDiffs: pickDiffs,
-                RollbackAudits: rollbackAudits);
+        var daveImportedOverallTotalOverrides = isDaveProfile
+            ? daveImportedOverallTotalOverridesBySubject
+            : null;
+
+        var participantComponentDeltas = BuildParticipantComponentDeltas(
+            participantTotalsPickDiffs,
+            participantTotalsPreseasonDiffs,
+            daveImportedRaceTotalOverrides,
+            daveImportedOverallTotalOverrides);
+        var cdpParity = await BuildCdpParityAsync(run.Id, cancellationToken);
+        var sourceManifest = await BuildSourceManifestAsync(run.Id, cancellationToken);
+        var sourceContractDiagnostics = BuildSourceContractDiagnostics(run.SourceFilePath, sourceManifest);
+
+        var (h2hPointsPolicy, preseasonPointsPolicy) = await ResolvePolicySummaryAsync(run.Id, isDaveProfile, cancellationToken);
+        var raceBonusModes = await ResolveRaceBonusModesAsync(run.Id, isDaveProfile, cancellationToken);
+
+        var raceTotalDeltaPoints = allPickDiffs.Sum(x => x.DeltaPoints);
+        var preseasonTotalDeltaPoints = preseasonSummary.TotalDeltaPoints;
+
+        return new AdminMigrationRunDetailResponseDto(
+            RunId: run.Id,
+            Status: run.Status,
+            IsDryRun: run.IsDryRun,
+            SourceFilePath: run.SourceFilePath,
+            SourceFileChecksum: run.SourceFileChecksum,
+            StartedAtUtc: run.StartedAtUtc,
+            FinishedAtUtc: run.FinishedAtUtc,
+            RawRowCount: rawRowFallbackCount,
+            ErrorMessage: run.ErrorMessage,
+            UnresolvedTokenCount: unresolvedTokenSummary.Sum(x => x.OccurrenceCount),
+            PickDiffCount: pickDiffs.Length,
+            RaceDiffCount: raceDiffs.Length,
+            TotalDeltaPoints: raceTotalDeltaPoints + preseasonTotalDeltaPoints,
+            UnexpectedTotalDeltaPoints: unexpectedTotalDeltaPoints,
+            UnresolvedTokenSummary: unresolvedTokenSummary,
+            ParticipantDeltas: participantDeltas,
+            PreseasonSummary: preseasonSummary,
+            PreseasonParticipantDeltas: preseasonParticipantDeltas,
+            PreseasonQuestionDiffs: preseasonQuestionDiffs,
+            PreseasonReasonCategorySummaries: preseasonReasonCategorySummaries,
+            RaceDiffs: raceDiffs,
+            PickDiffs: pickDiffs,
+            ParticipantComponentDeltas: participantComponentDeltas,
+            CdpParity: cdpParity,
+            SourceManifest: sourceManifest,
+            SourceContractDiagnostics: sourceContractDiagnostics,
+            H2hPointsPolicy: h2hPointsPolicy,
+            PreseasonPointsPolicy: preseasonPointsPolicy,
+            RaceBonusModes: raceBonusModes,
+            ConflictDiagnostics: conflictDiagnostics,
+            RollbackAudits: rollbackAudits);
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
         {
@@ -753,6 +956,538 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
                 runId);
             return null;
         }
+    }
+
+    private async Task<(int? H2hPointsPolicy, int? PreseasonPointsPolicy)> ResolvePolicySummaryAsync(
+        Guid runId,
+        bool isDaveProfile,
+        CancellationToken cancellationToken)
+    {
+        var preseasonPoints = await _dbContext.MigrationImportPreseasonPolicies
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.PointsPerQuestion.HasValue)
+            .OrderByDescending(x => x.RowNumber)
+            .Select(x => x.PointsPerQuestion)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!preseasonPoints.HasValue)
+        {
+            preseasonPoints = isDaveProfile ? 30 : 20;
+        }
+
+        var h2hPoints = isDaveProfile ? 5 : 1;
+        return (h2hPoints, preseasonPoints);
+    }
+
+    private async Task<IReadOnlyList<AdminMigrationRaceBonusModeDto>> ResolveRaceBonusModesAsync(
+        Guid runId,
+        bool isDaveProfile,
+        CancellationToken cancellationToken)
+    {
+        var seasonQuestionRows = await _dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.SectionType == "SeasonQuestionPrediction")
+            .OrderBy(x => x.RowNumber)
+            .ToListAsync(cancellationToken);
+
+        if (seasonQuestionRows.Count == 0)
+        {
+            return [];
+        }
+
+        var raceBonusQuestionIds = seasonQuestionRows
+            .Where(row => IsRaceBonusPrompt(row.RawPayload))
+            .Select(row => $"PRE-{row.RowNumber:D3}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (raceBonusQuestionIds.Length == 0)
+        {
+            return [];
+        }
+
+        var templates = await _dbContext.QuestionTemplates
+            .AsNoTracking()
+            .Where(x =>
+                x.Category == QuestionCategory.RaceBonus &&
+                raceBonusQuestionIds.Contains(x.QuestionId) &&
+                x.Season == 2025)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.QuestionId)
+            .ToListAsync(cancellationToken);
+
+        var result = new List<AdminMigrationRaceBonusModeDto>(templates.Count);
+        foreach (var template in templates)
+        {
+            var options = ParseRaceBonusOptions(template.OptionsJson, isDaveProfile);
+            result.Add(new AdminMigrationRaceBonusModeDto(
+                QuestionId: template.QuestionId,
+                Prompt: template.Prompt,
+                Mode: options.Mode,
+                PointsForCorrectPick: options.PointsForCorrectPick,
+                Tolerance: options.Tolerance,
+                LowerTolerance: options.LowerTolerance,
+                UpperTolerance: options.UpperTolerance,
+                FormulaMaxPoints: options.FormulaMaxPoints,
+                FormulaPenaltyPerUnit: options.FormulaPenaltyPerUnit));
+        }
+
+        return result;
+    }
+
+    private static bool IsRaceBonusPrompt(string rawPayload)
+    {
+        var commaIndex = rawPayload.IndexOf(',');
+        var prompt = commaIndex >= 0
+            ? rawPayload[..commaIndex].Trim()
+            : rawPayload.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return false;
+        }
+
+        return prompt.Contains("bonus", StringComparison.OrdinalIgnoreCase) ||
+               prompt.Contains("gap", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static RaceBonusQuestionTemplateOptions ParseRaceBonusOptions(string? optionsJson, bool isDaveProfile)
+    {
+        if (!string.IsNullOrWhiteSpace(optionsJson))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<RaceBonusQuestionTemplateOptions>(optionsJson);
+                if (parsed is not null)
+                {
+                    if (string.IsNullOrWhiteSpace(parsed.Mode))
+                    {
+                        parsed.Mode = "Exact";
+                    }
+
+                    if (parsed.PointsForCorrectPick <= 0)
+                    {
+                        parsed.PointsForCorrectPick = isDaveProfile ? 20 : 20;
+                    }
+
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return new RaceBonusQuestionTemplateOptions
+        {
+            Mode = "Exact",
+            PointsForCorrectPick = isDaveProfile ? 20 : 20
+        };
+    }
+
+    private static bool IsDaveSourcePath(string sourceFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+        {
+            return false;
+        }
+
+        return !sourceFilePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<AdminMigrationParticipantComponentDeltaDto> BuildParticipantComponentDeltas(
+        IReadOnlyList<AdminMigrationPickDiffDto> pickDiffs,
+        IReadOnlyList<AdminMigrationPreseasonQuestionDiffDto> preseasonQuestionDiffs,
+        IReadOnlyDictionary<string, decimal?>? importedRaceTotalOverridesBySubject = null,
+        IReadOnlyDictionary<string, decimal?>? importedOverallTotalOverridesBySubject = null)
+    {
+        var raceBySubject = pickDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => new
+                {
+                    Imported = group.Sum(x => x.ImportedPoints ?? 0),
+                    Calculated = group.Sum(x => x.CalculatedPoints ?? 0)
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+        var preseasonBySubject = preseasonQuestionDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => new
+                {
+                    Imported = group.Sum(x => x.ImportedPoints ?? 0),
+                    Calculated = group.Sum(x => x.CalculatedPoints ?? 0)
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+        var reasonsBySubject = pickDiffs
+            .Where(x => x.DeltaPoints != 0)
+            .Select(x => new { x.Subject, x.ReasonCode })
+            .Concat(preseasonQuestionDiffs
+                .Where(x => x.DeltaPoints != 0)
+                .Select(x => new { x.Subject, x.ReasonCode }))
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .GroupBy(x => x.ReasonCode, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(reasonGroup => reasonGroup.Count())
+                    .ThenBy(reasonGroup => reasonGroup.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(reasonGroup => (ReasonCode: (string?)reasonGroup.Key, Count: reasonGroup.Count()))
+                    .FirstOrDefault(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var subjects = raceBySubject.Keys
+            .Concat(preseasonBySubject.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return subjects.Select(subject =>
+        {
+            var race = raceBySubject.GetValueOrDefault(subject);
+            var preseason = preseasonBySubject.GetValueOrDefault(subject);
+            var importedRace = (decimal)(race?.Imported ?? 0);
+            if (importedRaceTotalOverridesBySubject is not null &&
+                importedRaceTotalOverridesBySubject.TryGetValue(subject, out var overrideImportedRace) &&
+                overrideImportedRace.HasValue)
+            {
+                importedRace = overrideImportedRace.Value;
+            }
+
+            var calculatedRace = race?.Calculated ?? 0;
+            var importedPreseason = preseason?.Imported ?? 0;
+            var calculatedPreseason = preseason?.Calculated ?? 0;
+            var importedTotal = importedRace + importedPreseason;
+            if (importedOverallTotalOverridesBySubject is not null &&
+                importedOverallTotalOverridesBySubject.TryGetValue(subject, out var overrideImportedTotal) &&
+                overrideImportedTotal.HasValue)
+            {
+                importedTotal = overrideImportedTotal.Value;
+            }
+
+            var calculatedTotal = calculatedRace + calculatedPreseason;
+            var topReason = reasonsBySubject.GetValueOrDefault(subject);
+
+            return new AdminMigrationParticipantComponentDeltaDto(
+                Subject: subject,
+                ImportedRacePoints: importedRace,
+                CalculatedRacePoints: calculatedRace,
+                ImportedPreseasonPoints: importedPreseason,
+                CalculatedPreseasonPoints: calculatedPreseason,
+                ImportedTotalPoints: importedTotal,
+                CalculatedTotalPoints: calculatedTotal,
+                NetDeltaPoints: calculatedTotal - importedTotal,
+                TopReasonCode: topReason.ReasonCode,
+                TopReasonCount: topReason.Count);
+        }).ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, decimal?> BuildDaveImportedRaceTotalOverrides(
+        IReadOnlyDictionary<string, decimal?> importedRacePointsByRaceAndSubject,
+        IReadOnlyDictionary<string, int?> fallbackImportedRacePointsBySubject)
+    {
+        var totalsBySubject = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pair in importedRacePointsByRaceAndSubject)
+        {
+            if (!pair.Value.HasValue)
+            {
+                continue;
+            }
+
+            var separatorIndex = pair.Key.LastIndexOf('|');
+            if (separatorIndex <= 0 || separatorIndex >= pair.Key.Length - 1)
+            {
+                continue;
+            }
+
+            var subject = pair.Key[(separatorIndex + 1)..];
+            if (string.IsNullOrWhiteSpace(subject))
+            {
+                continue;
+            }
+
+            totalsBySubject[subject] = totalsBySubject.GetValueOrDefault(subject, 0m) + pair.Value.Value;
+        }
+
+        var result = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pair in totalsBySubject)
+        {
+            result[pair.Key] = pair.Value;
+        }
+
+        foreach (var pair in fallbackImportedRacePointsBySubject)
+        {
+            if (!result.ContainsKey(pair.Key))
+            {
+                result[pair.Key] = pair.Value;
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<IReadOnlyDictionary<string, decimal?>> BuildDaveImportedOverallTotalOverridesAsync(
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        var leaderboardRows = await _dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x =>
+                x.ImportRunId == runId &&
+                x.SourceFileName != null &&
+                x.SourceFileName == DaveLeaderboardFileName)
+            .OrderBy(x => x.RowNumber)
+            .ToArrayAsync(cancellationToken);
+
+        if (leaderboardRows.Length < 2)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var headerColumns = ParseCsvRow(leaderboardRows[0].RawPayload);
+        if (headerColumns.Count == 0)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var nameColumnIndex = FindDaveLeaderboardNameColumnIndex(headerColumns);
+        var totalColumnIndex = FindDaveLeaderboardOverallTotalColumnIndex(headerColumns, nameColumnIndex);
+        if (totalColumnIndex < 0)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var totalsBySubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in leaderboardRows.Skip(1))
+        {
+            var columns = ParseCsvRow(row.RawPayload);
+            if (columns.Count == 0 || nameColumnIndex >= columns.Count || totalColumnIndex >= columns.Count)
+            {
+                continue;
+            }
+
+            var subject = columns[nameColumnIndex].Trim();
+            if (string.IsNullOrWhiteSpace(subject) ||
+                string.Equals(subject, "_Result", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(subject, "Result", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var rawTotal = columns[totalColumnIndex].Trim();
+            if (!TryParseDaveLeaderboardPoints(rawTotal, out var parsedTotal))
+            {
+                continue;
+            }
+
+            totalsBySubject[subject] = parsedTotal;
+        }
+
+        return totalsBySubject;
+    }
+
+    private async Task<IReadOnlyList<AdminMigrationCdpParityDto>> BuildCdpParityAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var importedCdp = await _dbContext.MigrationImportLegacyPickScores
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && x.PickType == "CDP")
+            .GroupBy(x => x.Subject)
+            .Select(group => new
+            {
+                Subject = group.Key,
+                ImportedCdp = group.Any(x => x.LegacyPoints.HasValue)
+                    ? group.Sum(x => x.LegacyPoints ?? 0)
+                    : (int?)null
+            })
+            .ToDictionaryAsync(x => x.Subject, x => x.ImportedCdp, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
+        var podiumSelections = await _dbContext.MigrationImportRaceSelections
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && (x.PickType == "1" || x.PickType == "2" || x.PickType == "3"))
+            .Select(x => new
+            {
+                x.RaceCode,
+                x.PickType,
+                x.Subject,
+                x.NormalizedValue,
+                x.IsActualOutcome
+            })
+            .ToListAsync(cancellationToken);
+
+        Dictionary<string, int> calculatedCdp;
+        if (podiumSelections.Count > 0)
+        {
+            var actualByRaceAndPickType = podiumSelections
+                .Where(x => x.IsActualOutcome)
+                .GroupBy(x => (x.RaceCode, x.PickType))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(x => x.NormalizedValue)
+                        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
+                    EqualityComparer<(string RaceCode, string PickType)>.Default);
+
+            calculatedCdp = podiumSelections
+                .Where(x => !x.IsActualOutcome && !string.IsNullOrWhiteSpace(x.Subject))
+                .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Count(selection =>
+                    {
+                        if (string.IsNullOrWhiteSpace(selection.NormalizedValue))
+                        {
+                            return false;
+                        }
+
+                        if (!actualByRaceAndPickType.TryGetValue((selection.RaceCode, selection.PickType), out var actualValue) ||
+                            string.IsNullOrWhiteSpace(actualValue))
+                        {
+                            return false;
+                        }
+
+                        return string.Equals(
+                            selection.NormalizedValue.Trim(),
+                            actualValue.Trim(),
+                            StringComparison.OrdinalIgnoreCase);
+                    }),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            // Fallback for legacy runs/tests that only persist calculated score rows.
+            calculatedCdp = await _dbContext.MigrationImportCalculatedScores
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    (x.PickType == "1" || x.PickType == "2" || x.PickType == "3") &&
+                    EF.Functions.Like(x.ReasonCode, "PODIUM_EXACT%"))
+                .GroupBy(x => x.Subject)
+                .Select(group => new
+                {
+                    Subject = group.Key,
+                    CalculatedCdp = group.Count()
+                })
+                .ToDictionaryAsync(x => x.Subject, x => x.CalculatedCdp, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        }
+
+        var subjects = importedCdp.Keys
+            .Concat(calculatedCdp.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return subjects
+            .Select(subject =>
+            {
+                importedCdp.TryGetValue(subject, out var imported);
+                calculatedCdp.TryGetValue(subject, out var calculated);
+                var delta = calculated - (imported ?? 0);
+                return new AdminMigrationCdpParityDto(
+                    Subject: subject,
+                    ImportedCdp: imported,
+                    CalculatedCdp: calculated,
+                    Delta: delta,
+                    IsParity: imported.HasValue && delta == 0);
+            })
+            .ToArray();
+    }
+
+    private async Task<IReadOnlyList<AdminMigrationSourceManifestItemDto>> BuildSourceManifestAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .Select(x => new { x.SourceFileName, x.SectionType })
+            .ToArrayAsync(cancellationToken);
+
+        return rows
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.SourceFileName) ? "(unknown)" : x.SourceFileName!, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new AdminMigrationSourceManifestItemDto(
+                SourceFileName: group.Key,
+                RowCount: group.Count(),
+                HeaderCount: group.Count(x => x.SectionType == "Header"),
+                RacePickCount: group.Count(x => x.SectionType == "RacePick"),
+                SeasonQuestionPredictionCount: group.Count(x => x.SectionType == "SeasonQuestionPrediction"),
+                RacePointsCount: group.Count(x => x.SectionType == "RacePoints"),
+                TotalsMetaCount: group.Count(x => x.SectionType == "TotalsMeta"),
+                UnclassifiedCount: group.Count(x => x.SectionType == "Unclassified"),
+                SourceArtifactCount: group.Count(x => x.SectionType == "SourceArtifact")))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<AdminMigrationSourceContractDiagnosticDto> BuildSourceContractDiagnostics(
+        string sourceFilePath,
+        IReadOnlyList<AdminMigrationSourceManifestItemDto> sourceManifest)
+    {
+        var diagnostics = new List<AdminMigrationSourceContractDiagnosticDto>();
+        var isDaveProfile = IsDaveSourcePath(sourceFilePath);
+
+        if (!isDaveProfile)
+        {
+            diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
+                Code: "SOURCE_PROFILE",
+                Severity: "Info",
+                Message: "Phil CSV source profile detected."));
+            return diagnostics;
+        }
+
+        diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
+            Code: "SOURCE_PROFILE",
+            Severity: "Info",
+            Message: "Dave multi-file source profile detected."));
+
+        var expectedFiles = new[] { "races.csv", "bonus.csv", "bonusAnswers.csv", "Leaderboard.csv" };
+        var manifestFiles = sourceManifest
+            .Select(x => Path.GetFileName(x.SourceFileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missingFiles = expectedFiles
+            .Where(file => !manifestFiles.Contains(file))
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (missingFiles.Length > 0)
+        {
+            diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
+                Code: "DAVE_CONTRACT_MISSING_FILES",
+                Severity: "Warning",
+                Message: $"Missing expected files in staged manifest: {string.Join(", ", missingFiles)}."));
+        }
+        else
+        {
+            diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
+                Code: "DAVE_CONTRACT_FILES_PRESENT",
+                Severity: "Info",
+                Message: "All required Dave package files are present in staged manifest."));
+        }
+
+        var unclassifiedRows = sourceManifest
+            .Where(x => !IsDaveLeaderboardManifestItem(x.SourceFileName))
+            .Sum(x => x.UnclassifiedCount);
+        if (unclassifiedRows > 0)
+        {
+            diagnostics.Add(new AdminMigrationSourceContractDiagnosticDto(
+                Code: "UNCLASSIFIED_ROWS",
+                Severity: "Warning",
+                Message: $"Manifest contains {unclassifiedRows} unclassified rows across source files."));
+        }
+
+        return diagnostics;
+    }
+
+    private static bool IsDaveLeaderboardManifestItem(string sourceFileName)
+    {
+        return string.Equals(
+            Path.GetFileName(sourceFileName),
+            DaveLeaderboardFileName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<MigrationRunDiffExportResponse?> ExportRunDiffsAsync(
@@ -947,16 +1682,19 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("category,questionId,questionText,participant,importedPoints,calculatedPoints,deltaPoints");
+        csv.AppendLine("category,questionId,questionText,participant,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.Category)).Append(',')
                 .Append(EscapeCsv(row.QuestionId)).Append(',')
                 .Append(EscapeCsv(row.QuestionText)).Append(',')
                 .Append(EscapeCsv(row.Participant)).Append(',')
+                .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+                .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
-            .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture))
+                .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(EscapeCsv(row.ReasonCode))
                 .AppendLine();
         }
 
@@ -970,6 +1708,14 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationQuestionDiffDto[]> BuildQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
     {
+        var sourceFilePath = await _dbContext.MigrationImportRuns
+            .AsNoTracking()
+            .Where(x => x.Id == runId)
+            .Select(x => x.SourceFilePath)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var isDaveProfile = IsDaveSourcePath(sourceFilePath ?? string.Empty);
+
         var season = await _dbContext.MigrationImportRaceRoundMappings
             .AsNoTracking()
             .Where(x => x.ImportRunId == runId && x.Season.HasValue)
@@ -982,18 +1728,71 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             templateQuery = templateQuery.Where(t => t.Season == season);
         }
 
+        string[] runParticipants = [];
+        string[] allowedQuestionIds = [];
+
+        if (isDaveProfile)
+        {
+            runParticipants = await _dbContext.MigrationImportRaceSelections
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    !x.IsActualOutcome &&
+                    x.Subject != ActualSubject)
+                .Select(x => x.Subject)
+                .Concat(_dbContext.MigrationImportPreseasonAnswers
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.ImportRunId == runId &&
+                        !x.IsActualOutcome &&
+                        x.Subject != ActualSubject)
+                    .Select(x => x.Subject))
+                .Distinct()
+                .ToArrayAsync(cancellationToken);
+
+            var daveRaceQuestionKeys = await _dbContext.MigrationImportRaceSelections
+                .AsNoTracking()
+                .Where(x =>
+                    x.ImportRunId == runId &&
+                    (x.PickType == "H2H" || x.PickType.StartsWith("BQ")))
+                .Select(x => new { x.RaceCode, x.PickType })
+                .ToArrayAsync(cancellationToken);
+
+            var davePreseasonQuestionKeys = await _dbContext.MigrationImportPreseasonAnswers
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == runId)
+                .Select(x => x.QuestionKey)
+                .ToArrayAsync(cancellationToken);
+
+            allowedQuestionIds = daveRaceQuestionKeys
+                .Select(x => BuildDaveQuestionId(x.RaceCode, x.PickType))
+                .Concat(davePreseasonQuestionKeys)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (allowedQuestionIds.Length == 0 || runParticipants.Length == 0)
+            {
+                return [];
+            }
+
+            templateQuery = templateQuery.Where(t => allowedQuestionIds.Contains(t.QuestionId));
+        }
+
         var rows = await _dbContext.QuestionScores
             .AsNoTracking()
+            .Where(score => !isDaveProfile || runParticipants.Contains(score.ParticipantId))
             .Join(
                 templateQuery,
                 score => score.QuestionTemplateId,
                 template => template.Id,
                 (score, template) => new
                 {
+                    score.QuestionTemplateId,
                     template.Category,
                     template.QuestionId,
                     template.Prompt,
                     score.ParticipantId,
+                    score.OverrideReasonCode,
                     score.ImportedPoints,
                     score.CalculatedPoints,
                     score.DeltaPoints
@@ -1003,16 +1802,646 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
             .ThenBy(x => x.ParticipantId)
             .ToArrayAsync(cancellationToken);
 
+        var templateIds = rows.Select(x => x.QuestionTemplateId).Distinct().ToArray();
+        var answers = templateIds.Length == 0
+            ? []
+            : await _dbContext.QuestionAnswers
+                .AsNoTracking()
+                .Where(x => templateIds.Contains(x.QuestionTemplateId) && (!isDaveProfile || runParticipants.Contains(x.ParticipantId)))
+                .ToArrayAsync(cancellationToken);
+        var actuals = templateIds.Length == 0
+            ? []
+            : await _dbContext.QuestionActuals
+                .AsNoTracking()
+                .Where(x => templateIds.Contains(x.QuestionTemplateId))
+                .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = answers.ToDictionary(
+            x => BuildQuestionAnswerKey(x.QuestionTemplateId, x.ParticipantId),
+            x => ResolveDisplayAnswer(x.OverrideAnswer, x.ImportedAnswer),
+            StringComparer.OrdinalIgnoreCase);
+        var actualAnswerByTemplateId = actuals
+            .GroupBy(x => x.QuestionTemplateId)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().OverrideAnswer, group.First().ImportedAnswer));
+
         return rows
             .Select(x => new AdminMigrationQuestionDiffDto(
                 x.Category.ToString(),
                 x.QuestionId,
                 x.Prompt,
                 x.ParticipantId,
+                chosenAnswerByKey.GetValueOrDefault(BuildQuestionAnswerKey(x.QuestionTemplateId, x.ParticipantId)),
+                actualAnswerByTemplateId.GetValueOrDefault(x.QuestionTemplateId),
                 x.ImportedPoints,
                 x.CalculatedPoints,
-                x.DeltaPoints))
+                x.DeltaPoints,
+                ResolveQuestionReasonCode(x.OverrideReasonCode, x.DeltaPoints)))
             .ToArray();
+    }
+
+    private static bool IsDaveRaceQuestionPickType(string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase) ||
+               pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildDaveQuestionId(string raceCode, string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase)
+            ? $"H2H-{raceCode.ToUpperInvariant()}"
+            : $"RB-{raceCode.ToUpperInvariant()}-{pickType.ToUpperInvariant()}";
+    }
+
+    private async Task<AdminMigrationPreseasonQuestionDiffDto[]> BuildPreseasonQuestionDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var diffRows = await _dbContext.MigrationImportPreseasonQuestionDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject)
+            .ThenBy(x => x.QuestionKey)
+            .ToArrayAsync(cancellationToken);
+
+        var answerRows = await _dbContext.MigrationImportPreseasonAnswers
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = answerRows
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPreseasonAnswerKey(x.QuestionKey, x.Subject), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawAnswer, group.First().NormalizedAnswer),
+                StringComparer.OrdinalIgnoreCase);
+
+        var actualAnswerByQuestionKey = answerRows
+            .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.QuestionKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawAnswer, group.First().NormalizedAnswer),
+                StringComparer.OrdinalIgnoreCase);
+
+        return diffRows
+            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
+                x.RowNumber,
+                x.QuestionKey,
+                x.QuestionText,
+                x.Subject,
+                chosenAnswerByKey.GetValueOrDefault(BuildPreseasonAnswerKey(x.QuestionKey, x.Subject)),
+                actualAnswerByQuestionKey.GetValueOrDefault(x.QuestionKey),
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation))
+            .ToArray();
+    }
+
+    private async Task<AdminMigrationPickDiffDto[]> BuildPickDiffRowsAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var diffRows = await _dbContext.MigrationImportPickDiffs
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+
+        var selectionRows = await _dbContext.MigrationImportRaceSelections
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId)
+            .ToArrayAsync(cancellationToken);
+
+        var chosenAnswerByKey = selectionRows
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPickAnswerKey(x.RaceCode, x.PickType, x.Subject), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawValue, group.First().NormalizedValue),
+                StringComparer.OrdinalIgnoreCase);
+
+        var actualAnswerByKey = selectionRows
+            .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => BuildPickActualAnswerKey(x.RaceCode, x.PickType), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => ResolveDisplayAnswer(group.First().RawValue, group.First().NormalizedValue),
+                StringComparer.OrdinalIgnoreCase);
+
+        return diffRows
+            .Select(x => new AdminMigrationPickDiffDto(
+                x.RaceCode,
+                x.PickType,
+                x.Subject,
+                chosenAnswerByKey.GetValueOrDefault(BuildPickAnswerKey(x.RaceCode, x.PickType, x.Subject)),
+                actualAnswerByKey.GetValueOrDefault(BuildPickActualAnswerKey(x.RaceCode, x.PickType)),
+                x.ImportedPoints,
+                x.CalculatedPoints,
+                x.DeltaPoints,
+                x.ReasonCode,
+                x.Explanation,
+                x.IsExpectedVariance,
+                x.ExpectedVarianceReasonCode,
+                x.ExpectedVarianceRuleId))
+            .ToArray();
+    }
+
+    private static string BuildPreseasonAnswerKey(string questionKey, string subject)
+    {
+        return $"{questionKey.Trim().ToUpperInvariant()}|{subject.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildPickAnswerKey(string raceCode, string pickType, string subject)
+    {
+        return $"{raceCode.Trim().ToUpperInvariant()}|{pickType.Trim().ToUpperInvariant()}|{subject.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildPickActualAnswerKey(string raceCode, string pickType)
+    {
+        return $"{raceCode.Trim().ToUpperInvariant()}|{pickType.Trim().ToUpperInvariant()}";
+    }
+
+    private static string BuildQuestionAnswerKey(long questionTemplateId, string participantId)
+    {
+        return $"{questionTemplateId}|{participantId.Trim().ToUpperInvariant()}";
+    }
+
+    private static string? ResolveDisplayAnswer(string? preferredValue, string? fallbackValue)
+    {
+        return !string.IsNullOrWhiteSpace(preferredValue)
+            ? preferredValue.Trim()
+            : string.IsNullOrWhiteSpace(fallbackValue)
+                ? null
+                : fallbackValue.Trim();
+    }
+
+    private static string ResolveQuestionReasonCode(string? overrideReasonCode, int deltaPoints)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideReasonCode))
+        {
+            return overrideReasonCode;
+        }
+
+        return deltaPoints == 0 ? "QUESTION_POINTS_MATCH" : "QUESTION_RULE_VARIANCE";
+    }
+
+    private static string BuildRaceSummaryKey(string raceCode, string subject)
+    {
+        return $"{raceCode.Trim().ToUpperInvariant()}|{subject.Trim().ToUpperInvariant()}";
+    }
+
+    private static decimal? ResolveImportedRacePointsForDisplay(
+        MigrationImportRaceDiffEntity raceDiff,
+        bool isDaveProfile,
+        IReadOnlyDictionary<string, int?> daveImportedRacePointsBySubject,
+        IReadOnlyDictionary<string, decimal?> daveImportedRacePointsByRaceAndSubject,
+        IReadOnlyDictionary<string, decimal?> daveImportedOverallTotalOverridesBySubject)
+    {
+        if (!isDaveProfile)
+        {
+            return raceDiff.ImportedPoints;
+        }
+
+        if (string.Equals(raceDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase) &&
+            daveImportedOverallTotalOverridesBySubject.TryGetValue(raceDiff.Subject, out var importedOverallTotal) &&
+            importedOverallTotal.HasValue)
+        {
+            return importedOverallTotal.Value;
+        }
+
+        var raceSubjectKey = BuildRaceSummaryKey(raceDiff.RaceCode, raceDiff.Subject);
+        if (daveImportedRacePointsByRaceAndSubject.TryGetValue(raceSubjectKey, out var raceImportedPoints) && raceImportedPoints.HasValue)
+        {
+            return raceImportedPoints.Value;
+        }
+
+        if (string.Equals(raceDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return daveImportedRacePointsBySubject.GetValueOrDefault(raceDiff.Subject) ?? raceDiff.ImportedPoints;
+        }
+
+        return raceDiff.ImportedPoints == 0 ? null : raceDiff.ImportedPoints;
+    }
+
+    private static bool TryApplyDaveRaceDiffComparisonOverride(
+        MigrationImportRaceDiffEntity raceDiff,
+        bool isDaveProfile,
+        decimal? importedRacePoints,
+        decimal calculatedPoints,
+        out int importedPoints,
+        out decimal deltaPoints,
+        out string reasonCode,
+        out string explanation,
+        out bool isExpectedVariance,
+        out string? expectedVarianceReasonCode,
+        out string? expectedVarianceRuleId)
+    {
+        importedPoints = raceDiff.ImportedPoints;
+        deltaPoints = calculatedPoints - raceDiff.ImportedPoints;
+        reasonCode = raceDiff.ReasonCode;
+        explanation = raceDiff.Explanation;
+        isExpectedVariance = raceDiff.IsExpectedVariance;
+        expectedVarianceReasonCode = raceDiff.ExpectedVarianceReasonCode;
+        expectedVarianceRuleId = raceDiff.ExpectedVarianceRuleId;
+
+        if (!isDaveProfile || !importedRacePoints.HasValue)
+        {
+            return false;
+        }
+
+        var rawImportedPoints = importedRacePoints.Value;
+        if (rawImportedPoints < int.MinValue || rawImportedPoints > int.MaxValue)
+        {
+            return false;
+        }
+
+        if (calculatedPoints == rawImportedPoints)
+        {
+            if (TryConvertWholeDecimalToInt(rawImportedPoints, out var convertedExactImportedPoints))
+            {
+                importedPoints = convertedExactImportedPoints;
+            }
+
+            deltaPoints = 0m;
+            reasonCode = "RACE_POINTS_MATCH";
+            explanation = BuildDaveDecimalRaceDiffExplanation(raceDiff, rawImportedPoints, deltaPoints, reasonCode, calculatedPoints);
+            isExpectedVariance = false;
+            expectedVarianceReasonCode = null;
+            expectedVarianceRuleId = null;
+            return true;
+        }
+
+        if (TryConvertWholeDecimalToInt(importedRacePoints, out var convertedImportedPoints))
+        {
+            importedPoints = convertedImportedPoints;
+            deltaPoints = calculatedPoints - importedPoints;
+            reasonCode = deltaPoints == 0
+                ? "RACE_POINTS_MATCH"
+                : string.Equals(raceDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase)
+                    ? "RACE_RULE_VARIANCE"
+                    : string.IsNullOrWhiteSpace(raceDiff.ReasonCode)
+                    ? "RACE_RULE_VARIANCE"
+                    : raceDiff.ReasonCode;
+            explanation = BuildDaveRaceDiffExplanation(raceDiff, importedPoints, deltaPoints, reasonCode, calculatedPoints);
+
+            if (deltaPoints == 0)
+            {
+                isExpectedVariance = false;
+                expectedVarianceReasonCode = null;
+                expectedVarianceRuleId = null;
+            }
+
+            return true;
+        }
+
+        if (!IsHalfPointDecimal(rawImportedPoints))
+        {
+            return false;
+        }
+
+        var roundedImportedPoints = decimal.ToInt32(decimal.Round(rawImportedPoints, 0, MidpointRounding.AwayFromZero));
+        if (Math.Abs(calculatedPoints - rawImportedPoints) != 0.5m)
+        {
+            return false;
+        }
+
+        importedPoints = roundedImportedPoints;
+        deltaPoints = 0m;
+        reasonCode = "RACE_POINTS_MATCH";
+        explanation = BuildDaveHalfPointRoundingExplanation(raceDiff, rawImportedPoints, roundedImportedPoints, calculatedPoints);
+        isExpectedVariance = false;
+        expectedVarianceReasonCode = null;
+        expectedVarianceRuleId = null;
+
+        return true;
+    }
+
+    private static bool TryConvertWholeDecimalToInt(decimal? value, out int converted)
+    {
+        converted = 0;
+        if (!value.HasValue)
+        {
+            return false;
+        }
+
+        var raw = value.Value;
+        if (raw != decimal.Truncate(raw) || raw < int.MinValue || raw > int.MaxValue)
+        {
+            return false;
+        }
+
+        converted = decimal.ToInt32(raw);
+        return true;
+    }
+
+    private static bool IsHalfPointDecimal(decimal value)
+    {
+        var fractionalPart = Math.Abs(value - decimal.Truncate(value));
+        return fractionalPart == 0.5m;
+    }
+
+    private static string BuildDaveRaceDiffExplanation(
+        MigrationImportRaceDiffEntity raceDiff,
+        int importedPoints,
+        decimal deltaPoints,
+        string reasonCode,
+        decimal? calculatedPointsOverride = null)
+    {
+        var calculatedPoints = calculatedPointsOverride ?? raceDiff.CalculatedPoints;
+        var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedPoints}, calculated {calculatedPoints}, delta {deltaPoints}. Reason: {reasonCode}.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static string BuildDaveDecimalRaceDiffExplanation(
+        MigrationImportRaceDiffEntity raceDiff,
+        decimal importedPoints,
+        decimal deltaPoints,
+        string reasonCode,
+        decimal? calculatedPointsOverride = null)
+    {
+        var calculatedPoints = calculatedPointsOverride ?? raceDiff.CalculatedPoints;
+        var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedPoints}, calculated {calculatedPoints}, delta {deltaPoints}. Reason: {reasonCode}.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static string BuildDaveHalfPointRoundingExplanation(
+        MigrationImportRaceDiffEntity raceDiff,
+        decimal importedRacePoints,
+        int roundedImportedPoints,
+        decimal? calculatedPointsOverride = null)
+    {
+        var calculatedPoints = calculatedPointsOverride ?? raceDiff.CalculatedPoints;
+        var explanation = $"{raceDiff.Subject} {raceDiff.RaceCode} imported race points {importedRacePoints} rounded to {roundedImportedPoints} for integer comparison, calculated {calculatedPoints}, delta 0. Reason: RACE_POINTS_MATCH.";
+        return explanation.Length <= 1024 ? explanation : explanation[..1021] + "...";
+    }
+
+    private static bool IsSuppressedDaveMissingReason(string? reasonCode)
+    {
+        return string.Equals(reasonCode, LegacyPointsMissingReasonCode, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(reasonCode, PreseasonImportedMissingReasonCode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSuppressedDaveLeaderboardPickDiff(AdminMigrationPickDiffDto pickDiff)
+    {
+        if (!string.Equals(pickDiff.RaceCode, DaveLeaderboardRaceCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return pickDiff.PickType.EndsWith("_TOTAL", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, decimal> BuildDaveCalculatedOverallTotalsBySubject(
+        IReadOnlyList<AdminMigrationPickDiffDto> pickDiffs,
+        IReadOnlyList<AdminMigrationPreseasonQuestionDiffDto> preseasonQuestionDiffs)
+    {
+        var totalsBySubject = pickDiffs
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(x => x.CalculatedPoints ?? 0),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in preseasonQuestionDiffs.GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase))
+        {
+            totalsBySubject[group.Key] = totalsBySubject.GetValueOrDefault(group.Key, 0m) + group.Sum(x => x.CalculatedPoints ?? 0);
+        }
+
+        return totalsBySubject;
+    }
+
+    private async Task<Dictionary<string, decimal?>> BuildDaveImportedRacePointsByRaceAndSubjectAsync(
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        var mappedRaceCodes = await _dbContext.MigrationImportRaceRoundMappings
+            .AsNoTracking()
+            .Where(x => x.ImportRunId == runId && !string.IsNullOrWhiteSpace(x.MappedCircuitId))
+            .OrderBy(x => x.RaceSequence)
+            .Select(x => x.MappedCircuitId)
+            .ToArrayAsync(cancellationToken);
+
+        if (mappedRaceCodes.Length == 0)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var leaderboardRows = await _dbContext.MigrationImportRawRows
+            .AsNoTracking()
+            .Where(x =>
+                x.ImportRunId == runId &&
+                x.SourceFileName != null &&
+                x.SourceFileName == DaveLeaderboardFileName)
+            .OrderBy(x => x.RowNumber)
+            .ToArrayAsync(cancellationToken);
+
+        if (leaderboardRows.Length < 2)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var headerColumns = ParseCsvRow(leaderboardRows[0].RawPayload);
+        if (headerColumns.Count == 0)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var nameColumnIndex = FindDaveLeaderboardNameColumnIndex(headerColumns);
+        var raceColumnIndices = ResolveDaveLeaderboardRaceColumnIndices(headerColumns, nameColumnIndex);
+        if (raceColumnIndices.Length == 0)
+        {
+            return new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var importedByRaceAndSubject = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in leaderboardRows.Skip(1))
+        {
+            var columns = ParseCsvRow(row.RawPayload);
+            if (columns.Count == 0 || nameColumnIndex >= columns.Count)
+            {
+                continue;
+            }
+
+            var subject = columns[nameColumnIndex].Trim();
+            if (string.IsNullOrWhiteSpace(subject) ||
+                string.Equals(subject, "_Result", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(subject, "Result", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var mappedRaceCount = Math.Min(mappedRaceCodes.Length, raceColumnIndices.Length);
+            for (var index = 0; index < mappedRaceCount; index++)
+            {
+                var columnIndex = raceColumnIndices[index];
+                if (columnIndex >= columns.Count)
+                {
+                    continue;
+                }
+
+                var raw = columns[columnIndex].Trim();
+                if (!TryParseDaveLeaderboardPoints(raw, out var parsedPoints))
+                {
+                    continue;
+                }
+
+                var raceCode = mappedRaceCodes[index]!;
+                var key = BuildRaceSummaryKey(raceCode, subject);
+                importedByRaceAndSubject[key] = parsedPoints;
+            }
+        }
+
+        return importedByRaceAndSubject;
+    }
+
+    private static int FindDaveLeaderboardNameColumnIndex(IReadOnlyList<string> headerColumns)
+    {
+        for (var index = 0; index < headerColumns.Count; index++)
+        {
+            var normalized = NormalizeLeaderboardHeader(headerColumns[index]);
+            if (normalized is "name" or "participant" or "player")
+            {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    private static int[] ResolveDaveLeaderboardRaceColumnIndices(IReadOnlyList<string> headerColumns, int nameColumnIndex)
+    {
+        var summaryColumnTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "cdp",
+            "points",
+            "bets",
+            "total",
+            "bonus",
+            "final"
+        };
+
+        var firstSummaryColumnIndex = headerColumns.Count;
+        for (var index = Math.Max(nameColumnIndex + 1, 0); index < headerColumns.Count; index++)
+        {
+            var normalized = NormalizeLeaderboardHeader(headerColumns[index]);
+            if (summaryColumnTokens.Contains(normalized))
+            {
+                firstSummaryColumnIndex = index;
+                break;
+            }
+        }
+
+        if (firstSummaryColumnIndex <= nameColumnIndex + 1)
+        {
+            return [];
+        }
+
+        return Enumerable.Range(nameColumnIndex + 1, firstSummaryColumnIndex - (nameColumnIndex + 1)).ToArray();
+    }
+
+    private static int FindDaveLeaderboardOverallTotalColumnIndex(IReadOnlyList<string> headerColumns, int nameColumnIndex)
+    {
+        for (var index = Math.Max(nameColumnIndex + 1, 0); index < headerColumns.Count; index++)
+        {
+            if (NormalizeLeaderboardHeader(headerColumns[index]) == "total")
+            {
+                return index;
+            }
+        }
+
+        for (var index = Math.Max(nameColumnIndex + 1, 0); index < headerColumns.Count; index++)
+        {
+            if (NormalizeLeaderboardHeader(headerColumns[index]) == "final")
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static string NormalizeLeaderboardHeader(string raw)
+    {
+        return new string(raw.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+    }
+
+    private static bool TryParseDaveLeaderboardPoints(string raw, out decimal points)
+    {
+        points = 0;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        return decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out points) ||
+               decimal.TryParse(raw, NumberStyles.Number, CultureInfo.CurrentCulture, out points);
+    }
+
+    private static List<string> ParseCsvRow(string line)
+    {
+        var fields = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var character = line[index];
+
+            if (character == '"')
+            {
+                if (inQuotes && index + 1 < line.Length && line[index + 1] == '"')
+                {
+                    current.Append('"');
+                    index++;
+                    continue;
+                }
+
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (character == ',' && !inQuotes)
+            {
+                fields.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+
+            current.Append(character);
+        }
+
+        fields.Add(current.ToString());
+        return fields;
+    }
+
+    private static string? BuildRacePickSummary(IEnumerable<MigrationImportRaceSelectionEntity> selections)
+    {
+        var items = selections
+            .OrderBy(x => RacePickSummaryOrder(x.PickType))
+            .ThenBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.RowNumber)
+            .Select(x => $"{x.PickType}:{ResolveDisplayAnswer(x.RawValue, x.NormalizedValue) ?? "-"}")
+            .ToArray();
+
+        return items.Length == 0 ? null : string.Join(" | ", items);
+    }
+
+    private static int RacePickSummaryOrder(string pickType)
+    {
+        return pickType.ToUpperInvariant() switch
+        {
+            "PQ" => 0,
+            "1" => 1,
+            "2" => 2,
+            "3" => 3,
+            "DNF" => 4,
+            "H2H" => 5,
+            "BQ1" => 6,
+            "BQ2" => 7,
+            _ => 99
+        };
     }
 
     private static IEnumerable<AdminMigrationQuestionDiffDto> ApplyQuestionFilters(
@@ -1056,23 +2485,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         string requestedBy,
         CancellationToken cancellationToken)
     {
-        var rows = await _dbContext.MigrationImportPreseasonQuestionDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.RowNumber)
-            .ThenBy(x => x.Subject)
-            .ThenBy(x => x.QuestionKey)
-            .Select(x => new AdminMigrationPreseasonQuestionDiffDto(
-                x.RowNumber,
-                x.QuestionKey,
-                x.QuestionText,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation))
-            .ToArrayAsync(cancellationToken);
+        var rows = await BuildPreseasonQuestionDiffRowsAsync(runId, cancellationToken);
 
         var extension = format == "json" ? "json" : "csv";
         var fileName = $"migration-run-{runId}-preseason-question-diffs.{extension}";
@@ -1098,13 +2511,15 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("rowNumber,questionKey,questionText,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
+        csv.AppendLine("rowNumber,questionKey,questionText,subject,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode,explanation");
         foreach (var row in rows)
         {
             csv.Append(row.RowNumber.ToString(CultureInfo.InvariantCulture)).Append(',')
                 .Append(EscapeCsv(row.QuestionKey)).Append(',')
                 .Append(EscapeCsv(row.QuestionText)).Append(',')
                 .Append(EscapeCsv(row.Subject)).Append(',')
+            .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+            .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -1244,23 +2659,7 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         CancellationToken cancellationToken,
         string? expectedStatus)
     {
-        var rows = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
-            .ToArrayAsync(cancellationToken);
+        var rows = await BuildPickDiffRowsAsync(runId, cancellationToken);
 
         rows = FilterExpectedVariance(rows, expectedStatus).ToArray();
 
@@ -1288,12 +2687,14 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         }
 
         var csv = new StringBuilder();
-        csv.AppendLine("raceCode,pickType,subject,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
+        csv.AppendLine("raceCode,pickType,subject,chosenAnswer,actualAnswer,importedPoints,calculatedPoints,deltaPoints,reasonCode,isExpectedVariance,expectedVarianceReasonCode,expectedVarianceRuleId,explanation");
         foreach (var row in rows)
         {
             csv.Append(EscapeCsv(row.RaceCode)).Append(',')
                 .Append(EscapeCsv(row.PickType)).Append(',')
                 .Append(EscapeCsv(row.Subject)).Append(',')
+            .Append(EscapeCsv(row.ChosenAnswer)).Append(',')
+            .Append(EscapeCsv(row.ActualAnswer)).Append(',')
                 .Append(row.ImportedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.CalculatedPoints?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
                 .Append(row.DeltaPoints.ToString(CultureInfo.InvariantCulture)).Append(',')
@@ -1363,25 +2764,11 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
 
     private async Task<AdminMigrationParticipantDeltaDto[]> BuildParticipantDiffRowsAsync(Guid runId, string? expectedStatus, CancellationToken cancellationToken)
     {
-        var pickDiffs = await _dbContext.MigrationImportPickDiffs
-            .AsNoTracking()
-            .Where(x => x.ImportRunId == runId)
-            .OrderBy(x => x.Id)
-            .Select(x => new AdminMigrationPickDiffDto(
-                x.RaceCode,
-                x.PickType,
-                x.Subject,
-                x.ImportedPoints,
-                x.CalculatedPoints,
-                x.DeltaPoints,
-                x.ReasonCode,
-                x.Explanation,
-                x.IsExpectedVariance,
-                x.ExpectedVarianceReasonCode,
-                x.ExpectedVarianceRuleId))
-            .ToArrayAsync(cancellationToken);
+        var pickDiffs = await BuildPickDiffRowsAsync(runId, cancellationToken);
 
         var filteredPickDiffs = FilterExpectedVariance(pickDiffs, expectedStatus);
+        filteredPickDiffs = filteredPickDiffs
+            .Where(x => !string.Equals(x.PickType, CdpPickType, StringComparison.OrdinalIgnoreCase));
 
         return filteredPickDiffs
             .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
@@ -1439,10 +2826,15 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
     {
         var candidatePath = Path.GetFullPath(sourceFilePath, Directory.GetCurrentDirectory());
         var importRoot = Path.GetFullPath(AllowedImportRootPath, Directory.GetCurrentDirectory());
-        var tempImportRoot = Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath());
+        var allowedTempRoots = new[]
+        {
+            Path.GetFullPath(AllowedTempImportRootPath, Path.GetTempPath()),
+            Path.GetFullPath("f1-imports", Path.GetTempPath()),
+            Path.Combine(Path.GetTempPath(), "f1-api-uploads")
+        };
 
         if (IsPathWithinRoot(candidatePath, importRoot) ||
-            IsPathWithinRoot(candidatePath, tempImportRoot))
+            allowedTempRoots.Any(root => IsPathWithinRoot(candidatePath, root)))
         {
             return candidatePath;
         }
@@ -1466,7 +2858,92 @@ public sealed class MigrationRunAdminService : IMigrationRunAdminService
         return candidatePath.StartsWith(rootWithSeparator, comparison);
     }
 
-    private static async Task<string> ComputeSha256Async(string sourceFilePath, CancellationToken cancellationToken)
+    private static string? NormalizeSourceProfile(string? sourceProfile)
+    {
+        if (string.IsNullOrWhiteSpace(sourceProfile))
+        {
+            return SourceProfilePhil2025Csv;
+        }
+
+        var normalized = sourceProfile.Trim().ToLowerInvariant();
+        return normalized is SourceProfilePhil2025Csv or SourceProfileDave2025Package
+            ? normalized
+            : null;
+    }
+
+    private static string ResolveSourceProfileForPath(string sourceFilePath)
+    {
+        if (Directory.Exists(sourceFilePath))
+        {
+            return SourceProfileDave2025Package;
+        }
+
+        return SourceProfilePhil2025Csv;
+    }
+
+    private static (bool IsValid, string? Error) ValidateDavePackageContract(string sourcePath)
+    {
+        if (!Directory.Exists(sourcePath))
+        {
+            return (false, "Dave 2025 package profile requires a directory path.");
+        }
+
+        var requiredFiles = new[] { "races.csv", "bonus.csv", "bonusAnswers.csv", "Leaderboard.csv" };
+        var fileSet = Directory
+            .EnumerateFiles(sourcePath, "*", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missingFiles = requiredFiles
+            .Where(file => !fileSet.Contains(file))
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (missingFiles.Length > 0)
+        {
+            return (false, $"Dave package is missing required file(s): {string.Join(", ", missingFiles)}.");
+        }
+
+        return (true, null);
+    }
+
+    private static async Task<string> ComputeSourceChecksumAsync(string sourceFilePath, CancellationToken cancellationToken)
+    {
+        if (File.Exists(sourceFilePath))
+        {
+            return await ComputeFileSha256Async(sourceFilePath, cancellationToken);
+        }
+
+        if (!Directory.Exists(sourceFilePath))
+        {
+            return string.Empty;
+        }
+
+        var files = Directory
+            .EnumerateFiles(sourceFilePath, "*", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var manifestBuilder = new StringBuilder();
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fileHash = await ComputeFileSha256Async(file, cancellationToken);
+            manifestBuilder.Append(Path.GetFileName(file));
+            manifestBuilder.Append(':');
+            manifestBuilder.Append(fileHash);
+            manifestBuilder.Append('\n');
+        }
+
+        var manifestBytes = Encoding.UTF8.GetBytes(manifestBuilder.ToString());
+        using var sha256 = SHA256.Create();
+        var manifestHash = sha256.ComputeHash(manifestBytes);
+        return Convert.ToHexString(manifestHash).ToLowerInvariant();
+    }
+
+    private static async Task<string> ComputeFileSha256Async(string sourceFilePath, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(sourceFilePath);
         using var sha256 = SHA256.Create();

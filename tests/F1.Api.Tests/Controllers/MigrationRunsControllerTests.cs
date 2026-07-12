@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
+using System.IO.Compression;
 
 namespace F1.Api.Tests.Controllers;
 
@@ -76,6 +77,19 @@ public sealed class MigrationRunsControllerTests
             .Single();
 
         Assert.Equal("Admin", authorizeAttribute.Roles);
+    }
+
+    [Fact]
+    public void GetRunDetail_HasGuidRouteAttribute()
+    {
+        var attribute = typeof(MigrationRunsController)
+            .GetMethod(nameof(MigrationRunsController.GetRunDetail))?
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: true)
+            .Cast<HttpGetAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(attribute);
+        Assert.Equal("{runId:guid}", attribute!.Template);
     }
 
     [Fact]
@@ -240,9 +254,12 @@ public sealed class MigrationRunsControllerTests
                         QuestionId: "PRE-001",
                         QuestionText: "Question",
                         Participant: "Philip",
+                        ChosenAnswer: "YES",
+                        ActualAnswer: "NO",
                         ImportedPoints: 20,
                         CalculatedPoints: 0,
-                        DeltaPoints: -20)
+                        DeltaPoints: -20,
+                        ReasonCode: "QUESTION_RULE_VARIANCE")
                 ]));
 
         var controller = new MigrationRunsController(service.Object)
@@ -574,6 +591,172 @@ public sealed class MigrationRunsControllerTests
     }
 
     [Fact]
+    public async Task KickoffRunFromUpload_WhenDaveProfileWithValidZip_ReturnsCreatedPayload()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: true,
+                Conflict: false,
+                Error: null,
+                ExistingRunId: null,
+                Run: new AdminMigrationRunKickoffResponseDto(
+                    RunId: runId,
+                    Status: "Started",
+                    IsDryRun: true,
+                    RequestedMode: "dry-run",
+                    SourceFilePath: "data/imports/uploads/dave-package",
+                    SourceFileChecksum: "abc123",
+                    TriggeredAtUtc: new DateTime(2026, 7, 6, 13, 0, 0, DateTimeKind.Utc),
+                    RequestedBy: "admin@example.com")));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        await using var archiveStream = BuildDaveZipArchive(
+            ("races.csv", "Name,Race1-1\nAlice,NOR"),
+            ("bonus.csv", "Question,Alice\nQ1,Yes"),
+            ("bonusAnswers.csv", "Question,Answer\nQ1,Yes"),
+            ("Leaderboard.csv", "Name,Total\nAlice,100"));
+        var formFile = new FormFile(archiveStream, 0, archiveStream.Length, "SourceFile", "dave-package.zip");
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: formFile,
+            Mode: "dry-run",
+            SourceProfile: "dave-2025-package"));
+
+        var created = Assert.IsType<CreatedAtActionResult>(result);
+        var payload = Assert.IsType<AdminMigrationRunKickoffResponseDto>(created.Value);
+        Assert.Equal(runId, payload.RunId);
+
+        service.Verify(x => x.KickoffRunAsync(
+            It.Is<MigrationRunKickoffCommand>(command =>
+                command.RequestedMode == "dry-run" &&
+                command.SourceProfile == "dave-2025-package" &&
+                command.SourceFilePath != null &&
+                command.SourceFilePath.Contains("uploads")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task KickoffRunFromUpload_WhenDaveProfileWithLowercaseLeaderboardFile_ReturnsCreatedPayload()
+    {
+        var runId = Guid.NewGuid();
+        var service = new Mock<IMigrationRunAdminService>();
+        service
+            .Setup(x => x.KickoffRunAsync(
+                It.IsAny<MigrationRunKickoffCommand>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MigrationRunKickoffResult(
+                Success: true,
+                Conflict: false,
+                Error: null,
+                ExistingRunId: null,
+                Run: new AdminMigrationRunKickoffResponseDto(
+                    RunId: runId,
+                    Status: "Started",
+                    IsDryRun: true,
+                    RequestedMode: "dry-run",
+                    SourceFilePath: "data/imports/uploads/dave-package",
+                    SourceFileChecksum: "abc123",
+                    TriggeredAtUtc: new DateTime(2026, 7, 6, 13, 0, 0, DateTimeKind.Utc),
+                    RequestedBy: "admin@example.com")));
+
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        await using var archiveStream = BuildDaveZipArchive(
+            ("races.csv", "Name,Race1-1\nAlice,NOR"),
+            ("bonus.csv", "Question,Alice\nQ1,Yes"),
+            ("bonusAnswers.csv", "Question,Answer\nQ1,Yes"),
+            ("leaderboard.csv", "Name,Total\nAlice,100"));
+        var formFile = new FormFile(archiveStream, 0, archiveStream.Length, "SourceFile", "dave-package.zip");
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: formFile,
+            Mode: "dry-run",
+            SourceProfile: "dave-2025-package"));
+
+        var created = Assert.IsType<CreatedAtActionResult>(result);
+        var payload = Assert.IsType<AdminMigrationRunKickoffResponseDto>(created.Value);
+        Assert.Equal(runId, payload.RunId);
+
+        service.Verify(x => x.KickoffRunAsync(
+            It.Is<MigrationRunKickoffCommand>(command =>
+                command.SourceProfile == "dave-2025-package" &&
+                command.SourceFilePath != null),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task KickoffRunFromUpload_WhenDaveProfileWithCsv_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Question,Philip\nAUS-1,VER"));
+        var formFile = new FormFile(stream, 0, stream.Length, "SourceFile", "import.csv");
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: formFile,
+            Mode: "dry-run",
+            SourceProfile: "dave-2025-package"));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+        service.Verify(x => x.KickoffRunAsync(It.IsAny<MigrationRunKickoffCommand>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task KickoffRunFromUpload_WhenDaveArchiveContainsTraversal_ReturnsBadRequest()
+    {
+        var service = new Mock<IMigrationRunAdminService>();
+        var controller = new MigrationRunsController(service.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = CreateHttpContext(isAdmin: true)
+            }
+        };
+
+        await using var archiveStream = BuildDaveZipArchive(
+            ("../races.csv", "Name,Race1-1\nAlice,NOR"),
+            ("bonus.csv", "Question,Alice\nQ1,Yes"),
+            ("bonusAnswers.csv", "Question,Answer\nQ1,Yes"),
+            ("Leaderboard.csv", "Name,Total\nAlice,100"));
+        var formFile = new FormFile(archiveStream, 0, archiveStream.Length, "SourceFile", "dave-package.zip");
+
+        var result = await controller.KickoffRunFromUpload(new AdminMigrationRunKickoffUploadRequestDto(
+            SourceFile: formFile,
+            Mode: "dry-run",
+            SourceProfile: "dave-2025-package"));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+        service.Verify(x => x.KickoffRunAsync(It.IsAny<MigrationRunKickoffCommand>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RollbackRun_WhenReasonMissing_ReturnsBadRequest()
     {
         var service = new Mock<IMigrationRunAdminService>();
@@ -651,5 +834,23 @@ public sealed class MigrationRunsControllerTests
         {
             User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"))
         };
+    }
+
+    private static MemoryStream BuildDaveZipArchive(params (string FileName, string Content)[] entries)
+    {
+        var stream = new MemoryStream();
+
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (fileName, content) in entries)
+            {
+                var entry = archive.CreateEntry(fileName);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(content);
+            }
+        }
+
+        stream.Position = 0;
+        return stream;
     }
 }

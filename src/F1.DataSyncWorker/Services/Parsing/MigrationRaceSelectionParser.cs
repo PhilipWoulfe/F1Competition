@@ -17,7 +17,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private const string SectionTypeSeasonQuestionPrediction = "SeasonQuestionPrediction";
     private const string SectionTypeHeader = "Header";
     private const string ActualSubject = "ACTUAL";
-    private const int DefaultH2hPointsForCorrectPick = 1;
+    private const int DefaultPhilH2hPointsForCorrectPick = 1;
+    private const int DefaultDaveH2hPointsForCorrectPick = 5;
+    private const int DefaultRaceBonusPointsForCorrectPick = 20;
+    private const string DaveRacesFile = "races.csv";
+    private const string DaveBonusFile = "bonus.csv";
+    private const string DaveBonusAnswersFile = "bonusAnswers.csv";
     private static readonly Dictionary<string, string?> TokenAliasDictionary = new(StringComparer.OrdinalIgnoreCase)
     {
         ["MAX"] = "VER",
@@ -178,8 +183,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             .Where(x => x.Id == runId)
             .Select(x => x.SourceFilePath)
             .SingleOrDefaultAsync(cancellationToken);
-        var usePhil2025SequenceMapping = !string.IsNullOrWhiteSpace(sourceFilePath) &&
-            MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath ?? string.Empty);
+        var usePhil2025SequenceMapping = sourceProfile == MigrationSourceProfile.Phil2025Csv;
+
+        if (sourceProfile == MigrationSourceProfile.Dave2025Package)
+        {
+            return await ParseDave2025PackageAsync(runId, dbContext, cancellationToken);
+        }
 
         var stagedRows = await dbContext.MigrationImportRawRows
             .Where(x => x.ImportRunId == runId)
@@ -381,6 +391,507 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             PreseasonAnswerCount: preseasonAnswers.Count);
     }
 
+    private async Task<MigrationRaceSelectionParseResult> ParseDave2025PackageAsync(
+        Guid runId,
+        F1DbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var stagedRows = await dbContext.MigrationImportRawRows
+            .Where(x => x.ImportRunId == runId)
+            .OrderBy(x => x.SourceFileName)
+            .ThenBy(x => x.RowNumber)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var driverIdByCode = await dbContext.Drivers
+            .Where(x => !string.IsNullOrWhiteSpace(x.Code) && !string.IsNullOrWhiteSpace(x.DriverId))
+            .ToDictionaryAsync(
+                x => x.Code!.Trim().ToUpperInvariant(),
+                x => x.DriverId!.Trim().ToLowerInvariant(),
+                cancellationToken);
+
+        var raceRows = GetRowsForSourceFile(stagedRows, DaveRacesFile);
+        var bonusRows = GetRowsForSourceFile(stagedRows, DaveBonusFile);
+        var bonusAnswerRows = GetRowsForSourceFile(stagedRows, DaveBonusAnswersFile);
+
+        var unresolvedTokens = new List<MigrationImportUnresolvedTokenEntity>();
+        var raceSelections = ParseDaveRaceSelections(runId, raceRows, driverIdByCode, unresolvedTokens);
+        var preseasonAnswers = ParseDavePreseasonAnswers(runId, bonusRows, bonusAnswerRows, driverIdByCode, unresolvedTokens);
+        var genericQuestions = await BuildDaveRaceQuestionDataAsync(
+            dbContext,
+            raceSelections,
+            driverIdByCode,
+            cancellationToken);
+
+        dbContext.MigrationImportRaceSelections.RemoveRange(
+            dbContext.MigrationImportRaceSelections.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportPreseasonAnswers.RemoveRange(
+            dbContext.MigrationImportPreseasonAnswers.Where(x => x.ImportRunId == runId));
+        dbContext.MigrationImportUnresolvedTokens.RemoveRange(
+            dbContext.MigrationImportUnresolvedTokens.Where(x => x.ImportRunId == runId));
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (raceSelections.Count > 0)
+        {
+            await dbContext.MigrationImportRaceSelections.AddRangeAsync(raceSelections, cancellationToken);
+        }
+
+        if (preseasonAnswers.Count > 0)
+        {
+            await dbContext.MigrationImportPreseasonAnswers.AddRangeAsync(preseasonAnswers, cancellationToken);
+        }
+
+        if (genericQuestions is not null)
+        {
+            var templateIds = await UpsertQuestionTemplatesAsync(dbContext, genericQuestions.Templates, cancellationToken);
+            var materialized = ApplyTemplateIds(genericQuestions, templateIds);
+            var templateIdSet = templateIds.Values.Distinct().ToArray();
+            dbContext.QuestionAnswers.RemoveRange(dbContext.QuestionAnswers.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+            dbContext.QuestionActuals.RemoveRange(dbContext.QuestionActuals.Where(x => templateIdSet.Contains(x.QuestionTemplateId)));
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.QuestionAnswers.AddRangeAsync(materialized.Answers, cancellationToken);
+            await dbContext.QuestionActuals.AddRangeAsync(materialized.Actuals, cancellationToken);
+        }
+
+        if (unresolvedTokens.Count > 0)
+        {
+            await dbContext.MigrationImportUnresolvedTokens.AddRangeAsync(unresolvedTokens, cancellationToken);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new MigrationRaceSelectionParseResult(
+            SelectionCount: raceSelections.Count,
+            UnresolvedTokenCount: unresolvedTokens.Count,
+            PreseasonAnswerCount: preseasonAnswers.Count);
+    }
+
+    private async Task<GenericQuestionData?> BuildDaveRaceQuestionDataAsync(
+        F1DbContext dbContext,
+        IReadOnlyList<MigrationImportRaceSelectionEntity> raceSelections,
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        CancellationToken cancellationToken)
+    {
+        if (raceSelections.Count == 0)
+        {
+            return null;
+        }
+
+        var participants = raceSelections
+            .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Subject)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (participants.Count == 0)
+        {
+            return null;
+        }
+
+        var competitionId = await ResolveTargetCompetitionIdAsync(
+            dbContext,
+            participants,
+            usePhil2025Contract: false,
+            cancellationToken);
+
+        if (!competitionId.HasValue)
+        {
+            return null;
+        }
+
+        var questionPickRows = raceSelections
+            .Where(x => IsDaveRaceQuestionPickType(x.PickType))
+            .OrderBy(x => x.RaceCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.PickType, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.RowNumber)
+            .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (questionPickRows.Count == 0)
+        {
+            return null;
+        }
+
+        var templates = new List<QuestionTemplateEntity>();
+        var answers = new List<PendingQuestionAnswer>();
+        var actuals = new List<PendingQuestionActual>();
+        var now = DateTime.UtcNow;
+
+        foreach (var questionGroup in questionPickRows.GroupBy(x => new { x.RaceCode, PickType = x.PickType.ToUpperInvariant() }))
+        {
+            var category = string.Equals(questionGroup.Key.PickType, "H2H", StringComparison.OrdinalIgnoreCase)
+                ? QuestionCategory.H2H
+                : QuestionCategory.RaceBonus;
+
+            var questionId = category == QuestionCategory.H2H
+                ? $"H2H-{questionGroup.Key.RaceCode.ToUpperInvariant()}"
+                : $"RB-{questionGroup.Key.RaceCode.ToUpperInvariant()}-{questionGroup.Key.PickType}";
+
+            var prompt = $"{questionGroup.Key.RaceCode.ToUpperInvariant()} {questionGroup.Key.PickType}";
+            var optionsJson = category == QuestionCategory.H2H
+                ? BuildDaveH2hOptionsJson(questionGroup.ToList(), driverIdByCode, DefaultDaveH2hPointsForCorrectPick)
+                : BuildRaceBonusOptionsJson(prompt, DefaultRaceBonusPointsForCorrectPick);
+
+            templates.Add(new QuestionTemplateEntity
+            {
+                CompetitionId = competitionId.Value,
+                Season = _importOptions.Season,
+                QuestionId = questionId,
+                Category = category,
+                Prompt = prompt,
+                OptionsJson = optionsJson,
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = ResolveDaveRaceQuestionSortOrder(questionGroup.Key.RaceCode, questionGroup.Key.PickType),
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            });
+
+            foreach (var participant in questionGroup
+                         .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(x => x.Subject, StringComparer.OrdinalIgnoreCase))
+            {
+                var rawValue = !string.IsNullOrWhiteSpace(participant.RawValue)
+                    ? participant.RawValue
+                    : participant.NormalizedValue;
+                var normalization = NormalizeQuestionAnswer(rawValue, isActualOutcome: false, category, driverIdByCode);
+                answers.Add(new PendingQuestionAnswer(
+                    QuestionId: questionId,
+                    ParticipantId: participant.Subject,
+                    ImportedAnswer: normalization.NormalizedValue,
+                    OverrideAnswer: null,
+                    RecordedAtUtc: now));
+            }
+
+            var actualRow = questionGroup
+                .Where(x => x.IsActualOutcome || string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.RowNumber)
+                .FirstOrDefault();
+
+            if (actualRow is not null)
+            {
+                var rawActual = !string.IsNullOrWhiteSpace(actualRow.RawValue)
+                    ? actualRow.RawValue
+                    : actualRow.NormalizedValue;
+                var actualNormalization = NormalizeQuestionAnswer(rawActual, isActualOutcome: true, category, driverIdByCode);
+                actuals.Add(new PendingQuestionActual(
+                    QuestionId: questionId,
+                    ImportedAnswer: actualNormalization.NormalizedValue,
+                    OverrideAnswer: null,
+                    RecordedAtUtc: now));
+            }
+        }
+
+        return templates.Count == 0
+            ? null
+            : new GenericQuestionData(templates, answers, actuals);
+    }
+
+    private static IReadOnlyList<MigrationImportRawRowEntity> GetRowsForSourceFile(
+        IReadOnlyList<MigrationImportRawRowEntity> stagedRows,
+        string sourceFileName)
+    {
+        return stagedRows
+            .Where(x => string.Equals(x.SourceFileName, sourceFileName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.RowNumber)
+            .ToList();
+    }
+
+    private static List<MigrationImportRaceSelectionEntity> ParseDaveRaceSelections(
+        Guid runId,
+        IReadOnlyList<MigrationImportRawRowEntity> raceRows,
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        List<MigrationImportUnresolvedTokenEntity> unresolvedTokens)
+    {
+        if (raceRows.Count == 0)
+        {
+            return [];
+        }
+
+        var headerColumns = CsvLineParser.Parse(raceRows[0].RawPayload);
+        if (headerColumns.Count == 0)
+        {
+            return [];
+        }
+
+        var raceColumns = new List<(int ColumnIndex, int RaceNumber, string PickType)>();
+        for (var columnIndex = 0; columnIndex < headerColumns.Count; columnIndex++)
+        {
+            var token = headerColumns[columnIndex].Trim();
+            var match = DaveRaceColumnRegex().Match(token);
+            if (!match.Success || !int.TryParse(match.Groups[1].Value, out var raceNumber))
+            {
+                continue;
+            }
+
+            raceColumns.Add((columnIndex, raceNumber, match.Groups[2].Value.ToUpperInvariant()));
+        }
+
+        if (raceColumns.Count == 0)
+        {
+            return [];
+        }
+
+        var selections = new List<MigrationImportRaceSelectionEntity>();
+        var createdAtUtc = DateTime.UtcNow;
+
+        foreach (var row in raceRows.Skip(1))
+        {
+            var columns = CsvLineParser.Parse(row.RawPayload);
+            if (columns.Count == 0)
+            {
+                continue;
+            }
+
+            var name = columns[0].Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var isActualOutcome = string.Equals(name, "_Result", StringComparison.OrdinalIgnoreCase) ||
+                                  string.Equals(name, "Result", StringComparison.OrdinalIgnoreCase);
+            var subject = isActualOutcome ? ActualSubject : name;
+
+            foreach (var mappedColumn in raceColumns)
+            {
+                var rawValue = mappedColumn.ColumnIndex < columns.Count ? columns[mappedColumn.ColumnIndex] : null;
+                var raceCode = $"R{mappedColumn.RaceNumber:D2}";
+                var pickType = mappedColumn.PickType;
+
+                string? normalizedValue;
+                IReadOnlyList<string> unresolved;
+
+                if (pickType is "1" or "2" or "3" or "DNF")
+                {
+                    var normalization = NormalizeSelection(rawValue, pickType, applyPhil2025TokenCorrections: false);
+                    normalizedValue = MapSelectionNormalizedValueToDriverIds(normalization.NormalizedValue, pickType, driverIdByCode);
+                    unresolved = normalization.UnresolvedTokens;
+                }
+                else if (pickType == "PQ")
+                {
+                    normalizedValue = string.IsNullOrWhiteSpace(rawValue) ? null : NormalizeTokenLookup(rawValue);
+                    unresolved = Array.Empty<string>();
+                }
+                else
+                {
+                    normalizedValue = string.IsNullOrWhiteSpace(rawValue)
+                        ? null
+                        : MultiWhitespaceRegex().Replace(rawValue.Trim(), " ");
+                    unresolved = Array.Empty<string>();
+                }
+
+                selections.Add(new MigrationImportRaceSelectionEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = raceCode,
+                    PickType = pickType,
+                    Subject = subject,
+                    RawValue = string.IsNullOrWhiteSpace(rawValue) ? null : rawValue.Trim(),
+                    NormalizedValue = normalizedValue,
+                    IsActualOutcome = isActualOutcome
+                });
+
+                if (unresolved.Count == 0)
+                {
+                    continue;
+                }
+
+                unresolvedTokens.AddRange(unresolved.Select(unresolvedToken => new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = raceCode,
+                    PickType = pickType,
+                    Subject = subject,
+                    RawToken = unresolvedToken,
+                    CreatedAtUtc = createdAtUtc
+                }));
+            }
+        }
+
+        return selections;
+    }
+
+    private static List<MigrationImportPreseasonAnswerEntity> ParseDavePreseasonAnswers(
+        Guid runId,
+        IReadOnlyList<MigrationImportRawRowEntity> bonusRows,
+        IReadOnlyList<MigrationImportRawRowEntity> bonusAnswerRows,
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        List<MigrationImportUnresolvedTokenEntity> unresolvedTokens)
+    {
+        if (bonusRows.Count == 0)
+        {
+            return [];
+        }
+
+        var bonusHeader = CsvLineParser.Parse(bonusRows[0].RawPayload);
+        if (bonusHeader.Count < 2)
+        {
+            return [];
+        }
+
+        var participants = bonusHeader
+            .Skip(1)
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+        if (participants.Count == 0)
+        {
+            return [];
+        }
+
+        var createdAtUtc = DateTime.UtcNow;
+        var answersByQuestionKey = BuildDaveAnswerKeyMap(runId, bonusAnswerRows, unresolvedTokens, createdAtUtc);
+
+        var parsed = new List<MigrationImportPreseasonAnswerEntity>();
+        var questionOrdinal = 0;
+        var seenQuestionKeys = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in bonusRows.Skip(1))
+        {
+            var columns = CsvLineParser.Parse(row.RawPayload);
+            if (columns.Count == 0)
+            {
+                continue;
+            }
+
+            var questionText = columns[0].Trim();
+            if (string.IsNullOrWhiteSpace(questionText))
+            {
+                continue;
+            }
+
+            questionOrdinal++;
+            var questionKey = $"PRE-{questionOrdinal:D3}";
+            var lookupKey = NormalizeQuestionLookupKey(questionText);
+            if (seenQuestionKeys.TryGetValue(lookupKey, out var firstRow))
+            {
+                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = "PRESEASON",
+                    PickType = "QUESTION_KEY",
+                    Subject = ActualSubject,
+                    RawToken = $"Normalized question-key collision in bonus.csv for '{lookupKey}' (first seen at row {firstRow})",
+                    CreatedAtUtc = createdAtUtc
+                });
+            }
+            else
+            {
+                seenQuestionKeys[lookupKey] = row.RowNumber;
+            }
+
+            for (var index = 0; index < participants.Count; index++)
+            {
+                var columnIndex = index + 1;
+                var raw = columnIndex < columns.Count ? columns[columnIndex] : null;
+                var normalized = NormalizePreseasonAnswer(raw, isActualOutcome: false, driverIdByCode);
+                parsed.Add(new MigrationImportPreseasonAnswerEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    QuestionKey = questionKey,
+                    QuestionText = questionText,
+                    Subject = participants[index],
+                    RawAnswer = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim(),
+                    NormalizedAnswer = normalized.NormalizedValue,
+                    NormalizedAnswerBoolean = ToNullableBoolean(normalized.NormalizedValue),
+                    IsActualOutcome = false
+                });
+            }
+
+            var hasActualEntry = answersByQuestionKey.TryGetValue(lookupKey, out var actualEntry);
+            if (!hasActualEntry)
+            {
+                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = "PRESEASON",
+                    PickType = "QUESTION_KEY",
+                    Subject = ActualSubject,
+                    RawToken = $"No matching actual answer for question key '{lookupKey}'",
+                    CreatedAtUtc = createdAtUtc
+                });
+            }
+
+            var rawActualAnswer = hasActualEntry ? actualEntry.Answer : null;
+            var normalizedActual = NormalizePreseasonAnswer(rawActualAnswer, isActualOutcome: true, driverIdByCode);
+            parsed.Add(new MigrationImportPreseasonAnswerEntity
+            {
+                ImportRunId = runId,
+                RowNumber = row.RowNumber,
+                QuestionKey = questionKey,
+                QuestionText = questionText,
+                Subject = ActualSubject,
+                RawAnswer = rawActualAnswer,
+                NormalizedAnswer = normalizedActual.NormalizedValue,
+                NormalizedAnswerBoolean = ToNullableBoolean(normalizedActual.NormalizedValue),
+                IsActualOutcome = true
+            });
+        }
+
+        return parsed;
+    }
+
+    private static Dictionary<string, (string QuestionText, string? Answer, int RowNumber)> BuildDaveAnswerKeyMap(
+        Guid runId,
+        IReadOnlyList<MigrationImportRawRowEntity> bonusAnswerRows,
+        List<MigrationImportUnresolvedTokenEntity> unresolvedTokens,
+        DateTime createdAtUtc)
+    {
+        var map = new Dictionary<string, (string QuestionText, string? Answer, int RowNumber)>(StringComparer.OrdinalIgnoreCase);
+        if (bonusAnswerRows.Count == 0)
+        {
+            return map;
+        }
+
+        foreach (var row in bonusAnswerRows.Skip(1))
+        {
+            var columns = CsvLineParser.Parse(row.RawPayload);
+            if (columns.Count < 2)
+            {
+                continue;
+            }
+
+            var questionText = columns[0].Trim();
+            if (string.IsNullOrWhiteSpace(questionText))
+            {
+                continue;
+            }
+
+            var lookupKey = NormalizeQuestionLookupKey(questionText);
+            var answer = columns[1].Trim();
+
+            if (map.ContainsKey(lookupKey))
+            {
+                unresolvedTokens.Add(new MigrationImportUnresolvedTokenEntity
+                {
+                    ImportRunId = runId,
+                    RowNumber = row.RowNumber,
+                    RaceCode = "PRESEASON",
+                    PickType = "QUESTION_KEY",
+                    Subject = ActualSubject,
+                    RawToken = $"Question-key collision for '{lookupKey}'",
+                    CreatedAtUtc = createdAtUtc
+                });
+            }
+
+            map[lookupKey] = (questionText, string.IsNullOrWhiteSpace(answer) ? null : answer, row.RowNumber);
+        }
+
+        return map;
+    }
+
+    private static string NormalizeQuestionLookupKey(string questionText)
+    {
+        var normalized = MultiWhitespaceRegex().Replace(questionText.Trim().ToLowerInvariant(), " ");
+        return QuestionLookupKeyRegex().Replace(normalized, string.Empty);
+    }
+
     private async Task<GenericQuestionData?> BuildGenericQuestionDataAsync(
         F1DbContext dbContext,
         Guid runId,
@@ -437,8 +948,13 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
             var questionId = ResolveQuestionId(row.RowNumber, row.RawPayload, usePhil2025Contract);
             var category = ResolveQuestionCategory(row.RowNumber, row.RawPayload, usePhil2025Contract);
+            var defaultH2hPoints = usePhil2025Contract
+                ? DefaultPhilH2hPointsForCorrectPick
+                : DefaultDaveH2hPointsForCorrectPick;
             var optionsJson = category == QuestionCategory.H2H
-                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode)
+                ? BuildH2hOptionsJson(questionText, columns, participants, usePhil2025Contract, driverIdByCode, defaultH2hPoints)
+                : category == QuestionCategory.RaceBonus
+                    ? BuildRaceBonusOptionsJson(questionText, DefaultRaceBonusPointsForCorrectPick)
                 : null;
 
             templates.Add(new QuestionTemplateEntity
@@ -995,7 +1511,8 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         IReadOnlyList<string> columns,
         IReadOnlyList<string> participants,
         bool usePhil2025Contract,
-        IReadOnlyDictionary<string, string> driverIdByCode)
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        int pointsForCorrectPick)
     {
         var driverCandidates = ExtractH2hCandidatesFromPrompt(questionText, driverIdByCode);
         if (driverCandidates.Count < 2)
@@ -1051,10 +1568,123 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         {
             LeftDriverId = driverCandidates[0],
             RightDriverId = driverCandidates[1],
-            PointsForCorrectPick = DefaultH2hPointsForCorrectPick
+            PointsForCorrectPick = pointsForCorrectPick
         };
 
         return JsonSerializer.Serialize(options);
+    }
+
+    private static string BuildRaceBonusOptionsJson(string questionText, int pointsForCorrectPick)
+    {
+        if (questionText.Contains("SAU", StringComparison.OrdinalIgnoreCase) &&
+            questionText.Contains("GAP", StringComparison.OrdinalIgnoreCase))
+        {
+            var formulaOptions = new RaceBonusQuestionTemplateOptions
+            {
+                Mode = "FormulaMaxMinusGap",
+                PointsForCorrectPick = pointsForCorrectPick,
+                FormulaMaxPoints = pointsForCorrectPick,
+                FormulaPenaltyPerUnit = 2m
+            };
+
+            return JsonSerializer.Serialize(formulaOptions);
+        }
+
+        if (questionText.Contains("MON", StringComparison.OrdinalIgnoreCase) ||
+            questionText.Contains("GBR", StringComparison.OrdinalIgnoreCase) ||
+            questionText.Contains("+/-", StringComparison.OrdinalIgnoreCase))
+        {
+            var toleranceOptions = new RaceBonusQuestionTemplateOptions
+            {
+                Mode = "Tolerance",
+                PointsForCorrectPick = pointsForCorrectPick,
+                Tolerance = 1m
+            };
+
+            return JsonSerializer.Serialize(toleranceOptions);
+        }
+
+        var exactOptions = new RaceBonusQuestionTemplateOptions
+        {
+            Mode = "Exact",
+            PointsForCorrectPick = pointsForCorrectPick
+        };
+
+        return JsonSerializer.Serialize(exactOptions);
+    }
+
+    private static string? BuildDaveH2hOptionsJson(
+        IReadOnlyList<MigrationImportRaceSelectionEntity> questionRows,
+        IReadOnlyDictionary<string, string> driverIdByCode,
+        int pointsForCorrectPick)
+    {
+        var candidates = new List<string>();
+
+        foreach (var row in questionRows
+                     .OrderBy(x => x.IsActualOutcome)
+                     .ThenBy(x => x.RowNumber)
+                     .ThenBy(x => x.Subject, StringComparer.OrdinalIgnoreCase))
+        {
+            var raw = !string.IsNullOrWhiteSpace(row.RawValue)
+                ? row.RawValue
+                : row.NormalizedValue;
+            var normalized = NormalizeH2hAnswer(raw, driverIdByCode).NormalizedValue;
+
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            if (!candidates.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                candidates.Add(normalized);
+            }
+
+            if (candidates.Count == 2)
+            {
+                break;
+            }
+        }
+
+        if (candidates.Count < 2)
+        {
+            return null;
+        }
+
+        var options = new H2hQuestionTemplateOptions
+        {
+            LeftDriverId = candidates[0],
+            RightDriverId = candidates[1],
+            PointsForCorrectPick = pointsForCorrectPick
+        };
+
+        return JsonSerializer.Serialize(options);
+    }
+
+    private static bool IsDaveRaceQuestionPickType(string pickType)
+    {
+        return string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase) ||
+               pickType.StartsWith("BQ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ResolveDaveRaceQuestionSortOrder(string raceCode, string pickType)
+    {
+        var raceOrder = 999;
+        if (raceCode.Length > 1 && raceCode.StartsWith("R", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(raceCode[1..], out var parsedRaceOrder))
+        {
+            raceOrder = parsedRaceOrder;
+        }
+
+        var pickOrder = string.Equals(pickType, "H2H", StringComparison.OrdinalIgnoreCase)
+            ? 1
+            : string.Equals(pickType, "BQ1", StringComparison.OrdinalIgnoreCase)
+                ? 2
+                : string.Equals(pickType, "BQ2", StringComparison.OrdinalIgnoreCase)
+                    ? 3
+                    : 9;
+
+        return (raceOrder * 10) + pickOrder;
     }
 
     private static List<string> ExtractH2hCandidatesFromPrompt(string questionText, IReadOnlyDictionary<string, string> driverIdByCode)
@@ -1174,6 +1804,12 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
 
     [GeneratedRegex("\\b[A-Za-z]{3}\\b", RegexOptions.Compiled)]
     private static partial Regex H2hDriverTokenRegex();
+
+    [GeneratedRegex("^Race(\\d+)-(PQ|1|2|3|DNF|H2H|BQ1|BQ2)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex DaveRaceColumnRegex();
+
+    [GeneratedRegex("[^a-z0-9]+", RegexOptions.Compiled)]
+    private static partial Regex QuestionLookupKeyRegex();
 
     private static readonly HashSet<string> PodiumPickTypes = new(StringComparer.OrdinalIgnoreCase)
     {

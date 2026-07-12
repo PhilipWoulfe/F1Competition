@@ -265,3 +265,7 @@ Override policy (agreed):
 Open policy decisions before coding current/live competition overrides:
 - Override lifecycle policy for non-migration scenarios (who can set/clear, and when).
 - Recalculation triggers for non-migration scenarios (event-driven domain edits vs scheduled reconciliation vs both).
+
+## Continuation Note
+Remaining separation and boundary work from Story E8 and Story E9 is tracked in GH-295:
+- docs/epics/gh-295-canonical-leaderboard-and-migration-boundary/epic-canonical-leaderboard-and-migration-boundary.md

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Globalization;
 using F1.DataSyncWorker.Models;
 using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
@@ -14,6 +15,11 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
     private const string SectionTypeRacePoints = "RacePoints";
     private const string SectionTypeSeasonQuestionPoints = "SeasonQuestionPoints";
     private const string SectionTypeTotalsMeta = "TotalsMeta";
+    private const string DaveLeaderboardRaceCode = "LEADERBOARD";
+    private const string DaveLeaderboardRaceTotalPickType = "RACE_TOTAL";
+    private const string DaveLeaderboardBonusTotalPickType = "BONUS_TOTAL";
+    private const string DaveLeaderboardCdpPickType = "CDP";
+    private const int DaveDefaultPreseasonPointsPerQuestion = 30;
 
     private readonly IDbContextFactory<F1DbContext> _dbContextFactory;
     private readonly MigrationImportOptions _importOptions;
@@ -39,8 +45,8 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             .Where(x => x.Id == runId)
             .Select(x => x.SourceFilePath)
             .SingleOrDefaultAsync(cancellationToken);
-        var usePhil2025SequenceMapping = !string.IsNullOrWhiteSpace(sourceFilePath) &&
-            MigrationPhil2025CsvContractPolicy.AppliesTo(sourceFilePath);
+        var sourceProfile = MigrationSourceProfileResolver.Resolve(sourceFilePath ?? string.Empty);
+        var usePhil2025SequenceMapping = sourceProfile == MigrationSourceProfile.Phil2025Csv;
 
         var stagedRows = await dbContext.MigrationImportRawRows
             .Where(x => x.ImportRunId == runId)
@@ -66,6 +72,39 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
             dbContext.MigrationImportImportedTotals.Where(x => x.ImportRunId == runId));
         dbContext.MigrationImportCalculatedTotals.RemoveRange(
             dbContext.MigrationImportCalculatedTotals.Where(x => x.ImportRunId == runId));
+
+        if (sourceProfile == MigrationSourceProfile.Dave2025Package)
+        {
+            var daveImport = ParseDaveLeaderboardImport(runId, stagedRows);
+            var davePreseasonPolicy = new MigrationImportPreseasonPolicyEntity
+            {
+                ImportRunId = runId,
+                RowNumber = 0,
+                ColumnIndex = 0,
+                CellReference = "DaveDefault",
+                RawPointsPerQuestion = DaveDefaultPreseasonPointsPerQuestion.ToString(CultureInfo.InvariantCulture),
+                PointsPerQuestion = DaveDefaultPreseasonPointsPerQuestion
+            };
+
+            await dbContext.MigrationImportPreseasonPolicies.AddAsync(davePreseasonPolicy, cancellationToken);
+
+            if (daveImport.LegacyPickScores.Count > 0)
+            {
+                await dbContext.MigrationImportLegacyPickScores.AddRangeAsync(daveImport.LegacyPickScores, cancellationToken);
+            }
+
+            if (daveImport.ImportedTotals.Count > 0)
+            {
+                await dbContext.MigrationImportImportedTotals.AddRangeAsync(daveImport.ImportedTotals.Values, cancellationToken);
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return new MigrationLegacyScoreImportResult(
+                LegacyPickScoreCount: daveImport.LegacyPickScores.Count,
+                ImportedTotalCount: daveImport.ImportedTotals.Count,
+                CalculatedTotalCount: 0);
+        }
 
         if (participants.Count == 0)
         {
@@ -475,4 +514,171 @@ public sealed partial class MigrationLegacyScoreImporter : IMigrationLegacyScore
 
     [GeneratedRegex("^([A-Za-z][A-Za-z\\s]{2,})-(1|2|3|DNF)$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex RaceLabelRegex();
+
+    private static (List<MigrationImportLegacyPickScoreEntity> LegacyPickScores, Dictionary<string, MigrationImportImportedTotalEntity> ImportedTotals)
+        ParseDaveLeaderboardImport(
+            Guid runId,
+            IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows)
+    {
+        var leaderboardRows = stagedRows
+            .Where(x => string.Equals(x.SourceFileName, Dave2025SourcePackageContract.LeaderboardFile, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.RowNumber)
+            .ToList();
+
+        if (leaderboardRows.Count == 0)
+        {
+            return ([], new Dictionary<string, MigrationImportImportedTotalEntity>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        var header = CsvLineParser.Parse(leaderboardRows[0].RawPayload);
+        if (header.Count == 0)
+        {
+            return ([], new Dictionary<string, MigrationImportImportedTotalEntity>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        var nameColumnIndex = FindColumnIndex(header, "name", "participant", "player");
+        if (nameColumnIndex < 0)
+        {
+            nameColumnIndex = 0;
+        }
+
+        var racePointsColumnIndex = FindColumnIndex(header, "racepoints", "racepoint", "race");
+        var bonusPointsColumnIndex = FindColumnIndex(header, "bonuspoints", "bonuspoint", "bonus", "preseason");
+        var totalColumnIndex = FindColumnIndex(header, "total", "points");
+        var finalColumnIndex = FindColumnIndex(header, "final", "finaltotal", "finalpoints");
+        var cdpColumnIndex = FindColumnIndex(header, "cdp", "correctpodiumpicks", "correctpodium");
+
+        var legacyPickScores = new List<MigrationImportLegacyPickScoreEntity>();
+        var importedTotals = new Dictionary<string, MigrationImportImportedTotalEntity>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in leaderboardRows.Skip(1))
+        {
+            var columns = CsvLineParser.Parse(row.RawPayload);
+            if (columns.Count == 0)
+            {
+                continue;
+            }
+
+            var subject = nameColumnIndex < columns.Count ? columns[nameColumnIndex].Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(subject) || string.Equals(subject, "Result", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            AddComponentScore(legacyPickScores, runId, row.RowNumber, subject, columns, racePointsColumnIndex, DaveLeaderboardRaceTotalPickType);
+            AddComponentScore(legacyPickScores, runId, row.RowNumber, subject, columns, bonusPointsColumnIndex, DaveLeaderboardBonusTotalPickType);
+            AddComponentScore(legacyPickScores, runId, row.RowNumber, subject, columns, cdpColumnIndex, DaveLeaderboardCdpPickType);
+
+            var finalRaw = ReadColumn(columns, finalColumnIndex);
+            var totalRaw = ReadColumn(columns, totalColumnIndex);
+            var chosenTotalRaw = !string.IsNullOrWhiteSpace(finalRaw) ? finalRaw : totalRaw;
+            if (string.IsNullOrWhiteSpace(chosenTotalRaw))
+            {
+                continue;
+            }
+
+            importedTotals[subject] = new MigrationImportImportedTotalEntity
+            {
+                ImportRunId = runId,
+                Subject = subject,
+                RawTotal = chosenTotalRaw,
+                ImportedTotalPoints = TryParseScore(chosenTotalRaw)
+            };
+        }
+
+        return (legacyPickScores, importedTotals);
+    }
+
+    private static void AddComponentScore(
+        ICollection<MigrationImportLegacyPickScoreEntity> target,
+        Guid runId,
+        int rowNumber,
+        string subject,
+        IReadOnlyList<string> columns,
+        int columnIndex,
+        string pickType)
+    {
+        if (columnIndex < 0)
+        {
+            return;
+        }
+
+        var raw = ReadColumn(columns, columnIndex);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return;
+        }
+
+        target.Add(new MigrationImportLegacyPickScoreEntity
+        {
+            ImportRunId = runId,
+            RowNumber = rowNumber,
+            RaceCode = DaveLeaderboardRaceCode,
+            PickType = pickType,
+            Subject = subject,
+            RawLegacyPoints = raw,
+            LegacyPoints = TryParseScore(raw)
+        });
+    }
+
+    private static string? ReadColumn(IReadOnlyList<string> columns, int columnIndex)
+    {
+        if (columnIndex < 0 || columnIndex >= columns.Count)
+        {
+            return null;
+        }
+
+        var value = columns[columnIndex].Trim();
+        return value.Length == 0 ? null : value;
+    }
+
+    private static int FindColumnIndex(IReadOnlyList<string> header, params string[] normalizedCandidates)
+    {
+        for (var index = 0; index < header.Count; index++)
+        {
+            var normalized = NormalizeHeaderToken(header[index]);
+            if (normalizedCandidates.Any(candidate => string.Equals(normalized, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return index;
+            }
+        }
+
+        for (var index = 0; index < header.Count; index++)
+        {
+            var normalized = NormalizeHeaderToken(header[index]);
+            if (normalizedCandidates.Any(candidate => normalized.Contains(candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static string NormalizeHeaderToken(string raw)
+    {
+        var compact = raw.Trim().ToLowerInvariant();
+        return new string(compact.Where(char.IsLetterOrDigit).ToArray());
+    }
+
+    private static int? TryParseScore(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedInteger))
+        {
+            return parsedInteger;
+        }
+
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedDecimal) ||
+            decimal.TryParse(raw, NumberStyles.Number, CultureInfo.CurrentCulture, out parsedDecimal))
+        {
+            return (int)Math.Round(parsedDecimal, MidpointRounding.AwayFromZero);
+        }
+
+        return null;
+    }
 }

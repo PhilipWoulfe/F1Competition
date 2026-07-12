@@ -35,10 +35,17 @@
                     <p class="text-muted mb-3">Select mode and source type, then confirm before starting a new migration run.</p>
                     <div class="row g-3 align-items-end">
                         <div class="col-md-3">
+                            <label class="form-label" for="kickoff-source-profile">Source Profile</label>
+                            <select id="kickoff-source-profile" class="form-select" aria-label="Kickoff source profile" @bind="kickoffSourceProfile">
+                                <option value="phil-2025-csv">Phil 2025 CSV</option>
+                                <option value="dave-2025-package">Dave 2025 Package</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label" for="kickoff-source-kind">Source Type</label>
                             <select id="kickoff-source-kind" class="form-select" aria-label="Kickoff source type" @bind="kickoffSourceKind">
                                 <option value="path">Server path</option>
-                                <option value="upload">Upload CSV</option>
+                                <option value="upload">@(IsDaveProfileKickoff ? "Upload package archive" : "Upload CSV")</option>
                             </select>
                         </div>
                         <div class="col-md-3">
@@ -56,8 +63,8 @@
                     @if (IsUploadKickoff)
                     {
                         <div class="mt-3">
-                            <label class="form-label" for="kickoff-upload-file">CSV File</label>
-                            <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept=".csv,text/csv" class="form-control" aria-label="Kickoff CSV upload" />
+                            <label class="form-label" for="kickoff-upload-file">@(IsDaveProfileKickoff ? "Package Archive (.zip)" : "CSV File")</label>
+                            <InputFile id="kickoff-upload-file" OnChange="OnKickoffFileChanged" accept="@(IsDaveProfileKickoff ? ".zip,application/zip" : ".csv,text/csv")" class="form-control" aria-label="Kickoff upload" />
                             @if (!string.IsNullOrWhiteSpace(kickoffUploadFileName))
                             {
                                 <div class="form-text">Selected: @kickoffUploadFileName</div>
@@ -67,7 +74,7 @@
                     else
                     {
                         <div class="mt-3">
-                            <label class="form-label" for="kickoff-source-path">Source File Path</label>
+                            <label class="form-label" for="kickoff-source-path">@(IsDaveProfileKickoff ? "Source Package Root Path" : "Source File Path")</label>
                             <input id="kickoff-source-path" class="form-control" aria-label="Kickoff source file path" @bind="kickoffSourceFilePath" />
                         </div>
                     }
@@ -80,6 +87,7 @@
                                 You are starting a <strong>@(kickoffMode == "dry-run" ? "dry-run" : "write")</strong> migration for
                                 <code>@(IsUploadKickoff ? kickoffUploadFileName : kickoffSourceFilePath)</code>.
                             </p>
+                            <p class="mb-2">Source profile: <strong>@kickoffSourceProfile</strong></p>
                             <p class="mb-3">Impact: this creates a new migration run record and will block duplicate active runs for the same source/checksum.</p>
                             @if (IsWriteKickoff)
                             {
@@ -235,6 +243,8 @@
     <div class="col-12 col-lg-7 migration-runs-detail-pane" aria-live="polite">
         @{
             var filteredParticipantDeltas = GetFilteredParticipantDeltas().ToList();
+            var filteredParticipantComponentDeltas = GetFilteredParticipantComponentDeltas().ToList();
+            var filteredCdpParity = GetFilteredCdpParity().ToList();
             var filteredPreseasonParticipantDeltas = GetFilteredPreseasonParticipantDeltas().ToList();
             var filteredPreseasonQuestionDiffs = GetFilteredPreseasonQuestionDiffs().ToList();
             var filteredRaceDiffs = GetFilteredRaceDiffs().ToList();
@@ -357,6 +367,82 @@
                             </dl>
                         </div>
                     </div>
+
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h3 class="h5">Source Contract Diagnostics</h3>
+                            @if (selectedRunDetail.SourceContractDiagnostics is null || selectedRunDetail.SourceContractDiagnostics.Count == 0)
+                            {
+                                <p class="mb-0">No source contract diagnostics recorded for this run.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Code</th>
+                                                <th scope="col">Severity</th>
+                                                <th scope="col">Message</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var diagnostic in selectedRunDetail.SourceContractDiagnostics)
+                                            {
+                                                <tr>
+                                                    <td><code>@diagnostic.Code</code></td>
+                                                    <td>@diagnostic.Severity</td>
+                                                    <td>@diagnostic.Message</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <h3 class="h5">Source Manifest</h3>
+                    @if (selectedRunDetail.SourceManifest is null || selectedRunDetail.SourceManifest.Count == 0)
+                    {
+                        <p>No source manifest data available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">File</th>
+                                        <th scope="col">Rows</th>
+                                        <th scope="col">Headers</th>
+                                        <th scope="col">Race Picks</th>
+                                        <th scope="col">Season Questions</th>
+                                        <th scope="col">Race Points</th>
+                                        <th scope="col">Totals Meta</th>
+                                        <th scope="col">Artifacts</th>
+                                        <th scope="col">Unclassified</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in selectedRunDetail.SourceManifest)
+                                    {
+                                        <tr>
+                                            <td>@row.SourceFileName</td>
+                                            <td>@row.RowCount</td>
+                                            <td>@row.HeaderCount</td>
+                                            <td>@row.RacePickCount</td>
+                                            <td>@row.SeasonQuestionPredictionCount</td>
+                                            <td>@row.RacePointsCount</td>
+                                            <td>@row.TotalsMetaCount</td>
+                                            <td>@row.SourceArtifactCount</td>
+                                            <td>@row.UnclassifiedCount</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
 
                     <h3 class="h5">Unresolved Token Summary</h3>
                     @if (selectedRunDetail.UnresolvedTokenSummary.Count == 0)
@@ -500,6 +586,8 @@
                                                 <th scope="col">Question Key</th>
                                                 <th scope="col">Question</th>
                                                 <th scope="col">Participant</th>
+                                                <th scope="col">Chosen</th>
+                                                <th scope="col">Actual</th>
                                                 <th scope="col">Imported</th>
                                                 <th scope="col">Calculated</th>
                                                 <th scope="col">Delta</th>
@@ -515,6 +603,8 @@
                                                     <td>@row.QuestionKey</td>
                                                     <td>@row.QuestionText</td>
                                                     <td>@row.Subject</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                                     <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                                     <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                                                     <td>@row.DeltaPoints</td>
@@ -532,6 +622,85 @@
 
                 <div id="pane-race-participants" role="tabpanel" aria-labelledby="tab-race-participants" class="@GetTabPaneClass("race-participants")">
                     <h3>Participant Comparisons</h3>
+                    <h4 class="h6">Component Totals (Race + Preseason)</h4>
+                    @if (filteredParticipantComponentDeltas.Count == 0)
+                    {
+                        <p>No component participant deltas available for this run.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Participant</th>
+                                        <th scope="col">Imported Race</th>
+                                        <th scope="col">Calculated Race</th>
+                                        <th scope="col">Imported Preseason</th>
+                                        <th scope="col">Calculated Preseason</th>
+                                        <th scope="col">Imported Total</th>
+                                        <th scope="col">Calculated Total</th>
+                                        <th scope="col">Delta</th>
+                                        <th scope="col">Top Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in filteredParticipantComponentDeltas)
+                                    {
+                                        <tr>
+                                            <td>@row.Subject</td>
+                                            <td>@row.ImportedRacePoints</td>
+                                            <td>@row.CalculatedRacePoints</td>
+                                            <td>@row.ImportedPreseasonPoints</td>
+                                            <td>@row.CalculatedPreseasonPoints</td>
+                                            <td>@row.ImportedTotalPoints</td>
+                                            <td>@row.CalculatedTotalPoints</td>
+                                            <td>@row.NetDeltaPoints</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.TopReasonCode) ? "-" : row.TopReasonCode)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    @if (IsDaveSelectedRun)
+                    {
+                        <h4 class="h6">CDP Tie-Break Parity</h4>
+                        @if (filteredCdpParity.Count == 0)
+                        {
+                            <p>No CDP parity diagnostics available for this run.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Participant</th>
+                                            <th scope="col">Imported CDP</th>
+                                            <th scope="col">Calculated CDP</th>
+                                            <th scope="col">Delta</th>
+                                            <th scope="col">Parity</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in filteredCdpParity)
+                                        {
+                                            <tr>
+                                                <td>@row.Subject</td>
+                                                <td>@(row.ImportedCdp?.ToString() ?? "-")</td>
+                                                <td>@row.CalculatedCdp</td>
+                                                <td>@row.Delta</td>
+                                                <td>@(row.IsParity ? "Yes" : "No")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+
                     @if (filteredParticipantDeltas.Count == 0)
                     {
                         <p>No participant deltas available for this run.</p>
@@ -580,7 +749,9 @@
                                     <tr>
                                         <th scope="col">Race</th>
                                         <th scope="col">Participant</th>
-                                        <th scope="col">Imported</th>
+                                        <th scope="col">Chosen Picks</th>
+                                        <th scope="col">Actual Picks</th>
+                                        <th scope="col">Imported Race Points</th>
                                         <th scope="col">Calculated</th>
                                         <th scope="col">Delta</th>
                                         <th scope="col">Reason</th>
@@ -595,7 +766,9 @@
                                         <tr>
                                             <td>@row.RaceCode</td>
                                             <td>@row.Subject</td>
-                                            <td>@row.ImportedPoints</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.ChosenPicks) ? "-" : row.ChosenPicks)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(row.ActualPicks) ? "-" : row.ActualPicks)</td>
+                                            <td>@(row.ImportedRacePoints?.ToString() ?? "-")</td>
                                             <td>@row.CalculatedPoints</td>
                                             <td>@row.DeltaPoints</td>
                                             <td>@row.ReasonCode</td>
@@ -640,6 +813,8 @@
                                         <th scope="col">Race</th>
                                         <th scope="col">Participant</th>
                                         <th scope="col">Pick</th>
+                                                <th scope="col">Chosen</th>
+                                                <th scope="col">Actual</th>
                                         <th scope="col">Imported</th>
                                         <th scope="col">Calculated</th>
                                         <th scope="col">Delta</th>
@@ -656,6 +831,8 @@
                                             <td>@row.RaceCode</td>
                                             <td>@row.Subject</td>
                                             <td>@row.PickType</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                             <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                             <td>@(row.CalculatedPoints?.ToString() ?? "-")</td>
                                             <td>@row.DeltaPoints</td>
@@ -793,6 +970,8 @@
                                             <th scope="col">Question Id</th>
                                             <th scope="col">Question</th>
                                             <th scope="col">Participant</th>
+                                            <th scope="col">Chosen</th>
+                                            <th scope="col">Actual</th>
                                             <th scope="col">Imported</th>
                                             <th scope="col">Calculated</th>
                                             <th scope="col">Delta</th>
@@ -807,6 +986,8 @@
                                                 <td>@row.QuestionId</td>
                                                 <td>@row.QuestionText</td>
                                                 <td>@row.Participant</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ChosenAnswer) ? "-" : row.ChosenAnswer)</td>
+                                                <td>@(string.IsNullOrWhiteSpace(row.ActualAnswer) ? "-" : row.ActualAnswer)</td>
                                                 <td>@(row.ImportedPoints?.ToString() ?? "-")</td>
                                                 <td>@row.CalculatedPoints</td>
                                                 <td>@row.DeltaPoints</td>
@@ -899,6 +1080,7 @@
     private string? kickoffSuccessMessage;
 
     private string kickoffSourceKind = "path";
+    private string kickoffSourceProfile = "phil-2025-csv";
     private string kickoffSourceFilePath = "data/imports/phil-2025/PhilMigratedSelectionsAndScores.csv";
     private IBrowserFile? kickoffUploadFile;
     private string? kickoffUploadFileName;
@@ -933,6 +1115,10 @@
     private int QuestionTotalPages => questionDiffs is null || questionDiffs.TotalCount == 0
         ? 1
         : (int)Math.Ceiling(questionDiffs.TotalCount / (double)questionDiffs.PageSize);
+
+    private bool IsDaveSelectedRun =>
+        selectedRunDetail is not null &&
+        !selectedRunDetail.SourceFilePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -991,7 +1177,9 @@
 
         if (IsUploadKickoff && kickoffUploadFile is null)
         {
-            errorMessage = "Please choose a CSV file to upload.";
+            errorMessage = IsDaveProfileKickoff
+                ? "Please choose a package archive to upload."
+                : "Please choose a CSV file to upload.";
             showKickoffConfirmation = false;
             return;
         }
@@ -1033,7 +1221,9 @@
             {
                 if (kickoffUploadFile is null)
                 {
-                    errorMessage = "Please choose a CSV file to upload.";
+                    errorMessage = IsDaveProfileKickoff
+                        ? "Please choose a package archive to upload."
+                        : "Please choose a CSV file to upload.";
                     return;
                 }
 
@@ -1041,6 +1231,7 @@
                 response = await MigrationRunsApi.StartRunFromUploadAsync(new AdminMigrationRunKickoffUploadRequest(
                     FileName: kickoffUploadFile.Name,
                     Content: uploadStream,
+                    SourceProfile: kickoffSourceProfile,
                     Mode: kickoffMode,
                     ConfirmNonEmptyStrategy: kickoffConfirmNonEmptyStrategy));
             }
@@ -1048,6 +1239,7 @@
             {
                 response = await MigrationRunsApi.StartRunAsync(new AdminMigrationRunKickoffRequest(
                     SourceFilePath: kickoffSourceFilePath,
+                    SourceProfile: kickoffSourceProfile,
                     Mode: kickoffMode,
                     ConfirmNonEmptyStrategy: kickoffConfirmNonEmptyStrategy));
             }
@@ -1075,6 +1267,8 @@
     }
 
     private bool IsUploadKickoff => string.Equals(kickoffSourceKind, "upload", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsDaveProfileKickoff => string.Equals(kickoffSourceProfile, "dave-2025-package", StringComparison.OrdinalIgnoreCase);
 
     private bool IsWriteKickoff => string.Equals(kickoffMode, "write", StringComparison.OrdinalIgnoreCase);
 
@@ -1256,6 +1450,31 @@
             .Where(row => !detailNonZeroOnly || row.NetDeltaPoints != 0);
     }
 
+    private IEnumerable<AdminMigrationParticipantComponentDelta> GetFilteredParticipantComponentDeltas()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationParticipantComponentDelta>();
+        }
+
+        return (selectedRunDetail.ParticipantComponentDeltas ?? [])
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => MatchesFilter(row.TopReasonCode, detailReasonFilter))
+            .Where(row => !detailNonZeroOnly || row.NetDeltaPoints != 0);
+    }
+
+    private IEnumerable<AdminMigrationCdpParity> GetFilteredCdpParity()
+    {
+        if (selectedRunDetail is null)
+        {
+            return Enumerable.Empty<AdminMigrationCdpParity>();
+        }
+
+        return (selectedRunDetail.CdpParity ?? [])
+            .Where(row => MatchesFilter(row.Subject, detailParticipantFilter))
+            .Where(row => !detailNonZeroOnly || row.Delta != 0);
+    }
+
     private IEnumerable<AdminMigrationRaceDiff> GetFilteredRaceDiffs()
     {
         if (selectedRunDetail is null)
@@ -1327,19 +1546,19 @@
         return $"{runIdText[..8]}...{runIdText[^6..]}";
     }
 
-    private int GetRaceTotalDeltaPoints()
+    private decimal GetRaceTotalDeltaPoints()
     {
         if (selectedRunDetail is null)
         {
-            return 0;
+            return 0m;
         }
 
         return selectedRunDetail.TotalDeltaPoints - selectedRunDetail.PreseasonSummary.TotalDeltaPoints;
     }
 
-    private static string GetVarianceStatusText(bool isExpectedVariance, int deltaPoints)
+    private static string GetVarianceStatusText(bool isExpectedVariance, decimal deltaPoints)
     {
-        if (deltaPoints == 0)
+        if (deltaPoints == 0m)
         {
             return "No variance";
         }
@@ -1347,9 +1566,9 @@
         return isExpectedVariance ? "Expected" : "Unexpected";
     }
 
-    private static string GetVarianceBadgeClass(bool isExpectedVariance, int deltaPoints)
+    private static string GetVarianceBadgeClass(bool isExpectedVariance, decimal deltaPoints)
     {
-        if (deltaPoints == 0)
+        if (deltaPoints == 0m)
         {
             return "badge bg-secondary";
         }

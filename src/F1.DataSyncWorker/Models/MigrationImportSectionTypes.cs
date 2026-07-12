@@ -2,6 +2,7 @@ namespace F1.DataSyncWorker.Models;
 
 public static class MigrationImportSectionTypes
 {
+    public const string SourceArtifact = "SourceArtifact";
     public const string Blank = "Blank";
     public const string Header = "Header";
     public const string SeasonQuestionPrediction = "SeasonQuestionPrediction";

@@ -145,8 +145,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PreseasonQuestionDiffs:
             [
-                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch"),
-                new AdminMigrationPreseasonQuestionDiff(23, "PRE-023", "Who wins Bahrain?", "Taylor", 20, 20, 0, "PRESEASON_POINTS_MATCH", "Match")
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", "Ferrari", "McLaren", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch"),
+                new AdminMigrationPreseasonQuestionDiff(23, "PRE-023", "Who wins Bahrain?", "Taylor", "VER", "VER", 20, 20, 0, "PRESEASON_POINTS_MATCH", "Match")
             ],
             PreseasonReasonCategorySummaries:
             [
@@ -155,13 +155,13 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ConflictDiagnostics: [],
             RaceDiffs:
             [
-                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
-                new AdminMigrationRaceDiff("monza", "Alex", 20, 20, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationRaceDiff("albert_park", "Philip", "1:VER | 2:LEC | 3:HAM | DNF:DOO", "1:VER | 2:NOR | 3:LEC | DNF:SAI", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch"),
+                new AdminMigrationRaceDiff("monza", "Alex", "DNF:DOO", "DNF:DOO", 20, 20, 0, "EXACT_MATCH", "No variance")
             ],
             PickDiffs:
             [
-                new AdminMigrationPickDiff("albert_park", "1", "Philip", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot"),
-                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationPickDiff("albert_park", "1", "Philip", "VER", "NOR", 10, 5, -5, "PODIUM_RULE_VARIANCE", "Wrong slot"),
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", "DOO", "DOO", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
         var unexpectedDetailResponse = new AdminMigrationRunDetailResponse(
@@ -194,7 +194,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ],
             PreseasonQuestionDiffs:
             [
-                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch")
+                new AdminMigrationPreseasonQuestionDiff(22, "PRE-022", "Who wins the constructors title?", "Morgan", "Ferrari", "McLaren", 20, 0, -20, "PRESEASON_RULE_VARIANCE", "Mismatch")
             ],
             PreseasonReasonCategorySummaries:
             [
@@ -203,11 +203,11 @@ public sealed class AdminMigrationRunsTests : BunitContext
             ConflictDiagnostics: [],
             RaceDiffs:
             [
-                new AdminMigrationRaceDiff("albert_park", "Philip", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
+                new AdminMigrationRaceDiff("albert_park", "Philip", "1:VER | 2:LEC | 3:HAM | DNF:DOO", "1:VER | 2:NOR | 3:LEC | DNF:SAI", 25, 20, -5, "PODIUM_RULE_VARIANCE", "Podium mismatch")
             ],
             PickDiffs:
             [
-                new AdminMigrationPickDiff("monza", "DNF", "Alex", 5, 5, 0, "EXACT_MATCH", "No variance")
+                new AdminMigrationPickDiff("monza", "DNF", "Alex", "DOO", "DOO", 5, 5, 0, "EXACT_MATCH", "No variance")
             ]);
 
         var apiMock = new Mock<IMigrationRunsApiService>();
@@ -246,6 +246,8 @@ public sealed class AdminMigrationRunsTests : BunitContext
         Assert.Contains("Pick Comparisons", cut.Markup);
         Assert.Contains("Unexpected: 3", cut.Markup);
         Assert.Contains("Question Diffs", cut.Markup);
+        Assert.DoesNotContain("CDP Tie-Break Parity", cut.Markup);
+        Assert.DoesNotContain("No CDP parity diagnostics available for this run.", cut.Markup);
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Overview", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Preseason", StringComparison.Ordinal));
         Assert.Contains(cut.FindAll("button.nav-link"), element => element.TextContent.Contains("Race Participants", StringComparison.Ordinal));
@@ -492,6 +494,7 @@ public sealed class AdminMigrationRunsTests : BunitContext
         apiMock.Verify(x => x.StartRunAsync(
             It.Is<AdminMigrationRunKickoffRequest>(request =>
                 request.SourceFilePath == "/tmp/import.csv" &&
+                request.SourceProfile == "phil-2025-csv" &&
                 request.Mode == "dry-run" &&
                 !request.ConfirmNonEmptyStrategy),
             It.IsAny<CancellationToken>()), Times.Once);

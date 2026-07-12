@@ -10,6 +10,6 @@ public sealed class MigrationImportCalculatedScoreEntity
     public string Subject { get; set; } = string.Empty;
     public string? PredictedValue { get; set; }
     public string? ActualValue { get; set; }
-    public int Points { get; set; }
+    public decimal Points { get; set; }
     public string ReasonCode { get; set; } = string.Empty;
 }
