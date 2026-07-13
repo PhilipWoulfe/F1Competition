@@ -140,6 +140,153 @@ public sealed class CompetitionLeaderboardServiceTests
     }
 
     [Fact]
+    public async Task GetLeaderboardAsync_WhenH2hScoresExist_IncludesThemInLeaderboardTotals()
+    {
+        var options = CreateOptions();
+        var runId = Guid.NewGuid();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.Competitions.Add(new F1.Core.Models.Competition
+            {
+                Id = 42,
+                Name = "Philip 2025",
+                Year = 2025,
+                Description = "Philip canonical competition"
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "aus-2025",
+                CompetitionId = 42,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+            {
+                Id = 500,
+                CompetitionId = 42,
+                Season = 2025,
+                QuestionId = "H2H-001",
+                Category = F1.Core.Models.QuestionCategory.H2H,
+                Prompt = "Who finishes ahead?",
+                Status = F1.Core.Models.QuestionTemplateStatus.Published,
+                SortOrder = 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "aus-2025",
+                RaceCode = "AUS",
+                PickType = "TOTAL",
+                ParticipantId = "Alice",
+                ImportedPoints = 20,
+                CalculatedPoints = 20,
+                OverrideScore = null,
+                OverrideReasonCode = null,
+                SourceRunId = runId,
+                DeltaPoints = 0,
+                ReasonCode = "RACE_TOTAL",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            dbContext.QuestionScores.Add(new QuestionScoreEntity
+            {
+                QuestionTemplateId = 500,
+                ParticipantId = "Alice",
+                ImportedPoints = 5,
+                CalculatedPoints = 5,
+                OverrideScore = null,
+                OverrideReasonCode = null,
+                OverrideSourceRunId = runId,
+                DeltaPoints = 0,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = CreateService(serviceContext);
+
+        var result = await service.GetLeaderboardAsync("philip", 2025, "active", isAdmin: false, CancellationToken.None);
+
+        Assert.True(result.IsDataAvailable);
+        Assert.Single(result.Items);
+        Assert.Equal("Alice", result.Items[0].ParticipantName);
+        Assert.Equal(25, result.Items[0].DisplayPoints);
+    }
+
+    [Fact]
+    public async Task GetLeaderboardAsync_WhenDavidContextConfiguredAndCompetitionStoredAsDave_ReturnsData()
+    {
+        var options = CreateOptions();
+        var runId = Guid.NewGuid();
+
+        await using (var dbContext = new F1DbContext(options))
+        {
+            dbContext.Competitions.Add(new F1.Core.Models.Competition
+            {
+                Id = 77,
+                Name = "Dave 2025",
+                Year = 2025,
+                Description = "Dave canonical competition"
+            });
+
+            dbContext.Races.Add(new F1.Core.Models.Race
+            {
+                Id = "dave-aus-2025",
+                CompetitionId = 77,
+                Season = 2025,
+                Round = 1,
+                RaceName = "Australian Grand Prix",
+                CircuitName = "albert_park",
+                StartTimeUtc = DateTime.UtcNow,
+                PreQualyDeadlineUtc = DateTime.UtcNow,
+                FinalDeadlineUtc = DateTime.UtcNow
+            });
+
+            dbContext.RacePickScores.Add(new RacePickScoreEntity
+            {
+                RaceId = "dave-aus-2025",
+                RaceCode = "AUS",
+                PickType = "TOTAL",
+                ParticipantId = "DavidJ",
+                ImportedPoints = 42,
+                CalculatedPoints = 40,
+                OverrideScore = 42,
+                OverrideReasonCode = "MIGRATION_IMPORTED_OVERRIDE",
+                SourceRunId = runId,
+                DeltaPoints = -2,
+                ReasonCode = "RACE_TOTAL",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var serviceContext = new F1DbContext(options);
+        var service = CreateService(serviceContext);
+
+        var result = await service.GetLeaderboardAsync("david", 2025, "active", isAdmin: false, CancellationToken.None);
+
+        Assert.True(result.IsDataAvailable);
+        Assert.False(result.IsComparisonAvailable);
+        Assert.Equal("recalculated", result.ScoreView);
+        Assert.Single(result.Items);
+        Assert.Equal("DavidJ", result.Items[0].ParticipantName);
+        Assert.Equal(40, result.Items[0].DisplayPoints);
+    }
+
+    [Fact]
     public async Task GetParticipantDetailAsync_ReturnsRacePreseasonAndH2hSections()
     {
         var options = CreateOptions();
@@ -283,6 +430,15 @@ public sealed class CompetitionLeaderboardServiceTests
                     SourceType = "MigrationRun",
                     ActiveScoreSource = "ImportedLegacy",
                     MigrationSourcePathContains = "phil-2025"
+                },
+                new CompetitionLeaderboardContextOption
+                {
+                    CompetitionSlug = "david",
+                    Season = 2025,
+                    DisplayName = "David 2025",
+                    SourceType = "MigrationRun",
+                    ActiveScoreSource = "ImportedLegacy",
+                    MigrationSourcePathContains = "dave-2025"
                 },
                 new CompetitionLeaderboardContextOption
                 {

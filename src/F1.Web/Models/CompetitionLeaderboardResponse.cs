@@ -17,6 +17,6 @@ public sealed record CompetitionLeaderboardResponse(
 public sealed record CompetitionLeaderboardEntry(
     int Position,
     string ParticipantName,
-    int DisplayPoints,
-    int ImportedPoints,
-    int RecalculatedPoints);
+    decimal DisplayPoints,
+    decimal ImportedPoints,
+    decimal RecalculatedPoints);

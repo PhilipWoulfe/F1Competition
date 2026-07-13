@@ -33,6 +33,8 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
 
         var normalizedCompetitionSlug = competitionSlug.Trim().ToLowerInvariant();
         var normalizedScoreView = NormalizeScoreView(scoreView);
+        var forceRecalculatedOnly = string.Equals(normalizedCompetitionSlug, "david", StringComparison.OrdinalIgnoreCase);
+        var requestedScoreView = forceRecalculatedOnly ? ViewRecalculated : normalizedScoreView;
         var context = ResolveContextOption(normalizedCompetitionSlug, season);
         var displayName = GetDisplayName(context, normalizedCompetitionSlug, season);
 
@@ -42,7 +44,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 normalizedCompetitionSlug,
                 season,
                 displayName,
-                normalizedScoreView,
+                requestedScoreView,
                 isAdmin,
                 context?.UnavailableMessage ?? "Leaderboard data is not available for this competition yet.");
         }
@@ -54,7 +56,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 normalizedCompetitionSlug,
                 season,
                 displayName,
-                normalizedScoreView,
+                requestedScoreView,
                 isAdmin,
                 "No canonical leaderboard data is available for this competition yet.");
         }
@@ -69,10 +71,10 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
                 (score, _) => score)
             .ToListAsync(cancellationToken);
 
-        var preseasonTotals = await dbContext.QuestionScores
+        var questionTotals = await dbContext.QuestionScores
             .AsNoTracking()
             .Join(
-                dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season && template.Category == QuestionCategory.Preseason),
+                dbContext.QuestionTemplates.AsNoTracking().Where(template => template.CompetitionId == competition.Id && template.Season == season),
                 score => score.QuestionTemplateId,
                 template => template.Id,
                 (score, _) => score)
@@ -83,35 +85,35 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             .ToDictionary(
                 group => group.Key,
                 group => new ScoreTotals(
-                    ImportedPoints: group.Sum(item => item.ImportedPoints ?? 0),
+                    ImportedPoints: group.Sum(item => (decimal)(item.ImportedPoints ?? 0)),
                     RecalculatedPoints: group.Sum(item => item.CalculatedPoints),
                     ActivePoints: group.Sum(item => item.OverrideScore ?? item.CalculatedPoints),
                     SourceRunId: group.Select(item => (Guid?)item.SourceRunId).OrderByDescending(item => item).FirstOrDefault()),
                 StringComparer.OrdinalIgnoreCase);
 
-        foreach (var preseasonRow in preseasonTotals)
+        foreach (var questionRow in questionTotals)
         {
-            if (combined.TryGetValue(preseasonRow.ParticipantId, out var existingTotals))
+            if (combined.TryGetValue(questionRow.ParticipantId, out var existingTotals))
             {
-                combined[preseasonRow.ParticipantId] = existingTotals with
+                combined[questionRow.ParticipantId] = existingTotals with
                 {
-                    ImportedPoints = existingTotals.ImportedPoints + (preseasonRow.ImportedPoints ?? 0),
-                    RecalculatedPoints = existingTotals.RecalculatedPoints + preseasonRow.CalculatedPoints,
-                    ActivePoints = existingTotals.ActivePoints + (preseasonRow.OverrideScore ?? preseasonRow.CalculatedPoints)
+                    ImportedPoints = existingTotals.ImportedPoints + (questionRow.ImportedPoints ?? 0),
+                    RecalculatedPoints = existingTotals.RecalculatedPoints + questionRow.CalculatedPoints,
+                    ActivePoints = existingTotals.ActivePoints + (questionRow.OverrideScore ?? questionRow.CalculatedPoints)
                 };
             }
             else
             {
-                combined[preseasonRow.ParticipantId] = new ScoreTotals(
-                    ImportedPoints: preseasonRow.ImportedPoints ?? 0,
-                    RecalculatedPoints: preseasonRow.CalculatedPoints,
-                    ActivePoints: preseasonRow.OverrideScore ?? preseasonRow.CalculatedPoints,
-                    SourceRunId: preseasonRow.OverrideSourceRunId);
+                combined[questionRow.ParticipantId] = new ScoreTotals(
+                    ImportedPoints: questionRow.ImportedPoints ?? 0,
+                    RecalculatedPoints: questionRow.CalculatedPoints,
+                    ActivePoints: questionRow.OverrideScore ?? questionRow.CalculatedPoints,
+                    SourceRunId: questionRow.OverrideSourceRunId);
             }
         }
 
-        var effectiveView = normalizedScoreView == ViewActive || isAdmin
-            ? normalizedScoreView
+        var effectiveView = forceRecalculatedOnly || requestedScoreView == ViewActive || isAdmin
+            ? requestedScoreView
             : ViewActive;
 
         var leaderboardItems = combined
@@ -136,7 +138,7 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             ScoreView: effectiveView,
             ScoreSourceLabel: scoreSourceLabel,
             ScoreSourceHelperText: scoreSourceHelperText,
-            IsComparisonAvailable: isAdmin,
+            IsComparisonAvailable: !forceRecalculatedOnly && isAdmin,
             IsDataAvailable: leaderboardItems.Length > 0,
             EmptyStateMessage: leaderboardItems.Length > 0 ? null : "No participant totals are available for this competition yet.",
             SourceRunId: combined.Values.Select(item => item.SourceRunId).OrderByDescending(item => item).FirstOrDefault(),
@@ -260,13 +262,13 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             Items: []);
     }
 
-    private static int ResolveDisplayPoints(ScoreTotals totals, string scoreView, string activeScoreSource)
+    private static decimal ResolveDisplayPoints(ScoreTotals totals, string scoreView, string activeScoreSource)
     {
         return scoreView switch
         {
             ViewImported => totals.ImportedPoints,
             ViewRecalculated => totals.RecalculatedPoints,
-            _ when string.Equals(activeScoreSource, ActiveScoreSourceImportedLegacy, StringComparison.OrdinalIgnoreCase) => totals.ActivePoints,
+            _ when string.Equals(activeScoreSource, ActiveScoreSourceImportedLegacy, StringComparison.OrdinalIgnoreCase) => totals.ImportedPoints,
             _ => totals.RecalculatedPoints
         };
     }
@@ -328,11 +330,36 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
 
     private async Task<Competition?> ResolveCompetitionAsync(string competitionDisplayName, int season, CancellationToken cancellationToken)
     {
-        return await dbContext.Competitions
+        var exactMatch = await dbContext.Competitions
             .AsNoTracking()
             .Where(item => item.Name == competitionDisplayName && item.Year == season)
             .OrderBy(item => item.Id)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (exactMatch is not null)
+        {
+            return exactMatch;
+        }
+
+        if (competitionDisplayName.Contains("David", StringComparison.OrdinalIgnoreCase))
+        {
+            return await dbContext.Competitions
+                .AsNoTracking()
+                .Where(item => item.Name == competitionDisplayName.Replace("David", "Dave", StringComparison.OrdinalIgnoreCase) && item.Year == season)
+                .OrderBy(item => item.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (competitionDisplayName.Contains("Dave", StringComparison.OrdinalIgnoreCase))
+        {
+            return await dbContext.Competitions
+                .AsNoTracking()
+                .Where(item => item.Name == competitionDisplayName.Replace("Dave", "David", StringComparison.OrdinalIgnoreCase) && item.Year == season)
+                .OrderBy(item => item.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return null;
     }
 
     private async Task<CompetitionParticipantDetailItemDto[]> BuildH2hItemsAsync(string competitionDisplayName, int season, string participantName, CancellationToken cancellationToken)
@@ -384,5 +411,5 @@ public sealed class CompetitionLeaderboardService(F1DbContext dbContext, IOption
             Items: items);
     }
 
-    private sealed record ScoreTotals(int ImportedPoints, int RecalculatedPoints, int ActivePoints, Guid? SourceRunId);
+    private sealed record ScoreTotals(decimal ImportedPoints, decimal RecalculatedPoints, decimal ActivePoints, Guid? SourceRunId);
 }

@@ -213,6 +213,7 @@ Competition leaderboard config:
 - `src/F1.Api/appsettings.json` contains the `CompetitionLeaderboard` section used by the standings endpoint.
 - Each context can be backed by a completed migration run or marked unavailable until a leaderboard source is approved.
 - For migration-backed contexts, `MigrationSourcePathContains` selects the latest completed run used for leaderboard totals.
+- The `david` 2025 context is migration-backed by default and resolves canonical competition naming drift between `David 2025` and `Dave 2025`.
 - Official leaderboard totals currently use imported legacy scores for approved migrated contexts; admins can request recalculated comparison mode from the API/UI.
 
 #### B. Data Sync Worker (`src/F1.DataSyncWorker/appsettings*.json`)

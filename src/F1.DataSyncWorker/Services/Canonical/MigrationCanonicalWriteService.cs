@@ -336,8 +336,8 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                             out var importedScore);
 
                         var importedPoints = importedScore?.LegacyPoints;
-                        var calculatedPoints = decimal.ToInt32(decimal.Round(score.Points, 0, MidpointRounding.AwayFromZero));
-                        int? overrideScore = importedPoints.HasValue && importedPoints.Value != calculatedPoints
+                        var calculatedPoints = score.Points;
+                        decimal? overrideScore = importedPoints.HasValue && importedPoints.Value != calculatedPoints
                             ? importedPoints.Value
                             : null;
 

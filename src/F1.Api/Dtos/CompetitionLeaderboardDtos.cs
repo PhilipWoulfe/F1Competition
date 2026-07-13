@@ -17,9 +17,9 @@ public sealed record CompetitionLeaderboardResponseDto(
 public sealed record CompetitionLeaderboardEntryDto(
     int Position,
     string ParticipantName,
-    int DisplayPoints,
-    int ImportedPoints,
-    int RecalculatedPoints);
+    decimal DisplayPoints,
+    decimal ImportedPoints,
+    decimal RecalculatedPoints);
 
 public sealed record CompetitionParticipantDetailResponseDto(
     string CompetitionSlug,
@@ -32,15 +32,15 @@ public sealed record CompetitionParticipantDetailResponseDto(
 
 public sealed record CompetitionParticipantSectionSummaryDto(
     string Title,
-    int ImportedTotalPoints,
-    int RecalculatedTotalPoints,
+    decimal ImportedTotalPoints,
+    decimal RecalculatedTotalPoints,
     IReadOnlyList<CompetitionParticipantDetailItemDto> Items);
 
 public sealed record CompetitionParticipantDetailItemDto(
     string Label,
     string Description,
-    int? ImportedPoints,
-    int CalculatedPoints,
-    int DeltaPoints,
+    decimal? ImportedPoints,
+    decimal CalculatedPoints,
+    decimal DeltaPoints,
     string? ReasonCode,
     string? Explanation);

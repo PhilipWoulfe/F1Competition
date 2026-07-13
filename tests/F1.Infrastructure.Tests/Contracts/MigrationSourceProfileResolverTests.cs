@@ -44,6 +44,16 @@ public sealed class MigrationSourceProfileResolverTests : IDisposable
         Assert.Equal(MigrationSourceProfile.Unknown, profile);
     }
 
+    [Fact]
+    public void Resolve_WhenDaveMarkerPathIsNonDirectory_ReturnsDaveProfile()
+    {
+        var syntheticPath = Path.Combine(_tempDirectory, "dave-2025-package", "Leaderboard.csv");
+
+        var profile = MigrationSourceProfileResolver.Resolve(syntheticPath);
+
+        Assert.Equal(MigrationSourceProfile.Dave2025Package, profile);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDirectory))

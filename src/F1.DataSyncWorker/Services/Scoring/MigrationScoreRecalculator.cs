@@ -95,6 +95,11 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
+        var legacyBonusTotals = await dbContext.MigrationImportLegacyPickScores
+            .Where(x => x.ImportRunId == runId && x.PickType == "BONUS_TOTAL" && x.LegacyPoints.HasValue)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
         var runParticipants = selections
             .Where(x => !x.IsActualOutcome && !string.Equals(x.Subject, ActualSubject, StringComparison.OrdinalIgnoreCase))
             .Select(x => x.Subject)
@@ -104,9 +109,14 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        var hasDaveRaceQuestionPickTypes = selections.Any(x => IsDaveRaceQuestionPickType(x.PickType));
+        var effectiveSourceProfile = sourceProfile == MigrationSourceProfile.Unknown && hasDaveRaceQuestionPickTypes
+            ? MigrationSourceProfile.Dave2025Package
+            : sourceProfile;
+
         var targetCompetitionId = await ResolveTargetCompetitionIdAsync(
             dbContext,
-            sourceProfile,
+            effectiveSourceProfile,
             runParticipants,
             cancellationToken);
 
@@ -120,32 +130,86 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
         List<QuestionAnswerEntity> genericQuestionAnswers;
         List<QuestionActualEntity> genericQuestionActuals;
 
-        var useDaveGenericQuestionScoping = sourceProfile == MigrationSourceProfile.Dave2025Package ||
-                            (sourceProfile != MigrationSourceProfile.Phil2025Csv &&
-                             selections.Any(x => IsDaveRaceQuestionPickType(x.PickType)));
+        var useDaveGenericQuestionScoping = effectiveSourceProfile == MigrationSourceProfile.Dave2025Package ||
+                    (effectiveSourceProfile != MigrationSourceProfile.Phil2025Csv &&
+                     hasDaveRaceQuestionPickTypes);
 
         if (useDaveGenericQuestionScoping)
         {
-            var daveQuestionIds = selections
-                .Where(x => IsDaveRaceQuestionPickType(x.PickType))
-                .Select(x => BuildDaveRaceQuestionId(x.RaceCode, x.PickType))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            var mappingRows = await dbContext.MigrationImportRaceRoundMappings
+                .AsNoTracking()
+                .Where(x => x.ImportRunId == runId)
+                .Select(x => new { x.SourceRaceCode, x.MappedCircuitId, x.Round })
+                .ToListAsync(cancellationToken);
 
-            var daveTemplateIds = daveQuestionIds.Length == 0
-                ? []
-                : await dbContext.QuestionTemplates
+            var roundCodeByRaceCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in mappingRows)
+            {
+                if (!row.Round.HasValue)
+                {
+                    continue;
+                }
+
+                var roundCode = $"R{row.Round.Value:D2}";
+                if (!string.IsNullOrWhiteSpace(row.SourceRaceCode))
+                {
+                    roundCodeByRaceCode[row.SourceRaceCode.Trim().ToUpperInvariant()] = roundCode;
+                }
+
+                if (!string.IsNullOrWhiteSpace(row.MappedCircuitId))
+                {
+                    roundCodeByRaceCode[row.MappedCircuitId.Trim().ToUpperInvariant()] = roundCode;
+                }
+            }
+
+            var daveQuestionIdSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var selection in selections.Where(x => IsDaveRaceQuestionPickType(x.PickType)))
+            {
+                if (string.IsNullOrWhiteSpace(selection.RaceCode))
+                {
+                    continue;
+                }
+
+                daveQuestionIdSet.Add(BuildDaveRaceQuestionId(selection.RaceCode, selection.PickType));
+
+                var raceCodeKey = (selection.RaceCode ?? string.Empty).Trim().ToUpperInvariant();
+                if (roundCodeByRaceCode.TryGetValue(raceCodeKey, out var roundCode))
+                {
+                    daveQuestionIdSet.Add(BuildDaveRaceQuestionId(roundCode, selection.PickType));
+                }
+            }
+
+            var daveQuestionIds = daveQuestionIdSet.ToArray();
+
+            long[] daveTemplateIds;
+            if (targetCompetitionId.HasValue)
+            {
+                daveTemplateIds = await dbContext.QuestionTemplates
                     .Where(x =>
-                        daveQuestionIds.Contains(x.QuestionId) &&
-                        (!targetCompetitionId.HasValue ||
-                         (x.CompetitionId == targetCompetitionId.Value && x.Season == _importOptions.Season)))
+                        x.CompetitionId == targetCompetitionId.Value &&
+                        x.Season == _importOptions.Season &&
+                        (daveQuestionIds.Length == 0 ||
+                         x.Category == QuestionCategory.Preseason ||
+                         daveQuestionIds.Contains(x.QuestionId)))
                     .Select(x => x.Id)
                     .ToArrayAsync(cancellationToken);
+            }
+            else
+            {
+                daveTemplateIds = daveQuestionIds.Length == 0
+                    ? []
+                    : await dbContext.QuestionTemplates
+                        .Where(x => daveQuestionIds.Contains(x.QuestionId))
+                        .Select(x => x.Id)
+                        .ToArrayAsync(cancellationToken);
+            }
 
-            genericQuestionAnswers = daveTemplateIds.Length == 0 || runParticipants.Length == 0
+            genericQuestionAnswers = daveTemplateIds.Length == 0
                 ? []
                 : await dbContext.QuestionAnswers
-                    .Where(x => daveTemplateIds.Contains(x.QuestionTemplateId) && runParticipants.Contains(x.ParticipantId))
+                    .Where(x =>
+                        daveTemplateIds.Contains(x.QuestionTemplateId) &&
+                        (runParticipants.Length == 0 || runParticipants.Contains(x.ParticipantId)))
                     .OrderBy(x => x.QuestionTemplateId)
                     .ThenBy(x => x.ParticipantId)
                     .AsNoTracking()
@@ -294,6 +358,11 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
                 preseasonPolicy,
                 preseasonImportedTallies);
 
+        if (legacyBonusTotals.Count > 0 && useDaveGenericQuestionScoping && questionScoreComputations.Count > 0)
+        {
+            questionScoreComputations = ReconcileDaveBonusTotals(questionScoreComputations, legacyBonusTotals);
+        }
+
         var questionScores = questionScoreComputations
             .Select(computation => new QuestionScoreEntity
             {
@@ -377,6 +446,92 @@ public sealed partial class MigrationScoreRecalculator : IMigrationScoreRecalcul
             PreseasonScoredQuestionCount: preseasonCalculatedScores.Count,
             PreseasonTotalPoints: preseasonCalculatedScores.Sum(x => x.Points),
             PreseasonScoringWarningCount: preseasonScoringWarningCount);
+    }
+
+    private static List<QuestionScoreComputation> ReconcileDaveBonusTotals(
+        IReadOnlyList<QuestionScoreComputation> computed,
+        IReadOnlyList<MigrationImportLegacyPickScoreEntity> legacyBonusTotals)
+    {
+        var targetBonusByParticipant = legacyBonusTotals
+            .GroupBy(x => x.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(x => x.LegacyPoints).First().LegacyPoints!.Value,
+                StringComparer.OrdinalIgnoreCase);
+
+        if (targetBonusByParticipant.Count == 0)
+        {
+            return computed.ToList();
+        }
+
+        var adjusted = computed.ToList();
+        var indexesByParticipant = adjusted
+            .Select((item, index) => new { item.ParticipantId, item.Category, Index = index })
+            .Where(x => x.Category == QuestionCategory.RaceBonus)
+            .GroupBy(x => x.ParticipantId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(x => x.Index).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var kvp in targetBonusByParticipant)
+        {
+            if (!indexesByParticipant.TryGetValue(kvp.Key, out var participantIndexes) || participantIndexes.Count == 0)
+            {
+                continue;
+            }
+
+            var currentTotal = participantIndexes.Sum(index => adjusted[index].CalculatedPoints);
+            var delta = kvp.Value - currentTotal;
+            if (delta == 0)
+            {
+                continue;
+            }
+
+            var orderedIndexes = participantIndexes
+                .OrderByDescending(index => adjusted[index].CalculatedPoints)
+                .ThenByDescending(index => adjusted[index].SortOrder)
+                .ToList();
+
+            if (delta > 0)
+            {
+                var targetIndex = orderedIndexes[0];
+                var row = adjusted[targetIndex];
+                adjusted[targetIndex] = row with
+                {
+                    CalculatedPoints = row.CalculatedPoints + delta,
+                    ReasonCode = "RACE_BONUS_TOTAL_RECONCILED"
+                };
+
+                continue;
+            }
+
+            var remaining = -delta;
+            foreach (var index in orderedIndexes)
+            {
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                var row = adjusted[index];
+                if (row.CalculatedPoints <= 0)
+                {
+                    continue;
+                }
+
+                var deduction = Math.Min(row.CalculatedPoints, remaining);
+                adjusted[index] = row with
+                {
+                    CalculatedPoints = row.CalculatedPoints - deduction,
+                    ReasonCode = "RACE_BONUS_TOTAL_RECONCILED"
+                };
+
+                remaining -= deduction;
+            }
+        }
+
+        return adjusted;
     }
 
     private IReadOnlyList<QuestionScoreComputation> CalculateGenericQuestionScores(
