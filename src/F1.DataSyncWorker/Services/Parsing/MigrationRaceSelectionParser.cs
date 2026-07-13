@@ -12,7 +12,6 @@ namespace F1.DataSyncWorker.Services;
 
 public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelectionParser
 {
-    private const string Philip2025CompetitionName = "Philip 2025";
     private const string SectionTypeRacePick = "RacePick";
     private const string SectionTypeSeasonQuestionPrediction = "SeasonQuestionPrediction";
     private const string SectionTypeHeader = "Header";
@@ -216,6 +215,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
             runId,
             stagedRows,
             preseasonParticipants,
+            sourceProfile,
             usePhil2025SequenceMapping,
             driverIdByCode,
             cancellationToken);
@@ -492,6 +492,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         var competitionId = await ResolveTargetCompetitionIdAsync(
             dbContext,
             participants,
+            MigrationSourceProfile.Dave2025Package,
             usePhil2025Contract: false,
             cancellationToken);
 
@@ -897,6 +898,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         Guid runId,
         IReadOnlyCollection<MigrationImportRawRowEntity> stagedRows,
         IReadOnlyList<string> participants,
+        MigrationSourceProfile sourceProfile,
         bool usePhil2025Contract,
         IReadOnlyDictionary<string, string> driverIdByCode,
         CancellationToken cancellationToken)
@@ -914,6 +916,7 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
         var competitionId = await ResolveTargetCompetitionIdAsync(
             dbContext,
             participants,
+            sourceProfile,
             usePhil2025Contract,
             cancellationToken);
 
@@ -1027,55 +1030,22 @@ public sealed partial class MigrationRaceSelectionParser : IMigrationRaceSelecti
     private async Task<int?> ResolveTargetCompetitionIdAsync(
         F1DbContext dbContext,
         IReadOnlyList<string> participants,
+        MigrationSourceProfile sourceProfile,
         bool usePhil2025Contract,
         CancellationToken cancellationToken)
     {
-        var competitions = await dbContext.Competitions
-            .Where(x => x.Year == _importOptions.Season)
-            .OrderBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name, x.Description })
-            .ToListAsync(cancellationToken);
+        var effectiveSourceProfile = usePhil2025Contract
+            ? MigrationSourceProfile.Phil2025Csv
+            : sourceProfile;
 
-        if (competitions.Count == 0)
-        {
-            return null;
-        }
+        var competition = await MigrationCompetitionScopeResolver.ResolveCompetitionAsync(
+            dbContext,
+            _importOptions.Season,
+            effectiveSourceProfile,
+            participants,
+            cancellationToken);
 
-        if (competitions.Count == 1)
-        {
-            return competitions[0].Id;
-        }
-
-        var shouldPreferPhilipCompetition = usePhil2025Contract ||
-            participants.Any(x => string.Equals(x, "Philip", StringComparison.OrdinalIgnoreCase));
-
-        if (shouldPreferPhilipCompetition)
-        {
-            var exactPhilipCompetition = competitions.FirstOrDefault(x =>
-                string.Equals(x.Name, Philip2025CompetitionName, StringComparison.OrdinalIgnoreCase));
-
-            if (exactPhilipCompetition is not null)
-            {
-                return exactPhilipCompetition.Id;
-            }
-
-            var philipCompetition = competitions.FirstOrDefault(x =>
-                x.Name.Contains("Philip", StringComparison.OrdinalIgnoreCase) ||
-                x.Name.Contains("Phil", StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrWhiteSpace(x.Description) &&
-                 (x.Description.Contains("Philip", StringComparison.OrdinalIgnoreCase) ||
-                  x.Description.Contains("Phil", StringComparison.OrdinalIgnoreCase))));
-
-            if (philipCompetition is not null)
-            {
-                return philipCompetition.Id;
-            }
-        }
-
-        var mainCompetition = competitions.FirstOrDefault(x =>
-            x.Name.Contains("Main", StringComparison.OrdinalIgnoreCase));
-
-        return (mainCompetition ?? competitions[0]).Id;
+        return competition?.Id;
     }
 
     private static async Task<Dictionary<string, long>> UpsertQuestionTemplatesAsync(

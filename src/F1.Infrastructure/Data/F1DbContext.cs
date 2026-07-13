@@ -131,6 +131,9 @@ public class F1DbContext : DbContext
             entity.Property(x => x.ParticipantId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.PredictedValue).HasMaxLength(256);
             entity.Property(x => x.ActualValue).HasMaxLength(256);
+            entity.Property(x => x.CalculatedPoints).HasColumnType("numeric(10,2)");
+            entity.Property(x => x.OverrideScore).HasColumnType("numeric(10,2)");
+            entity.Property(x => x.DeltaPoints).HasColumnType("numeric(10,2)");
             entity.Property(x => x.OverrideReasonCode).HasMaxLength(64);
             entity.Property(x => x.ReasonCode).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Explanation).HasMaxLength(1024);

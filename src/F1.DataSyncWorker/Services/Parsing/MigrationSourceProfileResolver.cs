@@ -4,6 +4,13 @@ namespace F1.DataSyncWorker.Services;
 
 public static class MigrationSourceProfileResolver
 {
+    private static readonly string[] DavePathMarkers =
+    [
+        "dave-2025",
+        "david-2025",
+        "dave2025"
+    ];
+
     public static MigrationSourceProfile Resolve(string sourcePath)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
@@ -25,6 +32,11 @@ public static class MigrationSourceProfileResolver
             {
                 return MigrationSourceProfile.Dave2025Package;
             }
+        }
+
+        if (DavePathMarkers.Any(marker => sourcePath.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+        {
+            return MigrationSourceProfile.Dave2025Package;
         }
 
         return MigrationSourceProfile.Unknown;

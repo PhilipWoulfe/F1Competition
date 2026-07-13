@@ -249,8 +249,6 @@ Test notes:
 - Add integration tests verifying extracted package kickoff parity with server-path kickoff (same checksum and duplicate conflict behavior).
 - Add UI tests for archive upload flow, validation errors, and successful kickoff confirmation.
 
-Completed above, uncompleted below
---------------------------
 
 ### Story D14: Add write-mode canonical handoff for second competition scope
 As an operator, I want canonical writes scoped to Dave competition so data from multiple competitions does not collide.
@@ -262,6 +260,9 @@ Acceptance criteria:
 
 Test notes:
 - Add integration tests on non-empty DB with both Phil and Dave competitions present.
+
+Completed above, uncompleted below
+--------------------------
 
 ### Story D15: Add rollback and replay safety for Dave runs
 As a platform maintainer, I want rollback/replay safety so incorrect Dave writes can be reverted without data loss.

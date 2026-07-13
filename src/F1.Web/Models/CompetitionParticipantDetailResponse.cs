@@ -11,15 +11,15 @@ public sealed record CompetitionParticipantDetailResponse(
 
 public sealed record CompetitionParticipantSectionSummary(
     string Title,
-    int ImportedTotalPoints,
-    int RecalculatedTotalPoints,
+    decimal ImportedTotalPoints,
+    decimal RecalculatedTotalPoints,
     IReadOnlyList<CompetitionParticipantDetailItem> Items);
 
 public sealed record CompetitionParticipantDetailItem(
     string Label,
     string Description,
-    int? ImportedPoints,
-    int CalculatedPoints,
-    int DeltaPoints,
+    decimal? ImportedPoints,
+    decimal CalculatedPoints,
+    decimal DeltaPoints,
     string? ReasonCode,
     string? Explanation);

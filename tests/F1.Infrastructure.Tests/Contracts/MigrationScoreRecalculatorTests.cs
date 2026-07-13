@@ -1,8 +1,10 @@
 using F1.DataSyncWorker.Services;
+using F1.DataSyncWorker.Options;
 using F1.Core.Models;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace F1.Infrastructure.Tests.Contracts;
 
@@ -50,7 +52,14 @@ public sealed class MigrationScoreRecalculatorTests
 
         await dbContext.SaveChangesAsync();
 
-        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var recalculator = new MigrationScoreRecalculator(
+            new TestDbContextFactory(options),
+            new QuestionScoringStrategyRegistry([
+                new PreseasonQuestionScoringStrategy(),
+                new H2hQuestionScoringStrategy(),
+                new RaceBonusQuestionScoringStrategy()
+            ]),
+            Options.Create(new MigrationImportOptions { Season = 2025 }));
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var preseasonScores = await dbContext.MigrationImportPreseasonCalculatedScores
@@ -129,7 +138,14 @@ public sealed class MigrationScoreRecalculatorTests
         var parser = new MigrationRaceSelectionParser(new TestDbContextFactory(options));
         await parser.ParseAndPersistAsync(runId, CancellationToken.None);
 
-        var recalculator = new MigrationScoreRecalculator(new TestDbContextFactory(options));
+        var recalculator = new MigrationScoreRecalculator(
+            new TestDbContextFactory(options),
+            new QuestionScoringStrategyRegistry([
+                new PreseasonQuestionScoringStrategy(),
+                new H2hQuestionScoringStrategy(),
+                new RaceBonusQuestionScoringStrategy()
+            ]),
+            Options.Create(new MigrationImportOptions { Season = 2025 }));
         await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
 
         var daveScore = await dbContext.MigrationImportPreseasonCalculatedScores
@@ -882,6 +898,243 @@ public sealed class MigrationScoreRecalculatorTests
             .ToListAsync();
 
         Assert.Empty(preseasonScores);
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenDaveRunHasDavePreseasonTemplate_IncludesPreseasonQuestionScores()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.Competitions.AddRange(
+            new Competition { Id = 1, Name = "Philip 2025", Year = 2025, Description = "Philip scope" },
+            new Competition { Id = 2, Name = "Dave 2025", Year = 2025, Description = "Dave scope" });
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025-package",
+            SourceFileChecksum = "abc",
+            IsDryRun = true,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportPreseasonPolicies.Add(new MigrationImportPreseasonPolicyEntity
+        {
+            ImportRunId = runId,
+            RowNumber = 0,
+            ColumnIndex = 0,
+            CellReference = "DaveDefault",
+            RawPointsPerQuestion = "30",
+            PointsPerQuestion = 30
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 10, "R01", "H2H", "ColmF", "VER"),
+            Selection(runId, 11, "R01", "H2H", "ACTUAL", "VER", isActual: true));
+
+        dbContext.QuestionTemplates.AddRange(
+            new QuestionTemplateEntity
+            {
+                Id = 601,
+                CompetitionId = 2,
+                Season = 2025,
+                QuestionId = "H2H-R01",
+                Category = QuestionCategory.H2H,
+                Prompt = "R01 H2H",
+                OptionsJson = "{\"LeftDriverId\":\"VER\",\"RightDriverId\":\"HAM\",\"PointsForCorrectPick\":5}",
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = 11,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new QuestionTemplateEntity
+            {
+                Id = 602,
+                CompetitionId = 2,
+                Season = 2025,
+                QuestionId = "PRE-001",
+                Category = QuestionCategory.Preseason,
+                Prompt = "Will X happen?",
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = 1,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new QuestionTemplateEntity
+            {
+                Id = 603,
+                CompetitionId = 1,
+                Season = 2025,
+                QuestionId = "PRE-002",
+                Category = QuestionCategory.Preseason,
+                Prompt = "Foreign preseason question",
+                Status = QuestionTemplateStatus.Published,
+                SortOrder = 2,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionAnswers.AddRange(
+            new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 601,
+                ParticipantId = "ColmF",
+                ImportedAnswer = "VER",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 602,
+                ParticipantId = "ColmF",
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionAnswerEntity
+            {
+                QuestionTemplateId = 603,
+                ParticipantId = "Andy",
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        dbContext.QuestionActuals.AddRange(
+            new QuestionActualEntity
+            {
+                QuestionTemplateId = 601,
+                ImportedAnswer = "VER",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionActualEntity
+            {
+                QuestionTemplateId = 602,
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            },
+            new QuestionActualEntity
+            {
+                QuestionTemplateId = 603,
+                ImportedAnswer = "YES",
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(
+            new TestDbContextFactory(options),
+            new QuestionScoringStrategyRegistry([
+                new PreseasonQuestionScoringStrategy(),
+                new H2hQuestionScoringStrategy(),
+                new RaceBonusQuestionScoringStrategy()
+            ]),
+            Options.Create(new MigrationImportOptions { Season = 2025 }));
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var questionScores = await dbContext.QuestionScores
+            .OrderBy(x => x.QuestionTemplateId)
+            .ThenBy(x => x.ParticipantId)
+            .ToListAsync();
+
+        Assert.Equal(2, questionScores.Count);
+        Assert.Contains(questionScores, x => x.QuestionTemplateId == 601 && x.ParticipantId == "ColmF" && x.CalculatedPoints == 5);
+        Assert.Contains(questionScores, x => x.QuestionTemplateId == 602 && x.ParticipantId == "ColmF" && x.CalculatedPoints == 30);
+        Assert.DoesNotContain(questionScores, x => x.ParticipantId == "Andy");
+
+        var preseasonScores = await dbContext.MigrationImportPreseasonCalculatedScores
+            .Where(x => x.ImportRunId == runId)
+            .ToListAsync();
+
+        Assert.Single(preseasonScores);
+        Assert.Equal("ColmF", preseasonScores[0].Subject);
+        Assert.Equal("PRE-001", preseasonScores[0].QuestionKey);
+        Assert.Equal(30, preseasonScores[0].Points);
+        Assert.Equal("PRESEASON_EXACT", preseasonScores[0].ReasonCode);
+    }
+
+    [Fact]
+    public async Task RecalculateAndPersistAsync_WhenDaveSelectionsUseMappedCircuitRaceCodes_ResolvesRoundQuestionTemplates()
+    {
+        var runId = Guid.NewGuid();
+        var options = CreateOptions();
+        await using var dbContext = new F1DbContext(options);
+
+        dbContext.Competitions.AddRange(
+            new Competition { Id = 1, Name = "Main Competition", Year = 2025, Description = "Main scope" },
+            new Competition { Id = 3, Name = "David 2025", Year = 2025, Description = "Dave scope" });
+
+        dbContext.MigrationImportRuns.Add(new MigrationImportRunEntity
+        {
+            Id = runId,
+            SourceFilePath = "/tmp/dave-2025-package",
+            SourceFileChecksum = "abc",
+            IsDryRun = false,
+            Status = "Started",
+            StartedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.MigrationImportRaceRoundMappings.Add(new MigrationImportRaceRoundMappingEntity
+        {
+            ImportRunId = runId,
+            RaceSequence = 1,
+            SourceRowNumber = 1,
+            SourceRaceCode = "R01",
+            Season = 2025,
+            Round = 1,
+            MappedCircuitId = "albert_park",
+            MappedRaceName = "Australian Grand Prix"
+        });
+
+        dbContext.MigrationImportRaceSelections.AddRange(
+            Selection(runId, 10, "albert_park", "BQ1", "StevenR", "YES"),
+            Selection(runId, 11, "albert_park", "BQ1", "ACTUAL", "YES", isActual: true));
+
+        dbContext.QuestionTemplates.Add(new QuestionTemplateEntity
+        {
+            Id = 701,
+            CompetitionId = 3,
+            Season = 2025,
+            QuestionId = "RB-R01-BQ1",
+            Category = QuestionCategory.RaceBonus,
+            Prompt = "R01 BQ1",
+            OptionsJson = "{\"Mode\":\"Exact\",\"PointsForCorrectPick\":20}",
+            Status = QuestionTemplateStatus.Published,
+            SortOrder = 11,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionAnswers.Add(new QuestionAnswerEntity
+        {
+            QuestionTemplateId = 701,
+            ParticipantId = "StevenR",
+            ImportedAnswer = "YES",
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        dbContext.QuestionActuals.Add(new QuestionActualEntity
+        {
+            QuestionTemplateId = 701,
+            ImportedAnswer = "YES",
+            RecordedAtUtc = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var recalculator = new MigrationScoreRecalculator(
+            new TestDbContextFactory(options),
+            new QuestionScoringStrategyRegistry([
+                new PreseasonQuestionScoringStrategy(),
+                new H2hQuestionScoringStrategy(),
+                new RaceBonusQuestionScoringStrategy()
+            ]),
+            Options.Create(new MigrationImportOptions { Season = 2025 }));
+
+        await recalculator.RecalculateAndPersistAsync(runId, CancellationToken.None);
+
+        var score = await dbContext.QuestionScores.SingleAsync(x => x.QuestionTemplateId == 701 && x.ParticipantId == "StevenR");
+        Assert.Equal(20, score.CalculatedPoints);
     }
 
     [Fact]

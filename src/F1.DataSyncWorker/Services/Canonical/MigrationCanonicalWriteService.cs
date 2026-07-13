@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using F1.Core.Models;
+using F1.DataSyncWorker.Models;
 using F1.DataSyncWorker.Options;
 using F1.Infrastructure.Data;
 using F1.Infrastructure.Data.Entities;
@@ -82,26 +83,19 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
         try
         {
             var normalizedConflictPolicy = NormalizeConflictPolicy(_importOptions.CanonicalConflictPolicy);
-            var competition = await dbContext.Competitions
-                .Where(x => x.Year == _importOptions.Season)
-                .OrderBy(x => x.Name == "Philip 2025" ? 0 : 1)
-                .ThenBy(x => x.Name.Contains("Philip") ? 0 : 1)
-                .ThenBy(x => x.Name.StartsWith("Migration Import") ? 1 : 0)
-                .ThenBy(x => x.Id)
-                .FirstOrDefaultAsync(cancellationToken);
+            var sourceProfile = MigrationSourceProfileResolver.Resolve(run.SourceFilePath);
+            var runParticipants = selections
+                .Select(x => x.Subject)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-            if (competition is null)
-            {
-                competition = new Competition
-                {
-                    Name = $"Migration Import {_importOptions.Season}",
-                    Year = _importOptions.Season,
-                    Description = "Auto-created by migration canonical writer"
-                };
-
-                dbContext.Competitions.Add(competition);
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
+            var competition = await MigrationCompetitionScopeResolver.ResolveOrCreateCompetitionAsync(
+                dbContext,
+                _importOptions.Season,
+                sourceProfile,
+                runParticipants,
+                cancellationToken);
 
             var raceCodes = selections
                 .Select(x => x.RaceCode)
@@ -128,19 +122,32 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                 .GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(x => x.Key, x => x.First().Race, StringComparer.OrdinalIgnoreCase);
 
-            var mappedRoundByRaceCode = await dbContext.MigrationImportRaceRoundMappings
+            var roundMappings = await dbContext.MigrationImportRaceRoundMappings
                 .AsNoTracking()
                 .Where(x =>
                     x.ImportRunId == runId &&
-                    x.Round.HasValue &&
-                    !string.IsNullOrWhiteSpace(x.MappedCircuitId))
-                .GroupBy(x => x.MappedCircuitId!)
-                .Select(group => new
+                    x.Round.HasValue)
+                .Select(x => new
                 {
-                    RaceCode = group.Key,
-                    Round = group.Min(item => item.Round!.Value)
+                    x.SourceRaceCode,
+                    x.MappedCircuitId,
+                    Round = x.Round!.Value
                 })
-                .ToDictionaryAsync(x => x.RaceCode, x => x.Round, StringComparer.OrdinalIgnoreCase, cancellationToken);
+                .ToListAsync(cancellationToken);
+
+            var mappedRoundByRaceCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mapping in roundMappings)
+            {
+                if (!string.IsNullOrWhiteSpace(mapping.SourceRaceCode) && !mappedRoundByRaceCode.ContainsKey(mapping.SourceRaceCode))
+                {
+                    mappedRoundByRaceCode[mapping.SourceRaceCode] = mapping.Round;
+                }
+
+                if (!string.IsNullOrWhiteSpace(mapping.MappedCircuitId) && !mappedRoundByRaceCode.ContainsKey(mapping.MappedCircuitId))
+                {
+                    mappedRoundByRaceCode[mapping.MappedCircuitId] = mapping.Round;
+                }
+            }
 
             var raceIdByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var unresolvedRaceCodes = new List<string>();
@@ -248,8 +255,8 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                     ImportRunId = runId,
                     EntityType = "Selection",
                     ConflictType = "existing_active_selection",
-                    KeyFields = BuildSelectionKey(scope.RaceId, scope.Subject),
-                    SourceReference = $"row:{scope.SourceRowNumber}|race:{scope.RaceCode}|subject:{scope.Subject}",
+                    KeyFields = $"competitionId:{competition.Id}|competition:{competition.Name}|{BuildSelectionKey(scope.RaceId, scope.Subject)}",
+                    SourceReference = $"competitionId:{competition.Id}|competition:{competition.Name}|row:{scope.SourceRowNumber}|race:{scope.RaceCode}|subject:{scope.Subject}",
                     PolicyOutcome = ResolvePolicyOutcome(normalizedConflictPolicy),
                     RecommendedAction = ResolveRecommendedAction(normalizedConflictPolicy),
                     CreatedAtUtc = DateTime.UtcNow
@@ -271,7 +278,7 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
 
             var skippedSelectionKeys = conflictDiagnostics
                 .Where(x => string.Equals(x.PolicyOutcome, "Skipped", StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.KeyFields)
+                .Select(x => ExtractSelectionKey(x.KeyFields))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             var calculatedPickScores = await dbContext.MigrationImportCalculatedScores
@@ -329,8 +336,8 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
                             out var importedScore);
 
                         var importedPoints = importedScore?.LegacyPoints;
-                        var calculatedPoints = decimal.ToInt32(decimal.Round(score.Points, 0, MidpointRounding.AwayFromZero));
-                        int? overrideScore = importedPoints.HasValue && importedPoints.Value != calculatedPoints
+                        var calculatedPoints = score.Points;
+                        decimal? overrideScore = importedPoints.HasValue && importedPoints.Value != calculatedPoints
                             ? importedPoints.Value
                             : null;
 
@@ -515,6 +522,19 @@ public sealed partial class MigrationCanonicalWriteService : IMigrationCanonical
     private static string BuildSelectionKey(string raceId, string subject)
     {
         return $"raceId:{raceId}|subject:{subject}";
+    }
+
+    private static string ExtractSelectionKey(string keyFields)
+    {
+        if (string.IsNullOrWhiteSpace(keyFields))
+        {
+            return string.Empty;
+        }
+
+        var markerIndex = keyFields.IndexOf("raceId:", StringComparison.OrdinalIgnoreCase);
+        return markerIndex >= 0
+            ? keyFields[markerIndex..]
+            : keyFields;
     }
 
     private async Task PersistConflictDiagnosticsAsync(
